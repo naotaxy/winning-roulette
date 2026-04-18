@@ -472,13 +472,13 @@ function renderStats() {
         <div id="ocr-status" class="ocr-status">解析中…</div>
       </div>
       <div id="ocr-result-form" style="display:none" class="ocr-result-form">
-        <div class="ocr-teams">
+        <div class="ocr-teams" id="ocr-teams-div">
           <div class="ocr-team-col">
             <div class="ocr-label">AWAY</div>
             <select id="ocr-away" class="ocr-select"></select>
             <input type="number" id="ocr-away-score" class="ocr-score-input" min="0" max="99" placeholder="点">
           </div>
-          <div class="ocr-vs">VS</div>
+          <div class="ocr-vs">VS<button class="btn-swap-sides" id="btn-swap-sides" title="左右を画像に合わせて入れ替え">🔄</button></div>
           <div class="ocr-team-col">
             <div class="ocr-label">HOME</div>
             <select id="ocr-home" class="ocr-select"></select>
@@ -581,13 +581,15 @@ function renderStats() {
         barFill.style.width = pct + '%';
         status.textContent  = `OCR解析中… ${pct}%`;
       });
-      /* 前回の値をリセット（スコア・PK・プレイヤー選択） */
+      /* 前回の値をリセット（スコア・PK・プレイヤー選択・左右） */
       document.getElementById('ocr-away').value = '';
       document.getElementById('ocr-home').value = '';
       document.getElementById('pk-check').checked = false;
       document.getElementById('pk-inputs').style.display = 'none';
       document.getElementById('ocr-away-pk').value = '';
       document.getElementById('ocr-home-pk').value = '';
+      document.getElementById('ocr-teams-div').classList.remove('reversed');
+      document.getElementById('pk-inputs').classList.remove('reversed');
       const awayLabel = result.awayChar ? result.awayChar.playerName : '（未検出）';
       const homeLabel = result.homeChar ? result.homeChar.playerName : '（未検出）';
       const scoreDisp = (result.awayScore !== null && result.homeScore !== null)
@@ -625,6 +627,11 @@ function renderStats() {
         document.getElementById('ocr-away-pk').value = result.awayPK;
         document.getElementById('ocr-home-pk').value = result.homePK;
       }
+      /* 画像に合わせてAWAY/HOMEの左右位置を揃える */
+      if (d.leftIsHome) {
+        document.getElementById('ocr-teams-div').classList.add('reversed');
+        document.getElementById('pk-inputs').classList.add('reversed');
+      }
     } catch (err) {
       status.textContent = `❌ 解析失敗: ${err.message}`;
     }
@@ -653,6 +660,10 @@ function renderStats() {
 
   document.getElementById('pk-check')?.addEventListener('change', e => {
     document.getElementById('pk-inputs').style.display = e.target.checked ? 'flex' : 'none';
+  });
+  document.getElementById('btn-swap-sides')?.addEventListener('click', () => {
+    document.getElementById('ocr-teams-div').classList.toggle('reversed');
+    document.getElementById('pk-inputs').classList.toggle('reversed');
   });
   document.getElementById('ocr-cancel-btn')?.addEventListener('click', () => {
     document.getElementById('ocr-result-form').style.display = 'none';
