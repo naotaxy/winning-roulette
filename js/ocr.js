@@ -40,51 +40,221 @@ const OCR = (() => {
     return canvas;
   }
 
+  /* ── スコア・PK用前処理: 白数字×暗背景 → 黒数字×白背景 ── */
+  function preprocessForScorePK(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = imageData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      const val = lum > 150 ? 0 : 255;
+      d[i] = d[i + 1] = d[i + 2] = val;
+      d[i + 3] = 255;
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  /* ── チーム名用前処理: 高閾値で純白文字のみ抽出
+     閾値200で純白テキスト(lum>200)と暗い輪郭/背景(lum<200)を明確に分離。
+     threshold=128/160 は輪郭ピクセルを白文字と混同して文字形状を破壊するため廃止。 ── */
+  function preprocessForTeamName(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = imageData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      const val = lum > 200 ? 0 : 255;
+      d[i] = d[i + 1] = d[i + 2] = val;
+      d[i + 3] = 255;
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  /* ── テキスト正規化（全角半角統一・空白除去・記号吸収） ── */
+  function normalizeText(str) {
+    if (!str) return '';
+    return str
+      .normalize('NFKC')
+      .replace(/[？?]/g, '')          // ? を両側で除去（LOVE BEER? 対応）
+      .replace(/[・．。、\-_]/g, '')
+      .replace(/\s+/g, '')
+      .toLowerCase();
+  }
+
+  /* ── Levenshtein 編集距離 ── */
+  function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    if (m === 0) return n;
+    if (n === 0) return m;
+    const dp = [];
+    for (let i = 0; i <= m; i++) {
+      dp[i] = [i];
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = i === 0 ? j
+          : a[i-1] === b[j-1]
+            ? dp[i-1][j-1]
+            : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+      }
+    }
+    return dp[m][n];
+  }
+
+  /* ── スライディングウィンドウ部分一致（prefix/suffix 欠落に対応） ── */
+  function partialRatio(shorter, longer) {
+    if (shorter.length > longer.length) return partialRatio(longer, shorter);
+    if (shorter.length === 0) return 0;
+    let best = 0;
+    for (let i = 0; i <= longer.length - shorter.length; i++) {
+      const window = longer.slice(i, i + shorter.length);
+      const dist = levenshtein(shorter, window);
+      const sim = 1 - dist / shorter.length;
+      if (sim > best) best = sim;
+    }
+    return best;
+  }
+
+  function ngrams(str, n) {
+    const s = new Set();
+    for (let i = 0; i <= str.length - n; i++) s.add(str.slice(i, i + n));
+    return s;
+  }
+
+  /* ── チーム名マッチング
+     ①完全包含 → ②スライディング部分一致 → ③Levenshtein → ④bigram Jaccard
+     閾値0.45（OCRノイズが大きいため低め設定） ── */
+  function matchTeamName(ocrText, playerMap) {
+    if (!ocrText || !playerMap) return null;
+    const normalized = normalizeText(ocrText);
+    if (normalized.length < 2) return null;
+
+    const THRESHOLD = 0.45;
+    let best = null, bestScore = 0;
+
+    for (const [charName, playerName] of Object.entries(playerMap)) {
+      const charNorm = normalizeText(charName);
+      if (!charNorm) continue;
+      const minLen = Math.min(normalized.length, charNorm.length);
+      const maxLen = Math.max(normalized.length, charNorm.length);
+      let score = 0;
+
+      /* ① 完全包含一致 */
+      if (minLen >= 2 && (normalized.includes(charNorm) || charNorm.includes(normalized))) {
+        score = 0.95;
+      }
+
+      /* ② スライディングウィンドウ部分一致（先頭・末尾欠落をカバー） */
+      if (score < 0.70 && minLen >= 2) {
+        const pr = partialRatio(charNorm, normalized);
+        if (pr * 0.90 > score) score = pr * 0.90;
+      }
+
+      /* ③ Levenshtein（1文字違い: ソ→ン, D→0 等をカバー） */
+      if (score < 0.70 && minLen >= 2) {
+        const dist = levenshtein(normalized, charNorm);
+        const maxAllowed = Math.max(1, Math.floor(maxLen * 0.35));
+        if (dist <= maxAllowed) {
+          const sim = 1 - dist / maxLen;
+          if (sim > score) score = sim;
+        }
+      }
+
+      /* ④ bigram Jaccard（フォールバック） */
+      if (score === 0 && minLen >= 3) {
+        const ngA = ngrams(normalized, 2);
+        const ngB = ngrams(charNorm, 2);
+        if (ngA.size > 0 && ngB.size > 0) {
+          let intersection = 0;
+          for (const g of ngA) if (ngB.has(g)) intersection++;
+          const union = ngA.size + ngB.size - intersection;
+          score = union > 0 ? intersection / union : 0;
+        }
+      }
+
+      if (score > bestScore && score >= THRESHOLD) {
+        bestScore = score;
+        best = { charName, playerName, score: Math.round(score * 100) / 100 };
+      }
+    }
+    return best;
+  }
+
   /* ── スコアとチーム名を解析 ── */
   async function parseMatchResult(imgFile, playerMap, onProgress) {
     const blobUrl = URL.createObjectURL(imgFile);
     const imgEl   = await loadImage(blobUrl);
+    const worker  = await ensureWorker(onProgress);
 
-    const worker = await ensureWorker(onProgress);
-
-    /* ── 領域1: メインスコア（中央）— 上下左右に余裕を持たせて広めに取得 ── */
-    const scoreCanvas = cropImage(imgEl, 0.360, 0.240, 0.280, 0.100, 3);
+    /* ── 領域1: メインスコア（中央・前処理あり） ── */
+    const scoreCanvas = cropImage(imgEl, 0.20, 0.19, 0.60, 0.36, 3);
+    preprocessForScorePK(scoreCanvas);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
+    const scoreMatch  = scoreText.match(/(\d+)\s*[-－]\s*(\d+)/);
+    const leftScore   = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
+    const rightScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
 
-    const scoreMatch = scoreText.match(/(\d+)\s*[-－]\s*(\d+)/);
-    const awayScore  = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
-    const homeScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
-
-    /* ── 領域2: PKスコア（スコア下）— 広めに取得 ── */
-    const pkCanvas = cropImage(imgEl, 0.340, 0.315, 0.320, 0.070, 3);
+    /* ── 領域2: PKスコア（中央帯・前処理あり・点差あれば無効化） ── */
+    const pkCanvas = cropImage(imgEl, 0.24, 0.34, 0.52, 0.22, 3);
+    preprocessForScorePK(pkCanvas);
     const pkResult = await worker.recognize(pkCanvas);
     const pkText   = pkResult.data.text;
+    const pkMatch  = pkText.match(/(\d+)\s*PK\s*(\d+)/i);
+    let leftPK  = pkMatch ? parseInt(pkMatch[1], 10) : null;
+    let rightPK = pkMatch ? parseInt(pkMatch[2], 10) : null;
+    if (leftScore !== null && rightScore !== null && leftScore !== rightScore) {
+      leftPK = null; rightPK = null;
+    }
 
-    const pkMatch = pkText.match(/(\d+)\s*PK\s*(\d+)/i);
-    const awayPK  = pkMatch ? parseInt(pkMatch[1], 10) : null;
-    const homePK  = pkMatch ? parseInt(pkMatch[2], 10) : null;
+    /* ── 領域3: 左バッジ（HOME / AWAY 判定） ── */
+    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.12, 0.42, 0.32, 2);
+    const leftBadgeResult = await worker.recognize(leftBadgeCanvas);
+    const leftBadgeText   = leftBadgeResult.data.text.toUpperCase().replace(/\s/g, '');
+    const leftIsHome      = leftBadgeText.includes('HOME');
 
-    /* ── 領域3: AWAYプレイヤー名（左）— 広めに取得 ── */
-    const awayCanvas = cropImage(imgEl, 0.080, 0.340, 0.360, 0.065, 3);
-    const awayResult = await worker.recognize(awayCanvas);
-    const awayRaw    = awayResult.data.text.trim().replace(/\n/g, ' ');
+    /* ── 領域4/5: チーム名
+       scale=2（4は過拡大）、h=0.07（余裕あり）、PSM 7（単一テキスト行）
+       前処理: 閾値200で純白文字のみ抽出 ── */
+    await worker.setParameters({ tessedit_pageseg_mode: '7' });
 
-    /* ── 領域4: HOMEプレイヤー名（右）— 広めに取得 ── */
-    const homeCanvas = cropImage(imgEl, 0.560, 0.340, 0.380, 0.065, 3);
-    const homeResult = await worker.recognize(homeCanvas);
-    const homeRaw    = homeResult.data.text.trim().replace(/\n/g, ' ');
+    const leftNameCanvas = cropImage(imgEl, 0.12, 0.350, 0.32, 0.07, 2);
+    preprocessForTeamName(leftNameCanvas);
+    const leftNameResult = await worker.recognize(leftNameCanvas);
+    const leftTeamRaw    = leftNameResult.data.text.trim().replace(/\n/g, ' ');
+
+    const rightNameCanvas = cropImage(imgEl, 0.58, 0.350, 0.32, 0.07, 2);
+    preprocessForTeamName(rightNameCanvas);
+    const rightNameResult = await worker.recognize(rightNameCanvas);
+    const rightTeamRaw    = rightNameResult.data.text.trim().replace(/\n/g, ' ');
+
+    await worker.setParameters({ tessedit_pageseg_mode: '3' });
 
     URL.revokeObjectURL(blobUrl);
 
-    const awayChar = matchCharName(awayRaw, playerMap);
-    const homeChar = matchCharName(homeRaw, playerMap);
+    let leftTeamMatch  = matchTeamName(leftTeamRaw, playerMap);
+    let rightTeamMatch = matchTeamName(rightTeamRaw, playerMap);
+
+    /* 同一プレイヤー重複 → 両方 null */
+    if (leftTeamMatch && rightTeamMatch &&
+        leftTeamMatch.playerName === rightTeamMatch.playerName) {
+      leftTeamMatch = null; rightTeamMatch = null;
+    }
 
     console.log('[OCR]', {
-      awayScore, homeScore, awayPK, homePK,
-      awayRaw, homeRaw, awayChar, homeChar,
-      scoreRaw: scoreText.trim(),
+      leftScore, rightScore, leftPK, rightPK,
+      leftBadgeText, leftIsHome,
+      leftTeamRaw, rightTeamRaw,
+      leftTeamMatch, rightTeamMatch,
     });
+
+    /* HOME/AWAY を左右から割り当て */
+    const homeScore = leftIsHome ? leftScore  : rightScore;
+    const awayScore = leftIsHome ? rightScore : leftScore;
+    const homePK    = leftIsHome ? leftPK     : rightPK;
+    const awayPK    = leftIsHome ? rightPK    : leftPK;
+    const homeChar  = leftIsHome ? leftTeamMatch  : rightTeamMatch;
+    const awayChar  = leftIsHome ? rightTeamMatch : leftTeamMatch;
+    const homeRaw   = leftIsHome ? leftTeamRaw    : rightTeamRaw;
+    const awayRaw   = leftIsHome ? rightTeamRaw   : leftTeamRaw;
 
     return {
       awayScore, homeScore,
@@ -95,43 +265,8 @@ const OCR = (() => {
     };
   }
 
-  /* ── OCRテキストとキャラクター名を照合 ── */
   function matchCharName(ocrText, playerMap) {
-    if (!ocrText || !playerMap) return null;
-    const normalized = ocrText.replace(/\s+/g, '').toLowerCase();
-
-    let best = null, bestScore = 0;
-    for (const [charName, playerName] of Object.entries(playerMap)) {
-      const charNorm = charName.replace(/\s+/g, '').toLowerCase();
-      const score    = similarity(normalized, charNorm);
-      if (score > bestScore && score > 0.35) {
-        bestScore = score;
-        best = { charName, playerName, score };
-      }
-    }
-    return best;
-  }
-
-  /* ── 文字列類似度（Jaccard + 部分一致ボーナス） ── */
-  function similarity(a, b) {
-    if (!a || !b) return 0;
-    if (a.includes(b) || b.includes(a)) return 0.85;
-
-    /* N-gram (bigram) による Jaccard 係数 */
-    const ngA = ngrams(a, 2);
-    const ngB = ngrams(b, 2);
-    if (ngA.size === 0 || ngB.size === 0) return 0;
-
-    let intersection = 0;
-    for (const g of ngA) if (ngB.has(g)) intersection++;
-    const union = ngA.size + ngB.size - intersection;
-    return union > 0 ? intersection / union : 0;
-  }
-
-  function ngrams(str, n) {
-    const s = new Set();
-    for (let i = 0; i <= str.length - n; i++) s.add(str.slice(i, i + n));
-    return s;
+    return matchTeamName(ocrText, playerMap);
   }
 
   function loadImage(url) {
