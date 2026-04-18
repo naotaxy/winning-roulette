@@ -590,15 +590,19 @@ function renderStats() {
         ? `${result.awayScore}-${result.homeScore}` : '未検出';
       status.innerHTML = `解析完了 スコア:${scoreDisp} AWAY:${awayLabel} HOME:${homeLabel}`
         + `<br><small style="opacity:.7">L:「${result.awayRaw}」R:「${result.homeRaw}」スコア生:「${result.scoreRaw}」</small>`;
-      SYNC.saveOcrLog({
-        ts: new Date().toISOString(),
-        fileName: file.name,
-        scoreRaw: result.scoreRaw,
-        awayScore: result.awayScore, homeScore: result.homeScore,
-        awayPK: result.awayPK,       homePK: result.homePK,
-        awayRaw: result.awayRaw,     homeRaw: result.homeRaw,
-        awayPlayer: awayLabel,       homePlayer: homeLabel,
-      }).catch(() => {});
+      try {
+        if (typeof firebase !== 'undefined' && firebase.apps.length) {
+          firebase.database().ref('ocr_logs').push({
+            ts: new Date().toISOString(),
+            fileName: file.name,
+            scoreRaw: result.scoreRaw,
+            awayScore: result.awayScore, homeScore: result.homeScore,
+            awayPK: result.awayPK,       homePK: result.homePK,
+            awayRaw: result.awayRaw,     homeRaw: result.homeRaw,
+            awayPlayer: awayLabel,       homePlayer: homeLabel,
+          }).catch(() => {});
+        }
+      } catch(e) {}
       document.getElementById('ocr-result-form').style.display = 'block';
       if (result.awayChar) _setSelect('ocr-away', result.awayChar.playerName);
       if (result.homeChar) _setSelect('ocr-home', result.homeChar.playerName);

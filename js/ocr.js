@@ -187,7 +187,12 @@ const OCR = (() => {
     preprocessForScorePK(scoreCanvas);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
-    const scoreMatch  = scoreText.match(/\b(\d{1,2})\b\s*[-－—–−]\s*\b(\d{1,2})\b/);
+    let scoreMatch = null;
+    for (const line of scoreText.split('\n')) {
+      scoreMatch = line.match(/\b(\d{1,2})\b\s*[-－—–−―]\s*\b(\d{1,2})\b/)
+                || line.match(/\b(\d)\s{1,4}(\d)\b/);
+      if (scoreMatch) break;
+    }
     const leftScore   = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
     const rightScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
 
