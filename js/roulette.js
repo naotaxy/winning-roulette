@@ -224,7 +224,7 @@ const ROULETTE = (() => {
       cancelAnimationFrame(_raf);
     }
 
-    return { start, capture, stop, get value() { return _value; } };
+    return { start, capture, stop };
   })();
 
   /* ══════════════════════════════════════════════
@@ -344,13 +344,14 @@ const ROULETTE = (() => {
     containerEl.appendChild(canvas);
     draw(canvas, items, colors, 0, -1);
 
-    return {
+    const wheel = {
       canvas, state, GAUGE,
       spin:     (exclude, onDone, power) => spin(state, canvas, items, colors, exclude, onDone, power),
       redraw:   (hilite = -1) => draw(canvas, items, colors, state.rot, hilite),
       resetRot: () => { state.rot = 0; },
       get spinning() { return state.spinning; },
     };
+    return wheel;
   }
 
   return { create, PALETTE_12, PALETTE_6, GAUGE };
