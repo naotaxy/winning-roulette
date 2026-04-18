@@ -228,10 +228,10 @@ const ROULETTE = (() => {
   })();
 
   /* ══════════════════════════════════════════════
-     スピン（物理ベース減速）
-     ① 等速高速回転フェーズ
-     ② 指数減衰フェーズ（v = v0 * e^{-k*t}）
-     ③ スプリング整定フェーズ（微小振動→収束）
+     スピン（正弦イーズアウト）
+     ・ゆっくりスタート → なめらかに停止
+     ・1 回転 + 目標角度補正
+     ・2.5〜4 秒
   ══════════════════════════════════════════════ */
   function spin(state, canvas, items, colors, exclude, onDone, power) {
     if (state.spinning) return;
@@ -252,60 +252,23 @@ const ROULETTE = (() => {
     const tgtNorm  = ((tgtAngle  % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
     const diff     = (tgtNorm - curNorm + 2*Math.PI) % (2*Math.PI);
 
-    /* パワーで回転数決定 (3〜9) */
-    const rotations = 3 + Math.floor((pw / 100) * 6);
-    const totalDelta = rotations * 2 * Math.PI + diff;
+    /* 1 回転 + 差分 */
+    const totalDelta = 2 * Math.PI + diff;
     const finalRot   = state.rot + totalDelta;
 
-    /* ─ アニメーションフェーズ定義 ─
-       Phase A [0, tA]  : 等速（高速）
-       Phase B [tA, tB] : 指数減衰 v = vA * e^{-k*(t-tA)}
-       Phase C [tB, tC] : スプリング整定
-    */
-    const totalMs = 20000 + (pw / 100) * 12000;  /* 20〜32秒 */
-    const tA  = totalMs * 0.04;   /* 等速フェーズ */
-    const tB  = totalMs * 0.40;   /* 指数減衰フェーズ終了 */
-    const tC  = totalMs;          /* イーズアウト収束フェーズ終了（60%をゆっくり減速に） */
-
-    const rotA       = totalDelta * 0.08;
-    const vA         = rotA / (tA / 1000);
-    const rotB_total = totalDelta * 0.60;
-    const tB_s       = (tB - tA) / 1000;
-    const k          = 1.2 / tB_s;   /* Phase B 終了時に約 70% 速度消費（緩やか） */
-
-    let _rotB_end = null;  /* Phase B→C 接続点（動的に記録） */
-
-    const t0 = performance.now();
+    /* 2.5〜4 秒 */
+    const totalMs  = 2500 + (pw / 100) * 1500;
+    const startRot = state.rot;
+    const t0       = performance.now();
 
     function frame(now) {
       const elapsed = now - t0;
-      let rot;
+      const prog    = Math.min(elapsed / totalMs, 1);
+      /* 正弦イーズアウト: sin(prog * π/2) → 最初はゆっくり、終わりに向かってなめらかに停止 */
+      const ease    = Math.sin(prog * Math.PI / 2);
+      state.rot     = startRot + totalDelta * ease;
 
-      if (elapsed < tA) {
-        /* ─ Phase A: 等速 ─ */
-        const p = elapsed / (tA / 1000) / 1000;
-        rot = state.rot + vA * (elapsed / 1000);
-
-      } else if (elapsed < tB) {
-        /* ─ Phase B: 指数減衰 ─ */
-        const t  = (elapsed - tA) / 1000;
-        const dθ = (vA / k) * (1 - Math.exp(-k * t));
-        rot = state.rot + rotA + dθ;
-        _rotB_end = rot;  /* 接続点を随時更新 */
-
-      } else {
-        /* ─ Phase C: 超スローイーズアウト収束 ─
-           quintic ease-out: f(t) = 1 - (1-t)^5
-           Phase B 終了点から finalRot へなめらかに減速
-        */
-        if (_rotB_end === null) _rotB_end = finalRot;
-        const prog  = Math.min((elapsed - tB) / (tC - tB), 1);
-        const ease  = 1 - Math.pow(1 - prog, 8);
-        rot = _rotB_end + (finalRot - _rotB_end) * ease;
-      }
-
-      state.rot = rot;
-      const done = elapsed >= tC;
+      const done = prog >= 1;
       draw(canvas, items, colors, state.rot, done ? tgt : -1);
 
       if (!done) {
