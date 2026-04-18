@@ -182,19 +182,17 @@ const OCR = (() => {
     const imgEl   = await loadImage(blobUrl);
     const worker  = await ensureWorker(onProgress);
 
-    /* ── 領域1: スコア（PSM6・前処理あり・y=14〜34%） ── */
-    await worker.setParameters({ tessedit_pageseg_mode: '6' });
-    const scoreCanvas = cropImage(imgEl, 0.20, 0.14, 0.60, 0.20, 3);
+    /* ── 領域1: スコア（y=14〜24%・ゴールタイムスタンプを除外） ── */
+    const scoreCanvas = cropImage(imgEl, 0.20, 0.14, 0.60, 0.10, 3);
     preprocessForScorePK(scoreCanvas);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
-    const scoreMatch  = scoreText.match(/(\d{1,2})\s*[-－—–]\s*(\d{1,2})/)
-                     || scoreText.match(/(\d{1,2})\s{2,}(\d{1,2})/);
+    const scoreMatch  = scoreText.match(/\b(\d{1,2})\b\s*[-－—–−]\s*\b(\d{1,2})\b/);
     const leftScore   = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
     const rightScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
 
-    /* ── 領域2: PKスコア（PSM6・前処理あり・y=22〜34%） ── */
-    const pkCanvas = cropImage(imgEl, 0.24, 0.22, 0.52, 0.12, 3);
+    /* ── 領域2: PKスコア（y=22〜33%） ── */
+    const pkCanvas = cropImage(imgEl, 0.24, 0.22, 0.52, 0.11, 3);
     preprocessForScorePK(pkCanvas);
     const pkResult = await worker.recognize(pkCanvas);
     const pkText   = pkResult.data.text;
@@ -204,7 +202,6 @@ const OCR = (() => {
     if (leftScore !== null && rightScore !== null && leftScore !== rightScore) {
       leftPK = null; rightPK = null;
     }
-    await worker.setParameters({ tessedit_pageseg_mode: '3' });
 
     /* ── 領域3: 左バッジ（HOME / AWAY 判定・5〜17%） ── */
     const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.05, 0.44, 0.12, 2);
@@ -212,7 +209,7 @@ const OCR = (() => {
     const leftBadgeText   = leftBadgeResult.data.text.toUpperCase().replace(/\s/g, '');
     const leftIsHome      = leftBadgeText.includes('HOME');
 
-    /* ── 領域4/5: チーム名（前処理なし・PSM 11・y=24〜34%の細帯） ── */
+    /* ── 領域4/5: チーム名（前処理なし・PSM 11・y=24〜34%） ── */
     await worker.setParameters({ tessedit_pageseg_mode: '11' });
 
     const leftNameCanvas = cropImage(imgEl, 0.03, 0.24, 0.43, 0.10, 2);
@@ -236,12 +233,20 @@ const OCR = (() => {
       leftTeamMatch = null; rightTeamMatch = null;
     }
 
-    console.log('[OCR]', {
-      leftScore, rightScore, leftPK, rightPK,
+    const _log = {
+      ts: new Date().toISOString(),
+      scoreRaw: scoreText.trim(), leftScore, rightScore,
+      pkRaw: pkText.trim(), leftPK, rightPK,
       leftBadgeText, leftIsHome,
       leftTeamRaw, rightTeamRaw,
-      leftTeamMatch, rightTeamMatch,
-    });
+      leftMatch: leftTeamMatch, rightMatch: rightTeamMatch,
+    };
+    console.log('[OCR]', _log);
+    try {
+      const logs = JSON.parse(localStorage.getItem('ocr_debug') || '[]');
+      logs.unshift(_log);
+      localStorage.setItem('ocr_debug', JSON.stringify(logs.slice(0, 20)));
+    } catch(e) {}
 
     /* HOME/AWAY を左右から割り当て */
     const homeScore = leftIsHome ? leftScore  : rightScore;

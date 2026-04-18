@@ -586,7 +586,11 @@ function renderStats() {
       document.getElementById('ocr-home').value = '';
       const awayLabel = result.awayChar ? result.awayChar.playerName : '（未検出）';
       const homeLabel = result.homeChar ? result.homeChar.playerName : '（未検出）';
-      status.textContent = `解析完了 AWAY:${awayLabel} HOME:${homeLabel} / OCR生→L:「${result.awayRaw}」R:「${result.homeRaw}」`;
+      const scoreDisp = (result.awayScore !== null && result.homeScore !== null)
+        ? `${result.awayScore}-${result.homeScore}` : '未検出';
+      status.innerHTML = `解析完了 スコア:${scoreDisp} AWAY:${awayLabel} HOME:${homeLabel}`
+        + `<br><small style="opacity:.7">生テキスト L:「${result.awayRaw}」R:「${result.homeRaw}」</small>`
+        + `<br><small style="opacity:.5">スコア生:「${result.scoreRaw}」</small>`;
       document.getElementById('ocr-result-form').style.display = 'block';
       if (result.awayChar) _setSelect('ocr-away', result.awayChar.playerName);
       if (result.homeChar) _setSelect('ocr-home', result.homeChar.playerName);
