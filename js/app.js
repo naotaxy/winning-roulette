@@ -645,10 +645,15 @@ function _loadStatsData() {
   if (st)    st.textContent    = `${y}年${m}月の順位表`;
   if (!SYNC) return;
   SYNC.watchResults(y, m, results => {
+    /* 古いリスナーが別の月を上書きしないようガード */
+    if (STATE.statsYear !== y || STATE.statsMonth !== m) return;
     _renderResultsList(results);
     _renderStandings(results);
   });
-  SYNC.watchAnnualResults(y, allMonths => _renderAnnualStandings(allMonths));
+  SYNC.watchAnnualResults(y, allMonths => {
+    if (STATE.statsYear !== y) return;
+    _renderAnnualStandings(allMonths);
+  });
 }
 
 function _setSelect(id, value) {
@@ -662,9 +667,8 @@ function _setSelect(id, value) {
 function _renderResultsList(results) {
   const el = document.getElementById('results-list');
   if (!el) return;
-  const now   = new Date();
-  const year  = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const year  = STATE.statsYear;
+  const month = STATE.statsMonth;
   const entries = Object.entries(results || {}).sort((a,b) => (b[1].date||'').localeCompare(a[1].date||''));
   if (!entries.length) { el.innerHTML = '<div class="history-empty">まだ結果がありません</div>'; return; }
 
@@ -1092,11 +1096,9 @@ async function boot() {
     /* アバターURL監視・自分のアバターを保存 */
     SYNC.watchPlayerAvatars(avatars => {
       STATE.playerAvatars = avatars || {};
-      /* 集計タブが開いていれば順位表を再描画してアバターを反映 */
-      if (document.getElementById('panel-stats')?.classList.contains('active')) {
-        if (STATE._lastMonthResults != null) _renderStandings(STATE._lastMonthResults);
-        if (STATE._lastAnnualMonths  != null) _renderAnnualStandings(STATE._lastAnnualMonths);
-      }
+      /* 順位表を常に再描画してアバターを反映 */
+      if (STATE._lastMonthResults != null) _renderStandings(STATE._lastMonthResults);
+      if (STATE._lastAnnualMonths  != null) _renderAnnualStandings(STATE._lastAnnualMonths);
     });
     if (STATE.userName && STATE.avatarUrl) {
       /* lineId または name で照合してプレイヤー名キーで保存 */

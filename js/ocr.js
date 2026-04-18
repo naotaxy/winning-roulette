@@ -54,16 +54,15 @@ const OCR = (() => {
     ctx.putImageData(imageData, 0, 0);
   }
 
-  /* ── チーム名用前処理: グレースケール化 + ソフト二値化
-     チーム名は白文字×黒縁×暗背景。強すぎる二値化は文字が潰れるため
-     閾値を160に設定し、白文字(lum>160)→黒文字、それ以外→白背景とする ── */
+  /* ── チーム名用前処理: 白文字→黒文字の閾値反転
+     白文字(lum>128)→黒、暗背景→白。Tesseract は黒文字×白背景が最適 ── */
   function preprocessForTeamName(canvas) {
     const ctx = canvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const d = imageData.data;
     for (let i = 0; i < d.length; i += 4) {
       const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-      const val = lum > 160 ? 0 : 255;
+      const val = lum > 128 ? 0 : 255;
       d[i] = d[i + 1] = d[i + 2] = val;
       d[i + 3] = 255;
     }
@@ -86,7 +85,7 @@ const OCR = (() => {
   function matchTeamName(ocrText, playerMap) {
     if (!ocrText || !playerMap) return null;
     const normalized = normalizeText(ocrText);
-    if (normalized.length < 3) return null;
+    if (normalized.length < 2) return null;
 
     let best = null, bestScore = 0;
 
@@ -124,8 +123,8 @@ const OCR = (() => {
         }
       }
 
-      /* 閾値 0.78 未満は採用しない */
-      if (score > bestScore && score >= 0.78) {
+      /* 閾値 0.65 未満は採用しない */
+      if (score > bestScore && score >= 0.65) {
         bestScore = score;
         best = { charName, playerName, score };
       }
@@ -184,6 +183,9 @@ const OCR = (() => {
          720×1496: (107,546)-(296,594) → x=14.9〜41.1%, y=36.5〜39.7%
          870×1882: (130,687)-(358,747) → x=14.9〜41.1%, y=36.5〜39.7%
        安全マージン付き: x=12%, y=35.5%, w=32%, h=5.5% ── */
+    /* PSM 7 = 単一テキスト行モード（チーム名帯は1行なので精度向上） */
+    await worker.setParameters({ tessedit_pageseg_mode: '7' });
+
     const leftNameCanvas = cropImage(imgEl, 0.12, 0.355, 0.32, 0.055, 4);
     preprocessForTeamName(leftNameCanvas);
     const leftNameResult = await worker.recognize(leftNameCanvas);
@@ -196,6 +198,9 @@ const OCR = (() => {
     preprocessForTeamName(rightNameCanvas);
     const rightNameResult = await worker.recognize(rightNameCanvas);
     const rightTeamRaw    = rightNameResult.data.text.trim().replace(/\n/g, ' ');
+
+    /* PSM をデフォルト（自動）に戻す */
+    await worker.setParameters({ tessedit_pageseg_mode: '3' });
 
     URL.revokeObjectURL(blobUrl);
 
