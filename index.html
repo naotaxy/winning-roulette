@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#07091a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>ウイコレ ルール決め</title>
+
+  <!-- LINE LIFF SDK -->
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+  <!-- App styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ── Header ── -->
+  <header class="app-header">
+    <div class="header-brand">
+      <span class="header-title">WINNING ROULETTE</span>
+      <span class="header-sub">ウイコレ ルール決め</span>
+    </div>
+
+    <!-- Name / LIFF profile -->
+    <div class="header-profile" id="profile-bar">
+      <img class="profile-avatar" id="profile-avatar"
+           src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Crect width='28' height='28' rx='14' fill='%23d4af3740'/%3E%3Ctext x='14' y='19' text-anchor='middle' font-size='14' fill='%23d4af37'%3E👤%3C/text%3E%3C/svg%3E"
+           alt="avatar">
+      <input type="text" id="name-input" placeholder="表示名" maxlength="20">
+    </div>
+
+    <button class="btn-help" id="btn-help" title="使い方">?</button>
+  </header>
+
+  <!-- ── LIFF setup notice ── -->
+  <div class="liff-notice" id="liff-notice" style="margin:8px 14px 0;">
+    💡 <b>LIFF ID未設定</b> — js/liff.js を編集してLIFF IDを設定するとLINE連携が有効になります。
+    <a href="#" onclick="document.getElementById('help-modal').classList.add('open');return false;" style="color:var(--cyan)">設定手順 →</a>
+  </div>
+
+  <!-- ── Game tab ── -->
+  <div id="panel-game" class="tab-panel active"></div>
+
+  <!-- ── History tab ── -->
+  <div id="panel-history" class="tab-panel"></div>
+
+  <!-- ── Settings tab ── -->
+  <div id="panel-settings" class="tab-panel"></div>
+
+</div><!-- /app -->
+
+<!-- ── Bottom navigation ── -->
+<nav class="bottom-nav">
+  <button class="nav-btn active" data-tab="game">
+    <span class="nav-icon">⚽</span>ゲーム
+  </button>
+  <button class="nav-btn" data-tab="history">
+    <span class="nav-icon">📜</span>履歴
+  </button>
+  <button class="nav-btn" data-tab="settings">
+    <span class="nav-icon">⚙️</span>設定
+  </button>
+</nav>
+
+<!-- ── Help modal (bottom sheet) ── -->
+<div class="modal-backdrop" id="help-modal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h2>❓ ヘルプ &amp; 使い方</h2>
+      <button class="btn-modal-close" id="btn-modal-close">✕</button>
+    </div>
+    <div id="help-body"></div>
+  </div>
+</div>
+
+<!-- ── Toast ── -->
+<div class="toast" id="toast"></div>
+
+<!-- ── Scripts ── -->
+<script src="js/roulette.js"></script>
+<script src="js/liff.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>
