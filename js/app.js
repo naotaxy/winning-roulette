@@ -32,18 +32,19 @@ const DEFAULT_PLAYERS = [
 
 /* ── アプリ状態 ── */
 const STATE = {
-  items12:    [...DEFAULT_12],
-  items6:     [...DEFAULT_6],
-  players:    DEFAULT_PLAYERS.map(p => ({ ...p })),
-  phase:      1,
-  round1:     [],
-  round2:     null,
-  wheel:      null,
-  userName:   '',
-  avatarUrl:  null,
-  gaugeVal:   50,
-  isSpinner:  false,   /* 自分がルーレットを回す敗者か */
-  sessionId:  null,
+  items12:       [...DEFAULT_12],
+  items6:        [...DEFAULT_6],
+  players:       DEFAULT_PLAYERS.map(p => ({ ...p })),
+  phase:         1,
+  round1:        [],
+  round2:        null,
+  wheel:         null,
+  userName:      '',
+  avatarUrl:     null,
+  gaugeVal:      50,
+  isSpinner:     false,
+  sessionId:     null,
+  playerAvatars: {},   /* playerName → avatarUrl */
 };
 
 /* ── Toast ── */
@@ -193,7 +194,8 @@ async function onSpin() {
     } else {
       STATE.round2 = idx;
       const entry  = buildEntry();
-      addLegacyHistory(entry);
+      if (SYNC) SYNC.saveSpinHistory(entry);
+      else addLegacyHistory(entry);
       setTimeout(() => {
         STATE.phase = 3;
         if (SYNC) SYNC.finishSpin();
@@ -347,20 +349,38 @@ function renderCalendar() {
           <div class="cal-month-num">${m}月</div>
           <div class="cal-badge">${isRestrict(m) ? '🔒 縛り' : '🆓 フリー'}</div>
           <div class="cal-rule-text" id="cal-rule-${m}">読み込み中…</div>
+          <div class="cal-rule-meta" id="cal-meta-${m}"></div>
+          <button class="btn-cal-del" id="cal-del-${m}" style="display:none">🗑️ 削除</button>
         </div>`;
       }).join('')}
     </div>`;
 
-  /* Firebase からルールを取得 */
   if (SYNC) {
     SYNC.watchMonthlyRules(rules => {
       const yr = rules[year] || {};
       MONTH_NAMES.forEach((_, i) => {
-        const m   = i + 1;
-        const el  = document.getElementById(`cal-rule-${m}`);
-        if (!el) return;
-        const r   = yr[m];
-        el.textContent = r ? r.rule : (isRestrict(m) ? '未決定' : '縛りなし');
+        const m      = i + 1;
+        const textEl = document.getElementById(`cal-rule-${m}`);
+        const metaEl = document.getElementById(`cal-meta-${m}`);
+        const delBtn = document.getElementById(`cal-del-${m}`);
+        if (!textEl) return;
+        const r = yr[m];
+        if (r) {
+          textEl.textContent = r.rule;
+          if (metaEl) metaEl.textContent = `設定: ${r.decidedBy || ''}`;
+          if (delBtn) {
+            delBtn.style.display = 'block';
+            delBtn.onclick = async () => {
+              if (!confirm(`${m}月のルールを削除しますか？`)) return;
+              await SYNC.deleteMonthlyRule(year, m, STATE.userName || '不明');
+              toast(`🗑️ ${m}月のルールを削除しました（by ${STATE.userName || '不明'}）`);
+            };
+          }
+        } else {
+          textEl.textContent = isRestrict(m) ? '未決定' : '縛りなし';
+          if (metaEl) metaEl.textContent = '';
+          if (delBtn) delBtn.style.display = 'none';
+        }
       });
     });
   }
@@ -438,8 +458,14 @@ function renderStats() {
 
     <!-- 順位表 -->
     <div class="standings-wrap">
-      <div class="stats-section-title">順位表</div>
+      <div class="stats-section-title">今月の順位表</div>
       <div id="standings-table">読み込み中…</div>
+    </div>
+
+    <!-- 年間総合順位表 -->
+    <div class="standings-wrap">
+      <div class="stats-section-title">📆 ${year}年 年間総合順位</div>
+      <div id="annual-standings">読み込み中…</div>
     </div>
   `;
 
@@ -531,10 +557,15 @@ function renderStats() {
     document.getElementById('ocr-preview-wrap').style.display = 'none';
   });
 
-  /* ── 結果一覧 ── */
+  /* ── 結果一覧（当月） ── */
   SYNC.watchResults(year, month, results => {
     _renderResultsList(results);
     _renderStandings(results);
+  });
+
+  /* ── 年間総合 ── */
+  SYNC.watchAnnualResults(year, allMonths => {
+    _renderAnnualStandings(allMonths);
   });
 }
 
@@ -623,22 +654,106 @@ function _renderStandings(results) {
   /* リーグ順位ボーナス付与 */
   sorted.forEach(([, s], i) => { s.rankBonus = RANK_BONUS[i] ?? 0; });
 
+  const avatarCell = name => {
+    const url = STATE.playerAvatars[name];
+    return url
+      ? `<img src="${url}" class="standings-avatar" alt="">`
+      : `<span class="standings-avatar-ph">👤</span>`;
+  };
+
   el.innerHTML = `
     <table class="standings">
       <thead>
         <tr>
-          <th>#</th><th>選手</th><th>勝</th><th>PK勝</th><th>分</th><th>敗</th>
+          <th>#</th><th></th><th>選手</th><th>勝</th><th>PK</th><th>分</th><th>敗</th>
           <th>試合Pt</th><th>順位Pt</th><th>合計</th>
         </tr>
       </thead>
       <tbody>
         ${sorted.map(([name, s], i) => `
           <tr class="${i===0?'rank-gold':i===1?'rank-silver':i===2?'rank-bronze':''}">
-            <td>${i+1}</td><td>${name}</td>
+            <td>${i+1}</td>
+            <td>${avatarCell(name)}</td>
+            <td>${name}</td>
             <td>${s.w}</td><td>${s.pkw}</td><td>${s.d}</td><td>${s.l}</td>
             <td>${matchPt(s)}</td>
             <td>${s.rankBonus}</td>
             <td><b>${matchPt(s) + s.rankBonus}</b></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+/* ── 年間総合順位表 ── */
+function _calcMonthlyStats(monthResults) {
+  const stats = {};
+  STATE.players.forEach(p => { stats[p.name] = { w:0, pkw:0, d:0, l:0, gf:0, ga:0 }; });
+  Object.values(monthResults || {}).forEach(r => {
+    const a = stats[r.away]; const h = stats[r.home];
+    if (!a || !h) return;
+    a.gf += r.awayScore; a.ga += r.homeScore;
+    h.gf += r.homeScore; h.ga += r.awayScore;
+    const hasPK = r.awayPK != null && r.homePK != null;
+    if      (r.awayScore > r.homeScore)  { a.w++;   h.l++; }
+    else if (r.awayScore < r.homeScore)  { h.w++;   a.l++; }
+    else if (hasPK) {
+      if (r.awayPK > r.homePK) { a.pkw++; h.l++; }
+      else                      { h.pkw++; a.l++; }
+    } else { a.d++; h.d++; }
+  });
+  return stats;
+}
+
+function _renderAnnualStandings(allMonths) {
+  const el = document.getElementById('annual-standings');
+  if (!el) return;
+
+  /* 月ごとに順位ボーナスを計算して合算 */
+  const annual = {};
+  STATE.players.forEach(p => { annual[p.name] = { matchPt: 0, rankPt: 0, months: 0 }; });
+
+  const matchPt = s => s.w * 3 + s.pkw;
+
+  Object.entries(allMonths).forEach(([, monthResults]) => {
+    if (!monthResults || !Object.keys(monthResults).length) return;
+    const stats = _calcMonthlyStats(monthResults);
+    const active = Object.entries(stats).filter(([, s]) => s.w + s.pkw + s.d + s.l > 0);
+    if (!active.length) return;
+    const sorted = active.sort((a,b) => matchPt(b[1]) - matchPt(a[1]) || (b[1].gf-b[1].ga)-(a[1].gf-a[1].ga));
+    sorted.forEach(([name, s], i) => {
+      if (!annual[name]) return;
+      annual[name].matchPt += matchPt(s);
+      annual[name].rankPt  += RANK_BONUS[i] ?? 0;
+      annual[name].months++;
+    });
+  });
+
+  const sorted = Object.entries(annual)
+    .filter(([, a]) => a.months > 0)
+    .sort((a,b) => (b[1].matchPt + b[1].rankPt) - (a[1].matchPt + a[1].rankPt));
+
+  if (!sorted.length) { el.innerHTML = '<div class="history-empty">まだデータがありません</div>'; return; }
+
+  const avatarCell = name => {
+    const url = STATE.playerAvatars[name];
+    return url ? `<img src="${url}" class="standings-avatar" alt="">` : `<span class="standings-avatar-ph">👤</span>`;
+  };
+
+  el.innerHTML = `
+    <table class="standings">
+      <thead>
+        <tr><th>#</th><th></th><th>選手</th><th>参加月</th><th>試合Pt</th><th>順位Pt</th><th>合計</th></tr>
+      </thead>
+      <tbody>
+        ${sorted.map(([name, a], i) => `
+          <tr class="${i===0?'rank-gold':i===1?'rank-silver':i===2?'rank-bronze':''}">
+            <td>${i+1}</td>
+            <td>${avatarCell(name)}</td>
+            <td>${name}</td>
+            <td>${a.months}月</td>
+            <td>${a.matchPt}</td>
+            <td>${a.rankPt}</td>
+            <td><b>${a.matchPt + a.rankPt}</b></td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -654,42 +769,44 @@ function toDateStr(d) {
 function renderHistory() {
   const panel = document.getElementById('panel-history');
   if (!panel) return;
-  const hist = SYNC?.getLegacyHistory() || [];
 
   panel.innerHTML = `
     <div class="history-toolbar">
       <h2>📜 スピン履歴</h2>
-      ${hist.length ? '<button class="btn-danger-sm" id="btn-clear">全削除</button>' : ''}
     </div>
-    ${hist.length === 0
-      ? '<div class="history-empty">まだ履歴がありません</div>'
-      : hist.map(h => {
-          const dt = new Date(h.timestamp);
-          const ts = `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
-          const av = h.avatarUrl
-            ? `<img class="hist-avatar" src="${h.avatarUrl}" alt="">`
-            : `<div class="hist-avatar" style="display:flex;align-items:center;justify-content:center;font-size:0.8em;">👤</div>`;
-          return `<div class="hist-item">
-            <div class="hist-meta">
-              <div class="hist-who">${av}<span class="hist-name">${h.name}</span></div>
-              <span class="hist-time">${ts}</span>
-            </div>
-            <div class="hist-results">
-              <span class="hchip r1">⚡ ${h.round1[0]}</span>
-              <span class="hchip r1">⚡ ${h.round1[1]}</span>
-              <span class="hdiv">｜</span>
-              <span class="hchip r2">🎲 ${h.round2}</span>
-            </div>
-          </div>`;
-        }).join('')
-    }`;
+    <div id="hist-list"><div class="history-empty">読み込み中…</div></div>`;
 
-  document.getElementById('btn-clear')?.addEventListener('click', () => {
-    if (confirm('履歴をすべて削除しますか？')) {
-      localStorage.removeItem('wc_hist');
-      renderHistory();
-    }
-  });
+  const renderList = hist => {
+    const listEl = document.getElementById('hist-list');
+    if (!listEl) return;
+    if (!hist.length) { listEl.innerHTML = '<div class="history-empty">まだ履歴がありません</div>'; return; }
+    listEl.innerHTML = hist.map(h => {
+      const dt = new Date(h.timestamp || h.savedAt || 0);
+      const ts = `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+      const av = h.avatarUrl
+        ? `<img class="hist-avatar" src="${h.avatarUrl}" alt="">`
+        : `<div class="hist-avatar" style="display:flex;align-items:center;justify-content:center;font-size:0.8em;">👤</div>`;
+      return `<div class="hist-item">
+        <div class="hist-meta">
+          <div class="hist-who">${av}<span class="hist-name">${h.name}</span></div>
+          <span class="hist-time">${ts}</span>
+        </div>
+        <div class="hist-results">
+          <span class="hchip r1">⚡ ${Array.isArray(h.round1) ? h.round1[0] : ''}</span>
+          <span class="hchip r1">⚡ ${Array.isArray(h.round1) ? h.round1[1] : ''}</span>
+          <span class="hdiv">｜</span>
+          <span class="hchip r2">🎲 ${h.round2 || ''}</span>
+        </div>
+      </div>`;
+    }).join('');
+  };
+
+  if (SYNC) {
+    SYNC.watchSpinHistory(renderList);
+  } else {
+    renderList(SYNC?.getLegacyHistory() || []);
+  }
+
 }
 
 /* ══════════════════════════════════════════════
@@ -896,6 +1013,14 @@ async function boot() {
       if (cfg.items6?.length  === 6)  STATE.items6  = cfg.items6;
       if (cfg.players?.length)        STATE.players  = cfg.players;
     });
+
+    /* アバターURL監視・自分のアバターを保存 */
+    SYNC.watchPlayerAvatars(avatars => {
+      STATE.playerAvatars = avatars || {};
+    });
+    if (STATE.userName && STATE.avatarUrl) {
+      SYNC.savePlayerAvatar(STATE.userName, STATE.avatarUrl);
+    }
 
     /* セッション作成（全員が同じ current パスを参照） */
     SYNC.on('session', data => {
