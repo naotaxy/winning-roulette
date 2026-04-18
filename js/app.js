@@ -763,6 +763,34 @@ async function copyToClipboard(text) {
   }
 }
 
+/* ── デバッグパネル（問題解決後に削除） ── */
+function showDebugPanel(lines) {
+  let el = document.getElementById('debug-panel');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'debug-panel';
+    Object.assign(el.style, {
+      position: 'fixed', bottom: '70px', left: '8px', right: '8px',
+      background: 'rgba(0,0,0,0.85)', color: '#0f0', fontFamily: 'monospace',
+      fontSize: '11px', padding: '8px', borderRadius: '6px', zIndex: '9999',
+      maxHeight: '180px', overflowY: 'auto', whiteSpace: 'pre-wrap',
+      border: '1px solid #0f0',
+    });
+    const close = document.createElement('button');
+    close.textContent = '✕';
+    Object.assign(close.style, {
+      position: 'absolute', top: '4px', right: '6px',
+      background: 'none', border: 'none', color: '#0f0', cursor: 'pointer',
+    });
+    close.onclick = () => el.remove();
+    el.appendChild(close);
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '<button id="dbg-close" style="position:absolute;top:4px;right:6px;background:none;border:none;color:#0f0;cursor:pointer;font-size:14px">✕</button>';
+  el.innerHTML += lines.map(l => `<div>${l}</div>`).join('');
+  document.getElementById('dbg-close')?.addEventListener('click', () => el.remove());
+}
+
 /* ── 起動 ── */
 async function boot() {
 
@@ -774,12 +802,24 @@ async function boot() {
   renderSettings();
 
   /* ② LIFF 初期化（LINE アカウント取得） */
+  const dbg = ['=== LIFF Debug ===', `UA: ${navigator.userAgent.slice(0,60)}`];
   try {
-    const { profile } = await LIFF_WRAPPER.init();
-    if (profile) updateHeader(profile);
+    dbg.push('LIFF.init() 開始...');
+    const result = await LIFF_WRAPPER.init();
+    dbg.push(`inLine: ${result.inLine}`);
+    dbg.push(`profile: ${result.profile ? result.profile.displayName : 'null'}`);
+    dbg.push(`needsSetup: ${result.needsSetup}`);
+    if (result.profile) {
+      updateHeader(result.profile);
+      dbg.push('✅ プロフィール取得成功');
+    } else {
+      dbg.push('⚠️ プロフィールなし');
+    }
   } catch(e) {
     console.warn('[boot] LIFF error:', e);
+    dbg.push(`❌ LIFF Error: ${e.message}`);
   }
+  showDebugPanel(dbg);
 
   /* ③ Firebase 初期化と設定同期 */
   try {
