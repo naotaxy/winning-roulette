@@ -182,30 +182,29 @@ const OCR = (() => {
     const imgEl   = await loadImage(blobUrl);
     const worker  = await ensureWorker(onProgress);
 
-    /* ── 領域1: スコア（数字とハイフンのみ whitelist で確実に読む） ── */
-    await worker.setParameters({ tessedit_char_whitelist: '0123456789- ' });
-    const scoreCanvas = cropImage(imgEl, 0.20, 0.13, 0.60, 0.20, 3);
+    /* ── 領域1: スコア（PSM6・前処理あり・y=14〜34%） ── */
+    await worker.setParameters({ tessedit_pageseg_mode: '6' });
+    const scoreCanvas = cropImage(imgEl, 0.20, 0.14, 0.60, 0.20, 3);
     preprocessForScorePK(scoreCanvas);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
-    const scoreMatch  = scoreText.match(/(\d+)\D+(\d+)/);
+    const scoreMatch  = scoreText.match(/(\d{1,2})\s*[-－—–]\s*(\d{1,2})/)
+                     || scoreText.match(/(\d{1,2})\s{2,}(\d{1,2})/);
     const leftScore   = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
     const rightScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
-    await worker.setParameters({ tessedit_char_whitelist: '' });
 
-    /* ── 領域2: PKスコア（whitelist で PK を確実に読む） ── */
-    await worker.setParameters({ tessedit_char_whitelist: '0123456789PKpk ' });
-    const pkCanvas = cropImage(imgEl, 0.24, 0.23, 0.52, 0.12, 3);
+    /* ── 領域2: PKスコア（PSM6・前処理あり・y=22〜34%） ── */
+    const pkCanvas = cropImage(imgEl, 0.24, 0.22, 0.52, 0.12, 3);
     preprocessForScorePK(pkCanvas);
     const pkResult = await worker.recognize(pkCanvas);
     const pkText   = pkResult.data.text;
-    const pkMatch  = pkText.match(/(\d+)\s*[PpKk]+\s*(\d+)/i);
+    const pkMatch  = pkText.match(/(\d+)\s*PK\s*(\d+)/i);
     let leftPK  = pkMatch ? parseInt(pkMatch[1], 10) : null;
     let rightPK = pkMatch ? parseInt(pkMatch[2], 10) : null;
     if (leftScore !== null && rightScore !== null && leftScore !== rightScore) {
       leftPK = null; rightPK = null;
     }
-    await worker.setParameters({ tessedit_char_whitelist: '' });
+    await worker.setParameters({ tessedit_pageseg_mode: '3' });
 
     /* ── 領域3: 左バッジ（HOME / AWAY 判定・5〜17%） ── */
     const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.05, 0.44, 0.12, 2);
