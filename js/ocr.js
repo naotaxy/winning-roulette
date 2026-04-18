@@ -40,16 +40,90 @@ const OCR = (() => {
     return canvas;
   }
 
-  /* ── スコア・PK用前処理: 白数字×暗背景 → 黒数字×白背景 ── */
-  function preprocessForScorePK(canvas) {
+  /* ── スコア/PK用前処理: 背景差分 + モルフォロジークロージング ──
+     背景(ぼかし)との輝度差で白数字を検出 → 黒数字×白背景に変換
+     閾値固定反転より「1→7」誤読を大幅に改善 ── */
+  function preprocessBgDiff(canvas, blurRadius, diffThreshold) {
     const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const W = canvas.width, H = canvas.height;
+    const imageData = ctx.getImageData(0, 0, W, H);
     const d = imageData.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-      const val = lum > 150 ? 0 : 255;
-      d[i] = d[i + 1] = d[i + 2] = val;
-      d[i + 3] = 255;
+
+    // グレースケール化
+    const gray = new Float32Array(W * H);
+    for (let i = 0; i < W * H; i++) {
+      const pi = i * 4;
+      gray[i] = 0.299 * d[pi] + 0.587 * d[pi + 1] + 0.114 * d[pi + 2];
+    }
+
+    // 積分画像（SAT）で O(1)/pixel の高速ボックスブラー
+    const W1 = W + 1;
+    const sat = new Float64Array(W1 * (H + 1));
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        sat[(y + 1) * W1 + (x + 1)] = gray[y * W + x]
+          + sat[y * W1 + (x + 1)]
+          + sat[(y + 1) * W1 + x]
+          - sat[y * W1 + x];
+      }
+    }
+    const r = blurRadius;
+    const blurred = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const x1 = Math.max(0, x - r), y1 = Math.max(0, y - r);
+        const x2 = Math.min(W - 1, x + r), y2 = Math.min(H - 1, y + r);
+        const cnt = (x2 - x1 + 1) * (y2 - y1 + 1);
+        blurred[y * W + x] = (
+          sat[(y2 + 1) * W1 + (x2 + 1)]
+          - sat[y1 * W1 + (x2 + 1)]
+          - sat[(y2 + 1) * W1 + x1]
+          + sat[y1 * W1 + x1]
+        ) / cnt;
+      }
+    }
+
+    // 差分 → 閾値 → 2値（白文字=0黒、背景=255白）
+    const binary = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) {
+      binary[i] = (gray[i] - blurred[i]) > diffThreshold ? 0 : 255;
+    }
+
+    // モルフォロジークロージング: MinFilter(5x5) → MaxFilter(5x5)
+    // → 黒文字の小さな穴を埋め、数字輪郭を安定化
+    const kr = 2; // 5×5 カーネル半径
+    const tmp = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let v = 255;
+        for (let dy = -kr; dy <= kr; dy++) {
+          for (let dx = -kr; dx <= kr; dx++) {
+            const ny = y + dy, nx = x + dx;
+            if (ny >= 0 && ny < H && nx >= 0 && nx < W) {
+              const val = binary[ny * W + nx];
+              if (val < v) v = val;
+            }
+          }
+        }
+        tmp[y * W + x] = v;
+      }
+    }
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let v = 0;
+        for (let dy = -kr; dy <= kr; dy++) {
+          for (let dx = -kr; dx <= kr; dx++) {
+            const ny = y + dy, nx = x + dx;
+            if (ny >= 0 && ny < H && nx >= 0 && nx < W) {
+              const val = tmp[ny * W + nx];
+              if (val > v) v = val;
+            }
+          }
+        }
+        const pi = (y * W + x) * 4;
+        d[pi] = d[pi + 1] = d[pi + 2] = v;
+        d[pi + 3] = 255;
+      }
     }
     ctx.putImageData(imageData, 0, 0);
   }
@@ -184,8 +258,9 @@ const OCR = (() => {
     const worker  = await ensureWorker(onProgress);
 
     /* ── 領域1: スコア（y=23〜34%・x=30〜70%でロゴノイズ排除） ── */
+    await worker.setParameters({ tessedit_pageseg_mode: '11' });
     const scoreCanvas = cropImage(imgEl, 0.30, 0.23, 0.40, 0.11, 3);
-    preprocessForScorePK(scoreCanvas);
+    preprocessBgDiff(scoreCanvas, 40, 40);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
     let scoreMatch = null;
@@ -199,7 +274,7 @@ const OCR = (() => {
 
     /* ── 領域2: PKスコア（y=32〜41%） ── */
     const pkCanvas = cropImage(imgEl, 0.24, 0.32, 0.52, 0.09, 3);
-    preprocessForScorePK(pkCanvas);
+    preprocessBgDiff(pkCanvas, 40, 40);
     const pkResult = await worker.recognize(pkCanvas);
     const pkText   = pkResult.data.text;
     const pkMatch  = pkText.match(/(\d+)\s*PK\s*(\d+)/i);
