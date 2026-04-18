@@ -193,7 +193,7 @@ const OCR = (() => {
   }
 
   /* ── チーム名マッチング
-     ①完全包含 → ②スライディング部分一致 → ③Levenshtein → ④bigram Jaccard → ⑤先頭一致
+     ①完全包含 → ②スライディング部分一致 → ③Levenshtein → ④bigram Jaccard
      閾値0.45（OCRノイズが大きいため低め設定） ── */
   function matchTeamName(ocrText, playerMap) {
     if (!ocrText || !playerMap) return null;
@@ -243,17 +243,6 @@ const OCR = (() => {
         }
       }
 
-      /* ⑤ 先頭一致（長いカタカナ名でOCRが後半だけ化ける場合の救済）
-         例: "カラキダシタダグジジデイ" → "カラキソングシティ"（先頭3文字一致） */
-      if (score < 0.60 && charNorm.length >= 6) {
-        let pfx = 0;
-        while (pfx < normalized.length && pfx < charNorm.length && normalized[pfx] === charNorm[pfx]) pfx++;
-        if (pfx >= 3 && pfx / charNorm.length >= 0.30) {
-          const pfxScore = 0.46 + charNorm.length * 0.005;
-          if (pfxScore > score) score = pfxScore;
-        }
-      }
-
       if (score > bestScore && score >= THRESHOLD) {
         bestScore = score;
         best = { charName, playerName, score: Math.round(score * 100) / 100 };
@@ -268,11 +257,10 @@ const OCR = (() => {
     const imgEl   = await loadImage(blobUrl);
     const worker  = await ensureWorker(onProgress);
 
-    /* ── 領域1: スコア（y=23〜34%・x=30〜70%でロゴノイズ排除）
-       PSM=3（自動）: "2-3" を独立行として検出できる ── */
-    await worker.setParameters({ tessedit_pageseg_mode: '3' });
+    /* ── 領域1: スコア（y=23〜34%・x=30〜70%でロゴノイズ排除） ── */
+    await worker.setParameters({ tessedit_pageseg_mode: '11' });
     const scoreCanvas = cropImage(imgEl, 0.30, 0.23, 0.40, 0.11, 3);
-    preprocessBgDiff(scoreCanvas, 60, 25);
+    preprocessBgDiff(scoreCanvas, 40, 40);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
     let scoreMatch = null;
@@ -286,7 +274,7 @@ const OCR = (() => {
 
     /* ── 領域2: PKスコア（y=32〜41%） ── */
     const pkCanvas = cropImage(imgEl, 0.24, 0.32, 0.52, 0.09, 3);
-    preprocessBgDiff(pkCanvas, 60, 25);
+    preprocessBgDiff(pkCanvas, 40, 40);
     const pkResult = await worker.recognize(pkCanvas);
     const pkText   = pkResult.data.text;
     const pkMatch  = pkText.match(/(\d+)\s*PK\s*(\d+)/i);
