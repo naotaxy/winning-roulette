@@ -54,16 +54,14 @@ const OCR = (() => {
     ctx.putImageData(imageData, 0, 0);
   }
 
-  /* ── チーム名用前処理: 高閾値で純白文字のみ抽出
-     閾値200で純白テキスト(lum>200)と暗い輪郭/背景(lum<200)を明確に分離。
-     threshold=128/160 は輪郭ピクセルを白文字と混同して文字形状を破壊するため廃止。 ── */
+  /* ── チーム名用前処理: JPEG圧縮後の白文字(lum≈180-195)も拾うため閾値175 ── */
   function preprocessForTeamName(canvas) {
     const ctx = canvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const d = imageData.data;
     for (let i = 0; i < d.length; i += 4) {
       const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-      const val = lum > 200 ? 0 : 255;
+      const val = lum > 175 ? 0 : 255;
       d[i] = d[i + 1] = d[i + 2] = val;
       d[i + 3] = 255;
     }
@@ -193,8 +191,8 @@ const OCR = (() => {
     const leftScore   = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
     const rightScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
 
-    /* ── 領域2: PKスコア（25〜39%・PK表示はスコア直下） ── */
-    const pkCanvas = cropImage(imgEl, 0.24, 0.25, 0.52, 0.14, 3);
+    /* ── 領域2: PKスコア（21〜37%・スコア直下） ── */
+    const pkCanvas = cropImage(imgEl, 0.24, 0.21, 0.52, 0.16, 3);
     preprocessForScorePK(pkCanvas);
     const pkResult = await worker.recognize(pkCanvas);
     const pkText   = pkResult.data.text;
@@ -205,22 +203,22 @@ const OCR = (() => {
       leftPK = null; rightPK = null;
     }
 
-    /* ── 領域3: 左バッジ（HOME / AWAY 判定・10〜24%） ── */
-    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.10, 0.44, 0.14, 2);
+    /* ── 領域3: 左バッジ（HOME / AWAY 判定・5〜22%） ── */
+    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.05, 0.44, 0.17, 2);
     const leftBadgeResult = await worker.recognize(leftBadgeCanvas);
     const leftBadgeText   = leftBadgeResult.data.text.toUpperCase().replace(/\s/g, '');
     const leftIsHome      = leftBadgeText.includes('HOME');
 
-    /* ── 領域4/5: チーム名（26〜38%・解像度差を吸収）
-       PSM 7（単一行）、前処理: 閾値200で純白文字のみ抽出 ── */
-    await worker.setParameters({ tessedit_pageseg_mode: '7' });
+    /* ── 領域4/5: チーム名（24〜38%・PSM 11でどこにあっても検出）
+       前処理: 閾値175でJPEG圧縮後の白文字も拾う ── */
+    await worker.setParameters({ tessedit_pageseg_mode: '11' });
 
-    const leftNameCanvas = cropImage(imgEl, 0.03, 0.26, 0.43, 0.12, 2);
+    const leftNameCanvas = cropImage(imgEl, 0.03, 0.24, 0.43, 0.14, 2);
     preprocessForTeamName(leftNameCanvas);
     const leftNameResult = await worker.recognize(leftNameCanvas);
     const leftTeamRaw    = leftNameResult.data.text.trim().replace(/\n/g, ' ');
 
-    const rightNameCanvas = cropImage(imgEl, 0.55, 0.26, 0.41, 0.12, 2);
+    const rightNameCanvas = cropImage(imgEl, 0.55, 0.24, 0.41, 0.14, 2);
     preprocessForTeamName(rightNameCanvas);
     const rightNameResult = await worker.recognize(rightNameCanvas);
     const rightTeamRaw    = rightNameResult.data.text.trim().replace(/\n/g, ' ');
