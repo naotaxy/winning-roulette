@@ -959,21 +959,6 @@ function renderSettings() {
    HELP MODAL
 ══════════════════════════════════════════════ */
 function initHelp() {
-  const ITEMS_12 = [
-    ['スピード',           'チーム全体のスピード属性を重視。足の速い選手でビルドアップ。'],
-    ['スタミナ',           'スタミナ属性が高い選手中心。後半でも衰えない持続力を重視。'],
-    ['パワー',             'パワー属性優先。フィジカル重視の力強い直線的プレー。'],
-    ['テクニック',         '技術属性でドリブル・パス精度重視のチーム構成。'],
-    ['バランス',           '全属性がバランスよい選手のみ使用可。偏りなし縛り。'],
-    ['レジェンド禁止',     'レジェンドレア選手の使用禁止。現役世代のみ。'],
-    ['ナショナル限定',     '1カ国の代表チームの選手のみ使用可。'],
-    ['レギュラー限定',     'レギュラーレアリティ（基本カード）のみ使用可。'],
-    ['キラ禁止',           'キラ（ホログラフィック）カードの使用禁止。通常版のみ。'],
-    ['星5禁止',            '★5評価カードの使用禁止。★4以下のみで構成。'],
-    ['カスタム禁止',       'カスタマイズ強化したカード全面禁止。ベース状態のみ。'],
-    ['セレクトカスタム禁止','プレミアム選択カスタム禁止。基本カスタムのみ許可。'],
-  ];
-
   const modal = document.getElementById('help-modal');
   document.getElementById('btn-help')?.addEventListener('click', () => modal?.classList.add('open'));
   document.getElementById('btn-modal-close')?.addEventListener('click', () => modal?.classList.remove('open'));
@@ -985,37 +970,52 @@ function initHelp() {
     <div class="help-section">
       <h3>このアプリについて</h3>
       <p class="help-intro">
-        ウイニングコレクション（ウイコレ）の対戦ルールを<b>ルーレットで公平に決定</b>するアプリです。<br>
-        敗者がルーレットを2回まわし、2つの結果からどちらか選べます。
+        ウイニングコレクション（ウイコレ）の毎月の対戦縛りルールを<b>ルーレットで公平に決定</b>するアプリです。<br>
+        敗者がルーレットを回してルールを決めます。結果はリアルタイムで全員に共有されます。
       </p>
     </div>
     <div class="help-section">
-      <h3>使い方</h3>
-      <div class="help-item"><div class="help-item-name">① SPIN POWER ゲージ</div>
-        <div class="help-item-desc">ゲージが動いている間に「SPIN」を押すとゲージ位置でパワーが決まります。強いほど長く回ります。</div></div>
-      <div class="help-item"><div class="help-item-name">② 第1回：12択を2回スピン</div>
-        <div class="help-item-desc">12種類のルールから2つを抽選します。</div></div>
-      <div class="help-item"><div class="help-item-name">③ 第2回：6択を1回スピン</div>
-        <div class="help-item-desc">さらに6択から1つを抽選。合計3ルールが確定します。</div></div>
-      <div class="help-item"><div class="help-item-name">④ LINEでシェア</div>
-        <div class="help-item-desc">「LINEで送る」でグループに結果カードを投稿できます。</div></div>
+      <h3>🎰 ゲーム（ルーレット）</h3>
+      <div class="help-item"><div class="help-item-name">第1ルーレット（12択）</div>
+        <div class="help-item-desc">12種類のルールから2回スピンして2つを抽選します。敗者が好きな方を選べます。</div></div>
+      <div class="help-item"><div class="help-item-name">第2ルーレット（6択）</div>
+        <div class="help-item-desc">さらに6択から1回スピンして追加ルールを決定します。</div></div>
+      <div class="help-item"><div class="help-item-name">結果シェア</div>
+        <div class="help-item-desc">「LINEで送る」ボタンでグループに結果を投稿できます。</div></div>
     </div>
     <div class="help-section">
-      <h3>12択ルール一覧</h3>
-      ${ITEMS_12.map(([n,d]) => `
-        <div class="help-item">
-          <div class="help-item-name">${n}</div>
-          <div class="help-item-desc">${d}</div>
-        </div>`).join('')}
+      <h3>📅 カレンダー</h3>
+      <div class="help-item"><div class="help-item-name">縛り月・フリー月の表示</div>
+        <div class="help-item-desc">月ごとに「縛り」「フリー」をカレンダー上でワンタッチで切り替えられます。</div></div>
+      <div class="help-item"><div class="help-item-name">ルール記録</div>
+        <div class="help-item-desc">各月に決まったルールをテキストで登録・編集できます。編集者名が履歴に残ります。</div></div>
+      <div class="help-item"><div class="help-item-name">削除</div>
+        <div class="help-item-desc">登録済みルールを削除できます。誰が削除したかが記録されます。</div></div>
     </div>
     <div class="help-section">
-      <h3>その他</h3>
-      <div class="help-item"><div class="help-item-name">📅 カレンダー</div>
-        <div class="help-item-desc">縛り月と各月のルールを確認できます。</div></div>
-      <div class="help-item"><div class="help-item-name">📊 集計</div>
-        <div class="help-item-desc">試合結果のスクリーンショットをアップロードすると自動で集計されます。</div></div>
-      <div class="help-item"><div class="help-item-name">⚙️ 設定</div>
-        <div class="help-item-desc">プレイヤー名・キャラクター名・ルール項目を自由に変更できます。</div></div>
+      <h3>📊 集計</h3>
+      <div class="help-item"><div class="help-item-name">試合結果の登録</div>
+        <div class="help-item-desc">ウイコレのスクリーンショットをアップロードするとOCRでスコア・プレイヤー名を自動読み取りして登録できます。登録する月を選んで保存します。</div></div>
+      <div class="help-item"><div class="help-item-name">月次順位表</div>
+        <div class="help-item-desc">月ごとの勝敗・勝点（勝3pt、PK勝1pt）・順位ポイントを集計します。◀▶ボタンで月を切り替えて過去の結果も確認できます。</div></div>
+      <div class="help-item"><div class="help-item-name">年間順位表</div>
+        <div class="help-item-desc">各月の順位ポイント（1位5pt・2位3pt・3位2pt・4位1pt・5位0pt）の累計で年間ランキングを表示します。</div></div>
+      <div class="help-item"><div class="help-item-name">結果の削除</div>
+        <div class="help-item-desc">登録した試合結果を個別に削除できます。</div></div>
+    </div>
+    <div class="help-section">
+      <h3>📜 履歴</h3>
+      <div class="help-item"><div class="help-item-name">スピン履歴</div>
+        <div class="help-item-desc">ルーレットを回した記録が新しい順に表示されます。誰がいつ何を引いたか確認できます。プロフィールアイコン付きで表示されます。</div></div>
+    </div>
+    <div class="help-section">
+      <h3>⚙️ 設定</h3>
+      <div class="help-item"><div class="help-item-name">プレイヤー設定</div>
+        <div class="help-item-desc">プレイヤー名・キャラクター名（監督名）・LINE IDを登録・編集できます。</div></div>
+      <div class="help-item"><div class="help-item-name">ルール項目編集</div>
+        <div class="help-item-desc">12択・6択のルール内容を自由に変更できます。</div></div>
+      <div class="help-item"><div class="help-item-name">縛り月設定</div>
+        <div class="help-item-desc">縛りルールを適用する月をON/OFFで切り替えられます。</div></div>
     </div>`;
 }
 

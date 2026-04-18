@@ -262,16 +262,16 @@ const ROULETTE = (() => {
        Phase B [tA, tB] : 指数減衰 v = vA * e^{-k*(t-tA)}
        Phase C [tB, tC] : スプリング整定
     */
-    const totalMs = 10000 + (pw / 100) * 7000;  /* 10〜17秒 */
-    const tA  = totalMs * 0.05;   /* 等速フェーズ */
-    const tB  = totalMs * 0.58;   /* 指数減衰フェーズ終了 */
-    const tC  = totalMs;          /* イーズアウト収束フェーズ終了 */
+    const totalMs = 20000 + (pw / 100) * 12000;  /* 20〜32秒 */
+    const tA  = totalMs * 0.04;   /* 等速フェーズ */
+    const tB  = totalMs * 0.40;   /* 指数減衰フェーズ終了 */
+    const tC  = totalMs;          /* イーズアウト収束フェーズ終了（60%をゆっくり減速に） */
 
-    const rotA       = totalDelta * 0.10;
+    const rotA       = totalDelta * 0.08;
     const vA         = rotA / (tA / 1000);
-    const rotB_total = totalDelta * 0.82;
+    const rotB_total = totalDelta * 0.60;
     const tB_s       = (tB - tA) / 1000;
-    const k          = 2.2 / tB_s;   /* Phase B 終了時に約 89% 速度消費 */
+    const k          = 1.2 / tB_s;   /* Phase B 終了時に約 70% 速度消費（緩やか） */
 
     let _rotB_end = null;  /* Phase B→C 接続点（動的に記録） */
 
@@ -300,7 +300,7 @@ const ROULETTE = (() => {
         */
         if (_rotB_end === null) _rotB_end = finalRot;
         const prog  = Math.min((elapsed - tB) / (tC - tB), 1);
-        const ease  = 1 - Math.pow(1 - prog, 5);
+        const ease  = 1 - Math.pow(1 - prog, 8);
         rot = _rotB_end + (finalRot - _rotB_end) * ease;
       }
 
