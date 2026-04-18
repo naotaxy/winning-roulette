@@ -54,18 +54,19 @@ const OCR = (() => {
     ctx.putImageData(imageData, 0, 0);
   }
 
-  /* ── チーム名用前処理: JPEG圧縮後の白文字(lum≈180-195)も拾うため閾値175 ── */
-  function preprocessForTeamName(canvas) {
+  /* ── 左バッジの色でHOME/AWAY判定（緑=HOME, 赤オレンジ=AWAY） ── */
+  function detectLeftBadgeHome(canvas) {
     const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const d = imageData.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-      const val = lum > 175 ? 0 : 255;
-      d[i] = d[i + 1] = d[i + 2] = val;
-      d[i + 3] = 255;
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let green = 0, red = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      if (max - min < 50 || max < 80) continue;
+      if (g > r * 1.2 && g > b * 1.5) green++;
+      else if (r > g * 1.3 && r > b) red++;
     }
-    ctx.putImageData(imageData, 0, 0);
+    return { leftIsHome: green > red, badgeDebug: `g=${green} r=${red}` };
   }
 
   /* ── テキスト正規化（全角半角統一・空白除去・記号吸収） ── */
@@ -182,8 +183,8 @@ const OCR = (() => {
     const imgEl   = await loadImage(blobUrl);
     const worker  = await ensureWorker(onProgress);
 
-    /* ── 領域1: スコア（y=23〜34%・試合終了テキスト+大きい数字） ── */
-    const scoreCanvas = cropImage(imgEl, 0.20, 0.23, 0.60, 0.11, 3);
+    /* ── 領域1: スコア（y=23〜34%・x=30〜70%でロゴノイズ排除） ── */
+    const scoreCanvas = cropImage(imgEl, 0.30, 0.23, 0.40, 0.11, 3);
     preprocessForScorePK(scoreCanvas);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
@@ -208,11 +209,10 @@ const OCR = (() => {
       leftPK = null; rightPK = null;
     }
 
-    /* ── 領域3: 左バッジ（HOME / AWAY 判定・y=19〜28%） ── */
-    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.19, 0.44, 0.09, 2);
-    const leftBadgeResult = await worker.recognize(leftBadgeCanvas);
-    const leftBadgeText   = leftBadgeResult.data.text.toUpperCase().replace(/\s/g, '');
-    const leftIsHome      = leftBadgeText.includes('HOME');
+    /* ── 領域3: 左バッジ（HOME=緑 / AWAY=赤橙 を色判定・OCR不使用） ── */
+    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.19, 0.44, 0.05, 1);
+    const { leftIsHome, badgeDebug } = detectLeftBadgeHome(leftBadgeCanvas);
+    const leftBadgeText = badgeDebug;
 
     /* ── 領域4/5: チーム名（前処理なし・PSM 11・y=34〜44%） ── */
     await worker.setParameters({ tessedit_pageseg_mode: '11' });
