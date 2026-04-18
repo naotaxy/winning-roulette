@@ -242,11 +242,6 @@ const OCR = (() => {
       leftMatch: leftTeamMatch, rightMatch: rightTeamMatch,
     };
     console.log('[OCR]', _log);
-    try {
-      const logs = JSON.parse(localStorage.getItem('ocr_debug') || '[]');
-      logs.unshift(_log);
-      localStorage.setItem('ocr_debug', JSON.stringify(logs.slice(0, 20)));
-    } catch(e) {}
 
     /* HOME/AWAY を左右から割り当て */
     const homeScore = leftIsHome ? leftScore  : rightScore;
