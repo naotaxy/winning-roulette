@@ -23,53 +23,59 @@ const OCR = (() => {
     return _worker;
   }
 
-  /* ── 画像の特定領域をキャンバスでクロップ ── */
-  function cropImage(imgEl, relX, relY, relW, relH) {
-    const canvas = document.createElement('canvas');
+  /* ── 画像の特定領域をクロップ（比率指定、拡大スケール付き） ── */
+  function cropImage(imgEl, relX, relY, relW, relH, scale = 2) {
     const W = imgEl.naturalWidth;
     const H = imgEl.naturalHeight;
-    canvas.width  = Math.round(W * relW);
-    canvas.height = Math.round(H * relH);
+    const srcX = Math.round(W * relX);
+    const srcY = Math.round(H * relY);
+    const srcW = Math.round(W * relW);
+    const srcH = Math.round(H * relH);
+    const canvas = document.createElement('canvas');
+    canvas.width  = srcW * scale;
+    canvas.height = srcH * scale;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(
-      imgEl,
-      Math.round(W * relX), Math.round(H * relY),
-      canvas.width, canvas.height,
-      0, 0, canvas.width, canvas.height
-    );
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(imgEl, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
     return canvas;
   }
 
   /* ── スコアと チーム名を解析 ── */
   async function parseMatchResult(imgFile, playerMap, onProgress) {
-    /* imgFile: File オブジェクト */
     const blobUrl = URL.createObjectURL(imgFile);
     const imgEl   = await loadImage(blobUrl);
 
     const worker = await ensureWorker(onProgress);
 
-    /* ── 領域1: スコアエリア（上半分中央） ── */
-    const scoreCanvas = cropImage(imgEl, 0.2, 0.10, 0.6, 0.28);
+    /* ── 領域1: メインスコア（中央）
+       比率: x=39.7%〜60.9%, y=26.4%〜32.9% ── */
+    const scoreCanvas = cropImage(imgEl, 0.397, 0.264, 0.212, 0.065, 3);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
 
-    /* スコアパターン: 数字 - 数字 */
     const scoreMatch = scoreText.match(/(\d+)\s*[-－]\s*(\d+)/);
-    const awayScore = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
-    const homeScore = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
+    const awayScore  = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
+    const homeScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
 
-    /* PKパターン: 数字 PK 数字 */
-    const pkMatch  = scoreText.match(/(\d+)\s*PK\s*(\d+)/i);
-    const awayPK   = pkMatch ? parseInt(pkMatch[1], 10) : null;
-    const homePK   = pkMatch ? parseInt(pkMatch[2], 10) : null;
+    /* ── 領域2: PKスコア（スコア下）
+       比率: x=39.0%〜61.6%, y=33.5%〜37.1% ── */
+    const pkCanvas = cropImage(imgEl, 0.390, 0.335, 0.226, 0.036, 3);
+    const pkResult = await worker.recognize(pkCanvas);
+    const pkText   = pkResult.data.text;
 
-    /* ── 領域2: AWAYチーム名（左側） ── */
-    const awayCanvas = cropImage(imgEl, 0.02, 0.28, 0.40, 0.18);
+    const pkMatch = pkText.match(/(\d+)\s*PK\s*(\d+)/i);
+    const awayPK  = pkMatch ? parseInt(pkMatch[1], 10) : null;
+    const homePK  = pkMatch ? parseInt(pkMatch[2], 10) : null;
+
+    /* ── 領域3: AWAYプレイヤー名（左）
+       比率: x=14.9%〜41.1%, y=36.5%〜39.7% ── */
+    const awayCanvas = cropImage(imgEl, 0.149, 0.365, 0.262, 0.032, 3);
     const awayResult = await worker.recognize(awayCanvas);
     const awayRaw    = awayResult.data.text.trim().replace(/\n/g, ' ');
 
-    /* ── 領域3: HOMEチーム名（右側） ── */
-    const homeCanvas = cropImage(imgEl, 0.55, 0.28, 0.43, 0.18);
+    /* ── 領域4: HOMEプレイヤー名（右）
+       比率: x=60.2%〜91.4%, y=36.5%〜39.7% ── */
+    const homeCanvas = cropImage(imgEl, 0.602, 0.365, 0.312, 0.032, 3);
     const homeResult = await worker.recognize(homeCanvas);
     const homeRaw    = homeResult.data.text.trim().replace(/\n/g, ' ');
 

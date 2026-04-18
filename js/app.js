@@ -32,19 +32,22 @@ const DEFAULT_PLAYERS = [
 
 /* ── アプリ状態 ── */
 const STATE = {
-  items12:       [...DEFAULT_12],
-  items6:        [...DEFAULT_6],
-  players:       DEFAULT_PLAYERS.map(p => ({ ...p })),
-  phase:         1,
-  round1:        [],
-  round2:        null,
-  wheel:         null,
-  userName:      '',
-  avatarUrl:     null,
-  gaugeVal:      50,
-  isSpinner:     false,
-  sessionId:     null,
-  playerAvatars: {},   /* playerName → avatarUrl */
+  items12:        [...DEFAULT_12],
+  items6:         [...DEFAULT_6],
+  players:        DEFAULT_PLAYERS.map(p => ({ ...p })),
+  restrictMonths: [...RESTRICT_MONTHS],
+  phase:          1,
+  round1:         [],
+  round2:         null,
+  wheel:          null,
+  userName:       '',
+  avatarUrl:      null,
+  gaugeVal:       50,
+  isSpinner:      false,
+  sessionId:      null,
+  playerAvatars:  {},
+  statsYear:      new Date().getFullYear(),
+  statsMonth:     new Date().getMonth() + 1,
 };
 
 /* ── Toast ── */
@@ -333,7 +336,7 @@ function renderCalendar() {
   const month = now.getMonth() + 1;
 
   const MONTH_NAMES = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
-  const isRestrict  = m => RESTRICT_MONTHS.includes(m);
+  const isRestrict  = m => STATE.restrictMonths.includes(m);
 
   panel.innerHTML = `
     <div class="cal-header">
@@ -344,13 +347,13 @@ function renderCalendar() {
       ${MONTH_NAMES.map((mn, i) => {
         const m = i + 1;
         const cls = isRestrict(m) ? 'cal-cell restrict' : 'cal-cell free';
-        return `<div class="${cls}${m === month ? ' current' : ''}" data-month="${m}">
+        return `<div class="${cls}${m === month ? ' current' : ''}" id="cal-cell-${m}" data-month="${m}">
           <div class="cal-month-num">${m}月</div>
-          <div class="cal-badge">${isRestrict(m) ? '🔒 縛り' : '🆓 フリー'}</div>
+          <button class="btn-cal-toggle ${isRestrict(m) ? 'restrict' : 'free'}" id="cal-toggle-${m}">${isRestrict(m) ? '🔒 縛り' : '🆓 フリー'}</button>
           <div class="cal-rule-text" id="cal-rule-${m}">読み込み中…</div>
           <div class="cal-rule-meta" id="cal-meta-${m}"></div>
           <div class="cal-btn-row">
-            <button class="btn-cal-edit" id="cal-edit-${m}">✏️</button>
+            <button class="btn-cal-edit" id="cal-edit-${m}">✏️ 編集</button>
             <button class="btn-cal-del"  id="cal-del-${m}"  style="display:none">🗑️</button>
           </div>
           <div class="cal-edit-form" id="cal-form-${m}" style="display:none">
@@ -365,6 +368,19 @@ function renderCalendar() {
     </div>`;
 
   if (!SYNC) return;
+
+  /* 縛り/フリー トグル */
+  MONTH_NAMES.forEach((_, i) => {
+    const m = i + 1;
+    document.getElementById(`cal-toggle-${m}`)?.addEventListener('click', async () => {
+      const newList = STATE.restrictMonths.includes(m)
+        ? STATE.restrictMonths.filter(x => x !== m)
+        : [...STATE.restrictMonths, m].sort((a, b) => a - b);
+      STATE.restrictMonths = newList;
+      if (SYNC) await SYNC.saveConfig({ restrictMonths: newList });
+      renderCalendar();
+    });
+  });
 
   /* 編集・削除ボタンのイベント設定 */
   MONTH_NAMES.forEach((_, i) => {
@@ -425,13 +441,21 @@ function renderStats() {
   const panel = document.getElementById('panel-stats');
   if (!panel) return;
 
-  const now   = new Date();
-  const year  = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const now = new Date();
+  /* 月ナビ用: STATE に保持 */
+  if (!STATE.statsYear)  STATE.statsYear  = now.getFullYear();
+  if (!STATE.statsMonth) STATE.statsMonth = now.getMonth() + 1;
+
+  /* 登録月選択肢（1〜12月） */
+  const regMonthOpts = Array.from({length:12},(_,i) =>
+    `<option value="${i+1}" ${i+1===STATE.statsMonth?'selected':''}>${i+1}月</option>`).join('');
 
   panel.innerHTML = `
-    <div class="stats-header">
-      <h2 class="stats-title">📊 ${year}年${month}月 集計</h2>
+    <!-- 月ナビ -->
+    <div class="stats-month-nav">
+      <button class="stats-nav-btn" id="stats-prev">◀</button>
+      <span class="stats-nav-label" id="stats-month-label">${STATE.statsYear}年${STATE.statsMonth}月</span>
+      <button class="stats-nav-btn" id="stats-next">▶</button>
     </div>
 
     <!-- OCR アップロード -->
@@ -461,7 +485,7 @@ function renderStats() {
             <input type="number" id="ocr-home-score" class="ocr-score-input" min="0" max="99" placeholder="点">
           </div>
         </div>
-        <div class="pk-row" id="pk-row">
+        <div class="pk-row">
           <label class="pk-toggle-label">
             <input type="checkbox" id="pk-check"> PK戦あり
           </label>
@@ -475,6 +499,16 @@ function renderStats() {
           <label class="ocr-label">試合日</label>
           <input type="date" id="ocr-date" class="ocr-date-input" value="${toDateStr(now)}">
         </div>
+        <div class="ocr-date-row">
+          <label class="ocr-label">登録月</label>
+          <div class="reg-month-wrap">
+            <select id="ocr-reg-year" class="save-month-select" style="width:auto">
+              <option value="${STATE.statsYear}" selected>${STATE.statsYear}年</option>
+              <option value="${STATE.statsYear+1}">${STATE.statsYear+1}年</option>
+            </select>
+            <select id="ocr-reg-month" class="save-month-select" style="width:auto">${regMonthOpts}</select>
+          </div>
+        </div>
         <div class="action-row">
           <button class="btn-save" id="ocr-save-btn" style="flex:1">✅ 登録</button>
           <button class="btn-reset" id="ocr-cancel-btn">キャンセル</button>
@@ -482,26 +516,38 @@ function renderStats() {
       </div>
     </div>
 
-    <!-- 月次集計テーブル -->
+    <!-- 結果一覧 -->
     <div class="stats-table-wrap">
-      <div class="stats-section-title">今月の対戦結果</div>
+      <div class="stats-section-title" id="results-title">${STATE.statsYear}年${STATE.statsMonth}月の対戦結果</div>
       <div id="results-list">読み込み中…</div>
     </div>
 
-    <!-- 順位表 -->
+    <!-- 月次順位表 -->
     <div class="standings-wrap">
-      <div class="stats-section-title">今月の順位表</div>
+      <div class="stats-section-title" id="standings-title">${STATE.statsYear}年${STATE.statsMonth}月の順位表</div>
       <div id="standings-table">読み込み中…</div>
     </div>
 
     <!-- 年間総合順位表 -->
     <div class="standings-wrap">
-      <div class="stats-section-title">📆 ${year}年 年間総合順位</div>
+      <div class="stats-section-title">📆 ${STATE.statsYear}年 年間総合順位</div>
       <div id="annual-standings">読み込み中…</div>
     </div>
   `;
 
-  /* ── プレイヤーセレクト ── */
+  /* 月ナビ */
+  document.getElementById('stats-prev')?.addEventListener('click', () => {
+    STATE.statsMonth--;
+    if (STATE.statsMonth < 1) { STATE.statsMonth = 12; STATE.statsYear--; }
+    _loadStatsData();
+  });
+  document.getElementById('stats-next')?.addEventListener('click', () => {
+    STATE.statsMonth++;
+    if (STATE.statsMonth > 12) { STATE.statsMonth = 1; STATE.statsYear++; }
+    _loadStatsData();
+  });
+
+  /* プレイヤーセレクト */
   const playerOptions = STATE.players.map(p =>
     `<option value="${p.name}">${p.name}（${p.charName}）</option>`).join('');
   ['ocr-away','ocr-home'].forEach(id => {
@@ -509,41 +555,32 @@ function renderStats() {
     if (sel) sel.innerHTML = playerOptions;
   });
 
-  /* ── OCR ── */
+  /* OCR */
   document.getElementById('ocr-input')?.addEventListener('change', async e => {
     const file = e.target.files[0];
     if (!file) return;
-
     const previewWrap = document.getElementById('ocr-preview-wrap');
     const preview     = document.getElementById('ocr-preview');
     const status      = document.getElementById('ocr-status');
     const barFill     = document.getElementById('ocr-bar-fill');
-
     preview.src = URL.createObjectURL(file);
     previewWrap.style.display = 'block';
     status.textContent = '解析中…';
-
-    /* Tesseract.js の動的ロード */
     if (typeof Tesseract === 'undefined') {
       const s = document.createElement('script');
       s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
       document.head.appendChild(s);
       await new Promise(resolve => s.onload = resolve);
     }
-
     try {
       const playerMap = {};
       STATE.players.forEach(p => { playerMap[p.charName] = p.name; });
-
       const result = await OCR.parseMatchResult(file, playerMap, pct => {
         barFill.style.width = pct + '%';
         status.textContent  = `OCR解析中… ${pct}%`;
       });
-
       status.textContent = '解析完了！内容を確認して登録してください';
       document.getElementById('ocr-result-form').style.display = 'block';
-
-      /* 推定値をフォームにセット */
       if (result.awayChar) _setSelect('ocr-away', result.awayChar.playerName);
       if (result.homeChar) _setSelect('ocr-home', result.homeChar.playerName);
       if (result.awayScore !== null) document.getElementById('ocr-away-score').value = result.awayScore;
@@ -554,28 +591,28 @@ function renderStats() {
         document.getElementById('ocr-away-pk').value = result.awayPK;
         document.getElementById('ocr-home-pk').value = result.homePK;
       }
-
     } catch (err) {
       status.textContent = `❌ 解析失敗: ${err.message}`;
     }
   });
 
-  /* ── 登録ボタン ── */
+  /* 登録ボタン */
   document.getElementById('ocr-save-btn')?.addEventListener('click', async () => {
     const away      = document.getElementById('ocr-away')?.value;
     const home      = document.getElementById('ocr-home')?.value;
     const awayScore = parseInt(document.getElementById('ocr-away-score')?.value, 10);
     const homeScore = parseInt(document.getElementById('ocr-home-score')?.value, 10);
     const date      = document.getElementById('ocr-date')?.value;
-
+    const regYear   = parseInt(document.getElementById('ocr-reg-year')?.value, 10) || STATE.statsYear;
+    const regMonth  = parseInt(document.getElementById('ocr-reg-month')?.value, 10) || STATE.statsMonth;
     if (!away || !home || away === home || isNaN(awayScore) || isNaN(homeScore)) {
       toast('⚠️ 入力を確認してください'); return;
     }
-    const hasPK   = document.getElementById('pk-check')?.checked;
-    const awayPK  = hasPK ? parseInt(document.getElementById('ocr-away-pk')?.value, 10) : null;
-    const homePK  = hasPK ? parseInt(document.getElementById('ocr-home-pk')?.value, 10) : null;
-    await SYNC.saveResult(year, month, { date, away, home, awayScore, homeScore, awayPK, homePK, addedBy: STATE.userName || '不明' });
-    toast('✅ 登録しました！');
+    const hasPK  = document.getElementById('pk-check')?.checked;
+    const awayPK = hasPK ? parseInt(document.getElementById('ocr-away-pk')?.value, 10) : null;
+    const homePK = hasPK ? parseInt(document.getElementById('ocr-home-pk')?.value, 10) : null;
+    await SYNC.saveResult(regYear, regMonth, { date, away, home, awayScore, homeScore, awayPK, homePK, addedBy: STATE.userName || '不明' });
+    toast(`✅ ${regYear}年${regMonth}月に登録しました！`);
     document.getElementById('ocr-result-form').style.display = 'none';
     document.getElementById('ocr-preview-wrap').style.display = 'none';
   });
@@ -583,22 +620,28 @@ function renderStats() {
   document.getElementById('pk-check')?.addEventListener('change', e => {
     document.getElementById('pk-inputs').style.display = e.target.checked ? 'flex' : 'none';
   });
-
   document.getElementById('ocr-cancel-btn')?.addEventListener('click', () => {
     document.getElementById('ocr-result-form').style.display = 'none';
     document.getElementById('ocr-preview-wrap').style.display = 'none';
   });
 
-  /* ── 結果一覧（当月） ── */
-  SYNC.watchResults(year, month, results => {
+  _loadStatsData();
+}
+
+function _loadStatsData() {
+  const y = STATE.statsYear, m = STATE.statsMonth;
+  const label = document.getElementById('stats-month-label');
+  const rt    = document.getElementById('results-title');
+  const st    = document.getElementById('standings-title');
+  if (label) label.textContent = `${y}年${m}月`;
+  if (rt)    rt.textContent    = `${y}年${m}月の対戦結果`;
+  if (st)    st.textContent    = `${y}年${m}月の順位表`;
+  if (!SYNC) return;
+  SYNC.watchResults(y, m, results => {
     _renderResultsList(results);
     _renderStandings(results);
   });
-
-  /* ── 年間総合 ── */
-  SYNC.watchAnnualResults(year, allMonths => {
-    _renderAnnualStandings(allMonths);
-  });
+  SYNC.watchAnnualResults(y, allMonths => _renderAnnualStandings(allMonths));
 }
 
 function _setSelect(id, value) {
@@ -699,7 +742,7 @@ function _renderStandings(results) {
       <thead>
         <tr>
           <th>#</th><th></th><th>選手</th><th>勝</th><th>PK</th><th>分</th><th>敗</th>
-          <th>試合Pt</th><th>順位Pt</th><th>合計</th>
+          <th>試合Pt</th><th>順位Pt</th>
         </tr>
       </thead>
       <tbody>
@@ -710,8 +753,7 @@ function _renderStandings(results) {
             <td>${name}</td>
             <td>${s.w}</td><td>${s.pkw}</td><td>${s.d}</td><td>${s.l}</td>
             <td>${matchPt(s)}</td>
-            <td>${s.rankBonus}</td>
-            <td><b>${matchPt(s) + s.rankBonus}</b></td>
+            <td><b>${s.rankBonus}</b></td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -753,7 +795,7 @@ function _renderAnnualStandings(allMonths) {
     const active = Object.entries(stats).filter(([, s]) => s.w + s.pkw + s.d + s.l > 0);
     if (!active.length) return;
     const sorted = active.sort((a,b) => matchPt(b[1]) - matchPt(a[1]) || (b[1].gf-b[1].ga)-(a[1].gf-a[1].ga));
-    sorted.forEach(([name,, ], i) => {
+    sorted.forEach(([name], i) => {
       if (annual[name] != null) annual[name].rankPt += RANK_BONUS[i] ?? 0;
     });
   });
@@ -1034,9 +1076,10 @@ async function boot() {
   try {
     SYNC.init();
     SYNC.watchConfig(cfg => {
-      if (cfg.items12?.length === 12) STATE.items12 = cfg.items12;
-      if (cfg.items6?.length  === 6)  STATE.items6  = cfg.items6;
-      if (cfg.players?.length)        STATE.players  = cfg.players;
+      if (cfg.items12?.length === 12)  STATE.items12        = cfg.items12;
+      if (cfg.items6?.length  === 6)   STATE.items6         = cfg.items6;
+      if (cfg.players?.length)         STATE.players        = cfg.players;
+      if (cfg.restrictMonths?.length)  STATE.restrictMonths = cfg.restrictMonths;
     });
 
     /* アバターURL監視・自分のアバターを保存 */
@@ -1049,7 +1092,11 @@ async function boot() {
       }
     });
     if (STATE.userName && STATE.avatarUrl) {
-      SYNC.savePlayerAvatar(STATE.userName, STATE.avatarUrl);
+      /* lineId または name で照合してプレイヤー名キーで保存 */
+      const matched = STATE.players.find(p =>
+        p.lineId === STATE.userName || p.name === STATE.userName
+      );
+      SYNC.savePlayerAvatar(matched ? matched.name : STATE.userName, STATE.avatarUrl);
     }
 
     /* セッション作成（全員が同じ current パスを参照） */
