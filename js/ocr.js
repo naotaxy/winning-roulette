@@ -182,8 +182,8 @@ const OCR = (() => {
     const imgEl   = await loadImage(blobUrl);
     const worker  = await ensureWorker(onProgress);
 
-    /* ── 領域1: スコア（y=14〜24%・ゴールタイムスタンプを除外） ── */
-    const scoreCanvas = cropImage(imgEl, 0.20, 0.14, 0.60, 0.10, 3);
+    /* ── 領域1: スコア（y=23〜34%・試合終了テキスト+大きい数字） ── */
+    const scoreCanvas = cropImage(imgEl, 0.20, 0.23, 0.60, 0.11, 3);
     preprocessForScorePK(scoreCanvas);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
@@ -196,8 +196,8 @@ const OCR = (() => {
     const leftScore   = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
     const rightScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
 
-    /* ── 領域2: PKスコア（y=22〜33%） ── */
-    const pkCanvas = cropImage(imgEl, 0.24, 0.22, 0.52, 0.11, 3);
+    /* ── 領域2: PKスコア（y=32〜41%） ── */
+    const pkCanvas = cropImage(imgEl, 0.24, 0.32, 0.52, 0.09, 3);
     preprocessForScorePK(pkCanvas);
     const pkResult = await worker.recognize(pkCanvas);
     const pkText   = pkResult.data.text;
@@ -208,20 +208,20 @@ const OCR = (() => {
       leftPK = null; rightPK = null;
     }
 
-    /* ── 領域3: 左バッジ（HOME / AWAY 判定・5〜17%） ── */
-    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.05, 0.44, 0.12, 2);
+    /* ── 領域3: 左バッジ（HOME / AWAY 判定・y=19〜28%） ── */
+    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.19, 0.44, 0.09, 2);
     const leftBadgeResult = await worker.recognize(leftBadgeCanvas);
     const leftBadgeText   = leftBadgeResult.data.text.toUpperCase().replace(/\s/g, '');
     const leftIsHome      = leftBadgeText.includes('HOME');
 
-    /* ── 領域4/5: チーム名（前処理なし・PSM 11・y=24〜34%） ── */
+    /* ── 領域4/5: チーム名（前処理なし・PSM 11・y=34〜44%） ── */
     await worker.setParameters({ tessedit_pageseg_mode: '11' });
 
-    const leftNameCanvas = cropImage(imgEl, 0.03, 0.24, 0.43, 0.10, 2);
+    const leftNameCanvas = cropImage(imgEl, 0.02, 0.34, 0.44, 0.10, 2);
     const leftNameResult = await worker.recognize(leftNameCanvas);
     const leftTeamRaw    = leftNameResult.data.text.trim().replace(/\n/g, ' ');
 
-    const rightNameCanvas = cropImage(imgEl, 0.55, 0.24, 0.41, 0.10, 2);
+    const rightNameCanvas = cropImage(imgEl, 0.54, 0.34, 0.43, 0.10, 2);
     const rightNameResult = await worker.recognize(rightNameCanvas);
     const rightTeamRaw    = rightNameResult.data.text.trim().replace(/\n/g, ' ');
 
