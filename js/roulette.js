@@ -224,8 +224,6 @@ const ROULETTE = (() => {
       cancelAnimationFrame(_raf);
     }
 
-    function get value() { return _value; }
-
     return { start, capture, stop, get value() { return _value; } };
   })();
 
