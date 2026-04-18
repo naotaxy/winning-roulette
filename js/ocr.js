@@ -184,17 +184,17 @@ const OCR = (() => {
     const imgEl   = await loadImage(blobUrl);
     const worker  = await ensureWorker(onProgress);
 
-    /* ── 領域1: メインスコア（中央・前処理あり） ── */
-    const scoreCanvas = cropImage(imgEl, 0.20, 0.19, 0.60, 0.36, 3);
+    /* ── 領域1: メインスコア（14〜36%・画像上端切れ対策） ── */
+    const scoreCanvas = cropImage(imgEl, 0.15, 0.14, 0.70, 0.22, 3);
     preprocessForScorePK(scoreCanvas);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
-    const scoreMatch  = scoreText.match(/(\d+)\s*[-－]\s*(\d+)/);
+    const scoreMatch  = scoreText.match(/(\d+)\s*[-－ー]\s*(\d+)/);
     const leftScore   = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
     const rightScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
 
-    /* ── 領域2: PKスコア（中央帯・前処理あり・点差あれば無効化） ── */
-    const pkCanvas = cropImage(imgEl, 0.24, 0.34, 0.52, 0.22, 3);
+    /* ── 領域2: PKスコア（25〜39%・PK表示はスコア直下） ── */
+    const pkCanvas = cropImage(imgEl, 0.24, 0.25, 0.52, 0.14, 3);
     preprocessForScorePK(pkCanvas);
     const pkResult = await worker.recognize(pkCanvas);
     const pkText   = pkResult.data.text;
@@ -205,23 +205,22 @@ const OCR = (() => {
       leftPK = null; rightPK = null;
     }
 
-    /* ── 領域3: 左バッジ（HOME / AWAY 判定） ── */
-    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.12, 0.42, 0.32, 2);
+    /* ── 領域3: 左バッジ（HOME / AWAY 判定・10〜24%） ── */
+    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.10, 0.44, 0.14, 2);
     const leftBadgeResult = await worker.recognize(leftBadgeCanvas);
     const leftBadgeText   = leftBadgeResult.data.text.toUpperCase().replace(/\s/g, '');
     const leftIsHome      = leftBadgeText.includes('HOME');
 
-    /* ── 領域4/5: チーム名
-       scale=2（4は過拡大）、h=0.07（余裕あり）、PSM 7（単一テキスト行）
-       前処理: 閾値200で純白文字のみ抽出 ── */
+    /* ── 領域4/5: チーム名（26〜38%・解像度差を吸収）
+       PSM 7（単一行）、前処理: 閾値200で純白文字のみ抽出 ── */
     await worker.setParameters({ tessedit_pageseg_mode: '7' });
 
-    const leftNameCanvas = cropImage(imgEl, 0.12, 0.350, 0.32, 0.07, 2);
+    const leftNameCanvas = cropImage(imgEl, 0.03, 0.26, 0.43, 0.12, 2);
     preprocessForTeamName(leftNameCanvas);
     const leftNameResult = await worker.recognize(leftNameCanvas);
     const leftTeamRaw    = leftNameResult.data.text.trim().replace(/\n/g, ' ');
 
-    const rightNameCanvas = cropImage(imgEl, 0.58, 0.350, 0.32, 0.07, 2);
+    const rightNameCanvas = cropImage(imgEl, 0.55, 0.26, 0.41, 0.12, 2);
     preprocessForTeamName(rightNameCanvas);
     const rightNameResult = await worker.recognize(rightNameCanvas);
     const rightTeamRaw    = rightNameResult.data.text.trim().replace(/\n/g, ' ');
