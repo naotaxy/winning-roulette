@@ -588,11 +588,15 @@ function renderStats() {
       const homeLabel = result.homeChar ? result.homeChar.playerName : '（未検出）';
       const scoreDisp = (result.awayScore !== null && result.homeScore !== null)
         ? `${result.awayScore}-${result.homeScore}` : '未検出';
+      const d = result._debug || {};
       status.innerHTML = `解析完了 スコア:${scoreDisp} AWAY:${awayLabel} HOME:${homeLabel}`
-        + `<br><small style="opacity:.7">L:「${result.awayRaw}」R:「${result.homeRaw}」スコア生:「${result.scoreRaw}」</small>`;
+        + `<br><small style="opacity:.7;font-size:0.72em;word-break:break-all">`
+        + `スコア生:「${result.scoreRaw}」 PK生:「${d.pkRaw||''}」 バッジ:「${d.badgeRaw||''}」`
+        + `<br>左チーム:「${d.leftTeamRaw||''}」 右チーム:「${d.rightTeamRaw||''}」`
+        + `<br>HOME=${d.leftIsHome?'左':'右'}</small>`;
       try {
         if (typeof firebase !== 'undefined' && firebase.apps.length) {
-          firebase.database().ref('ocr_logs').push({
+          firebase.database().ref('config/ocrDebug').set({
             ts: new Date().toISOString(),
             fileName: file.name,
             scoreRaw: result.scoreRaw,
@@ -600,7 +604,10 @@ function renderStats() {
             awayPK: result.awayPK,       homePK: result.homePK,
             awayRaw: result.awayRaw,     homeRaw: result.homeRaw,
             awayPlayer: awayLabel,       homePlayer: homeLabel,
-          }).catch(() => {});
+            pkRaw: d.pkRaw, badgeRaw: d.badgeRaw,
+            leftTeamRaw: d.leftTeamRaw, rightTeamRaw: d.rightTeamRaw,
+            leftIsHome: d.leftIsHome,
+          }).catch(e => console.warn('[OCR debug write]', e));
         }
       } catch(e) {}
       document.getElementById('ocr-result-form').style.display = 'block';
