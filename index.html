@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#07091a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>ウイコレ ルール決め</title>
+
+  <!-- LINE LIFF SDK -->
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+  <!-- Firebase SDK (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-database-compat.js"></script>
+
+  <!-- Fonts -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+
+  <!-- App styles -->
+  <link rel="stylesheet" href="css/style.css?v=23">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ── Header ── -->
+  <header class="app-header">
+    <div class="header-brand">
+      <svg class="header-icon" width="22" height="22" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="50" cy="50" r="46" stroke="#d4af37" stroke-width="3" fill="none"/>
+        <polygon points="50,18 60,35 78,35 64,46 70,63 50,52 30,63 36,46 22,35 40,35" fill="#d4af37" opacity="0.9"/>
+        <circle cx="50" cy="50" r="46" stroke="#d4af37" stroke-width="1.5" fill="none" stroke-dasharray="4 4" opacity="0.35"/>
+      </svg>
+      <div class="header-brand-text">
+        <span class="header-title">WINNING ROULETTE</span>
+        <span class="header-sub">ウイコレ ルール決め</span>
+      </div>
+    </div>
+
+    <div class="header-profile" id="profile-bar">
+      <img class="profile-avatar" id="profile-avatar"
+           src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Crect width='28' height='28' rx='14' fill='%23d4af3740'/%3E%3Ctext x='14' y='19' text-anchor='middle' font-size='14' fill='%23d4af37'%3E👤%3C/text%3E%3C/svg%3E"
+           alt="avatar">
+      <input type="text" id="name-input" placeholder="表示名" maxlength="20">
+    </div>
+
+    <button class="btn-help" id="btn-help" title="使い方">?</button>
+  </header>
+
+  <!-- ── Tab Panels ── -->
+  <div id="panel-game"     class="tab-panel active"></div>
+  <div id="panel-calendar" class="tab-panel"></div>
+  <div id="panel-stats"    class="tab-panel"></div>
+  <div id="panel-history"  class="tab-panel"></div>
+  <div id="panel-settings" class="tab-panel"></div>
+
+</div><!-- /app -->
+
+<!-- ── Bottom navigation (5 tabs) ── -->
+<nav class="bottom-nav">
+  <button class="nav-btn active" data-tab="game">
+    <span class="nav-icon">⚽</span>ゲーム
+  </button>
+  <button class="nav-btn" data-tab="calendar">
+    <span class="nav-icon">📅</span>カレンダー
+  </button>
+  <button class="nav-btn" data-tab="stats">
+    <span class="nav-icon">📊</span>集計
+  </button>
+  <button class="nav-btn" data-tab="history">
+    <span class="nav-icon">📜</span>履歴
+  </button>
+  <button class="nav-btn" data-tab="settings">
+    <span class="nav-icon">⚙️</span>設定
+  </button>
+</nav>
+
+<!-- ── Help modal ── -->
+<div class="modal-backdrop" id="help-modal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h2>❓ ヘルプ &amp; 使い方</h2>
+      <button class="btn-modal-close" id="btn-modal-close">✕</button>
+    </div>
+    <div id="help-body"></div>
+  </div>
+</div>
+
+<!-- ── Toast ── -->
+<div class="toast" id="toast"></div>
+
+<!-- ── Scripts ── -->
+<script src="js/firebase-config.js?v=23"></script>
+<script src="js/sync.js?v=23"></script>
+<script src="js/ocr.js?v=23"></script>
+<script src="js/roulette.js?v=23"></script>
+<script src="js/liff.js?v=23"></script>
+<script src="js/app.js?v=23"></script>
+
+</body>
+</html>
