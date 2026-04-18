@@ -40,6 +40,20 @@ const OCR = (() => {
     return canvas;
   }
 
+  /* ── 反転前処理（BgDiff失敗時のフォールバック） ── */
+  function preprocessInvert(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = imageData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      const v = lum > 150 ? 0 : 255;
+      d[i] = d[i + 1] = d[i + 2] = v;
+      d[i + 3] = 255;
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }
+
   /* ── スコア/PK用前処理: 背景差分 + モルフォロジークロージング ──
      背景(ぼかし)との輝度差で白数字を検出 → 黒数字×白背景に変換
      閾値固定反転より「1→7」誤読を大幅に改善 ── */
@@ -192,6 +206,21 @@ const OCR = (() => {
     return s;
   }
 
+  /* ── スコア抽出（・区切り対応・ノイズ過大値切り詰め付き） ──
+     "1・ 1" → 1-1、"5 - 28" → 5-2（28→ノイズ→2桁目切り捨て） ── */
+  function extractScore(text) {
+    for (const line of text.split('\n')) {
+      const m = line.match(/(\d{1,2})\s*[-－—–−―・]\s*(\d{1,2})/)
+             || line.match(/\b(\d)\s{1,4}(\d)\b/);
+      if (!m) continue;
+      let a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+      if (a > 15 && a <= 99) a = Math.floor(a / 10);
+      if (b > 15 && b <= 99) b = Math.floor(b / 10);
+      if (a <= 15 && b <= 15) return [a, b];
+    }
+    return null;
+  }
+
   /* ── チーム名マッチング
      ①完全包含 → ②スライディング部分一致 → ③Levenshtein → ④bigram Jaccard
      閾値0.45（OCRノイズが大きいため低め設定） ── */
@@ -263,14 +292,17 @@ const OCR = (() => {
     preprocessBgDiff(scoreCanvas, 40, 40);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
-    let scoreMatch = null;
-    for (const line of scoreText.split('\n')) {
-      scoreMatch = line.match(/\b(\d{1,2})\b\s*[-－—–−―]\s*\b(\d{1,2})\b/)
-                || line.match(/\b(\d)\s{1,4}(\d)\b/);
-      if (scoreMatch) break;
+    let scoreArr = extractScore(scoreText);
+
+    /* BgDiff で検出できない画像はシンプル反転でフォールバック */
+    if (!scoreArr) {
+      const scoreCanvas2 = cropImage(imgEl, 0.30, 0.23, 0.40, 0.11, 3);
+      preprocessInvert(scoreCanvas2);
+      const scoreResult2 = await worker.recognize(scoreCanvas2);
+      scoreArr = extractScore(scoreResult2.data.text);
     }
-    const leftScore   = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
-    const rightScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
+    const leftScore  = scoreArr ? scoreArr[0] : null;
+    const rightScore = scoreArr ? scoreArr[1] : null;
 
     /* ── 領域2: PKスコア（y=32〜41%） ── */
     const pkCanvas = cropImage(imgEl, 0.24, 0.32, 0.52, 0.09, 3);
