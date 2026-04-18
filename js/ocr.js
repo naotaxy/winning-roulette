@@ -40,45 +40,67 @@ const OCR = (() => {
     return canvas;
   }
 
-  /* ── スコアと チーム名を解析 ── */
+  /* ── スコアとチーム名を解析 ── */
   async function parseMatchResult(imgFile, playerMap, onProgress) {
     const blobUrl = URL.createObjectURL(imgFile);
     const imgEl   = await loadImage(blobUrl);
 
     const worker = await ensureWorker(onProgress);
 
-    /* ── 領域1: メインスコア（中央）— 上下左右に余裕を持たせて広めに取得 ── */
-    const scoreCanvas = cropImage(imgEl, 0.360, 0.240, 0.280, 0.100, 3);
+    /* ── 領域1: メインスコア（中央広域）
+       画像によってステータスバーの有無でY位置が変わるため
+       y=16%〜62% の広い範囲をスキャン ── */
+    const scoreCanvas = cropImage(imgEl, 0.18, 0.16, 0.64, 0.46, 3);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
+    const scoreMatch  = scoreText.match(/(\d+)\s*[-－]\s*(\d+)/);
+    const leftScore   = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
+    const rightScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
 
-    const scoreMatch = scoreText.match(/(\d+)\s*[-－]\s*(\d+)/);
-    const awayScore  = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
-    const homeScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
-
-    /* ── 領域2: PKスコア（スコア下）— 広めに取得 ── */
-    const pkCanvas = cropImage(imgEl, 0.340, 0.315, 0.320, 0.070, 3);
+    /* ── 領域2: PKスコア（広域）
+       PKスコアはメインスコアのすぐ下に出るため同じ広域でスキャン ── */
+    const pkCanvas = cropImage(imgEl, 0.18, 0.26, 0.64, 0.46, 3);
     const pkResult = await worker.recognize(pkCanvas);
     const pkText   = pkResult.data.text;
+    const pkMatch  = pkText.match(/(\d+)\s*PK\s*(\d+)/i);
+    const leftPK   = pkMatch ? parseInt(pkMatch[1], 10) : null;
+    const rightPK  = pkMatch ? parseInt(pkMatch[2], 10) : null;
 
-    const pkMatch = pkText.match(/(\d+)\s*PK\s*(\d+)/i);
-    const awayPK  = pkMatch ? parseInt(pkMatch[1], 10) : null;
-    const homePK  = pkMatch ? parseInt(pkMatch[2], 10) : null;
+    /* ── 領域3: 左側バッジ（HOME / AWAY 判定）
+       左チームのバッジが HOME か AWAY かを検出して正しく割り当てる
+       y=13%〜42% をスキャン（ステータスバー有無両対応） ── */
+    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.13, 0.42, 0.30, 2);
+    const leftBadgeResult = await worker.recognize(leftBadgeCanvas);
+    const leftBadgeText   = leftBadgeResult.data.text.toUpperCase().replace(/\s/g, '');
+    /* "HOME" が含まれれば左=HOME、含まれなければ左=AWAY（デフォルト） */
+    const leftIsHome = leftBadgeText.includes('HOME');
 
-    /* ── 領域3: AWAYプレイヤー名（左）— 広めに取得 ── */
-    const awayCanvas = cropImage(imgEl, 0.080, 0.340, 0.360, 0.065, 3);
-    const awayResult = await worker.recognize(awayCanvas);
-    const awayRaw    = awayResult.data.text.trim().replace(/\n/g, ' ');
+    /* ── 領域4: 左チーム名
+       チーム名はスコアより下、y=36%〜68% で左半分をスキャン ── */
+    const leftNameCanvas = cropImage(imgEl, 0.00, 0.36, 0.52, 0.32, 3);
+    const leftNameResult = await worker.recognize(leftNameCanvas);
+    const leftRaw        = leftNameResult.data.text.trim().replace(/\n/g, ' ');
 
-    /* ── 領域4: HOMEプレイヤー名（右）— 広めに取得 ── */
-    const homeCanvas = cropImage(imgEl, 0.560, 0.340, 0.380, 0.065, 3);
-    const homeResult = await worker.recognize(homeCanvas);
-    const homeRaw    = homeResult.data.text.trim().replace(/\n/g, ' ');
+    /* ── 領域5: 右チーム名
+       y=36%〜68% で右半分をスキャン ── */
+    const rightNameCanvas = cropImage(imgEl, 0.44, 0.36, 0.56, 0.32, 3);
+    const rightNameResult = await worker.recognize(rightNameCanvas);
+    const rightRaw        = rightNameResult.data.text.trim().replace(/\n/g, ' ');
 
     URL.revokeObjectURL(blobUrl);
 
-    const awayChar = matchCharName(awayRaw, playerMap);
-    const homeChar = matchCharName(homeRaw, playerMap);
+    /* ── HOME/AWAY を左右から正しく割り当て ── */
+    const leftChar  = matchCharName(leftRaw, playerMap);
+    const rightChar = matchCharName(rightRaw, playerMap);
+
+    const homeScore = leftIsHome ? leftScore : rightScore;
+    const awayScore = leftIsHome ? rightScore : leftScore;
+    const homePK    = leftIsHome ? leftPK    : rightPK;
+    const awayPK    = leftIsHome ? rightPK   : leftPK;
+    const homeChar  = leftIsHome ? leftChar  : rightChar;
+    const awayChar  = leftIsHome ? rightChar : leftChar;
+    const homeRaw   = leftIsHome ? leftRaw   : rightRaw;
+    const awayRaw   = leftIsHome ? rightRaw  : leftRaw;
 
     return {
       awayScore, homeScore,
@@ -98,7 +120,7 @@ const OCR = (() => {
     for (const [charName, playerName] of Object.entries(playerMap)) {
       const charNorm = charName.replace(/\s+/g, '').toLowerCase();
       const score    = similarity(normalized, charNorm);
-      if (score > bestScore && score > 0.35) {
+      if (score > bestScore && score > 0.30) {
         bestScore = score;
         best = { charName, playerName, score };
       }
@@ -110,6 +132,12 @@ const OCR = (() => {
   function similarity(a, b) {
     if (!a || !b) return 0;
     if (a.includes(b) || b.includes(a)) return 0.85;
+
+    /* 単語単位での部分一致チェック */
+    const wordsB = b.split(/\s+/);
+    for (const w of wordsB) {
+      if (w.length >= 2 && a.includes(w)) return 0.75;
+    }
 
     /* N-gram (bigram) による Jaccard 係数 */
     const ngA = ngrams(a, 2);
