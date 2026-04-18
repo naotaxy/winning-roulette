@@ -612,10 +612,13 @@ function _renderStandings(results) {
     }
   });
 
-  /* 試合勝点で順位付け */
+  /* 試合勝点で順位付け — 試合0の選手は除外 */
   const matchPt = s => s.w * 3 + s.pkw * 1;
   const sorted = Object.entries(stats)
+    .filter(([, s]) => s.w + s.pkw + s.d + s.l > 0)
     .sort((a,b) => matchPt(b[1]) - matchPt(a[1]) || (b[1].gf - b[1].ga) - (a[1].gf - a[1].ga));
+
+  if (!sorted.length) { el.innerHTML = '<div class="history-empty">まだ結果がありません</div>'; return; }
 
   /* リーグ順位ボーナス付与 */
   sorted.forEach(([, s], i) => { s.rankBonus = RANK_BONUS[i] ?? 0; });
