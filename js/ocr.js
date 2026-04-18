@@ -40,50 +40,72 @@ const OCR = (() => {
     return canvas;
   }
 
+  /* ── 前処理: 白文字×暗背景 → 黒文字×白背景（Tesseract精度向上）
+     ウイコレのスコア数字は白文字なので、反転することで
+     誤認識（1→4 など）が大幅に減少する ── */
+  function preprocessForOCR(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = imageData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      const val = lum > 150 ? 0 : 255;  /* 明 → 黒文字、暗 → 白背景 */
+      d[i] = d[i + 1] = d[i + 2] = val;
+      d[i + 3] = 255;
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }
+
   /* ── スコアとチーム名を解析 ── */
   async function parseMatchResult(imgFile, playerMap, onProgress) {
     const blobUrl = URL.createObjectURL(imgFile);
     const imgEl   = await loadImage(blobUrl);
+    const worker  = await ensureWorker(onProgress);
 
-    const worker = await ensureWorker(onProgress);
-
-    /* ── 領域1: メインスコア（中央広域）
-       画像によってステータスバーの有無でY位置が変わるため
-       y=16%〜62% の広い範囲をスキャン ── */
-    const scoreCanvas = cropImage(imgEl, 0.18, 0.16, 0.64, 0.46, 3);
+    /* ── 領域1: メインスコア（中央）
+       ステータスバー有無でY位置が異なるため y=19〜55% を広めにスキャン。
+       HP/スタミナバー（y≈0〜14%）と統計テーブル（y≈60%〜）は除外。
+       前処理で白数字を黒文字化し誤認識を防ぐ ── */
+    const scoreCanvas = cropImage(imgEl, 0.20, 0.19, 0.60, 0.36, 3);
+    preprocessForOCR(scoreCanvas);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
     const scoreMatch  = scoreText.match(/(\d+)\s*[-－]\s*(\d+)/);
     const leftScore   = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
     const rightScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
 
-    /* ── 領域2: PKスコア（広域）
-       PKスコアはメインスコアのすぐ下に出るため同じ広域でスキャン ── */
-    const pkCanvas = cropImage(imgEl, 0.18, 0.26, 0.64, 0.46, 3);
+    /* ── 領域2: PKスコア（スコア直下）
+       y=32〜57% に限定して統計テーブル（y≈58%〜）への侵入を防ぐ。
+       これにより「パスカット回数」などが「PK」に誤読される問題を解消。
+       PKスコアのある画像: JPG y≈38〜45%, PNG y≈50〜57%（どちらも範囲内）
+       前処理で精度向上 ── */
+    const pkCanvas = cropImage(imgEl, 0.20, 0.32, 0.60, 0.25, 3);
+    preprocessForOCR(pkCanvas);
     const pkResult = await worker.recognize(pkCanvas);
     const pkText   = pkResult.data.text;
     const pkMatch  = pkText.match(/(\d+)\s*PK\s*(\d+)/i);
     const leftPK   = pkMatch ? parseInt(pkMatch[1], 10) : null;
     const rightPK  = pkMatch ? parseInt(pkMatch[2], 10) : null;
 
-    /* ── 領域3: 左側バッジ（HOME / AWAY 判定）
-       左チームのバッジが HOME か AWAY かを検出して正しく割り当てる
-       y=13%〜42% をスキャン（ステータスバー有無両対応） ── */
-    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.13, 0.42, 0.30, 2);
+    /* ── 領域3: 左バッジ（HOME / AWAY 判定）
+       左チームのバッジが "HOME"（緑）か "AWAY"（赤）かを検出。
+       これで左右のスコアとチーム名を正しく割り当てる ── */
+    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.12, 0.42, 0.32, 2);
     const leftBadgeResult = await worker.recognize(leftBadgeCanvas);
     const leftBadgeText   = leftBadgeResult.data.text.toUpperCase().replace(/\s/g, '');
-    /* "HOME" が含まれれば左=HOME、含まれなければ左=AWAY（デフォルト） */
-    const leftIsHome = leftBadgeText.includes('HOME');
+    const leftIsHome      = leftBadgeText.includes('HOME');
 
-    /* ── 領域4: 左チーム名
-       チーム名はスコアより下、y=36%〜68% で左半分をスキャン ── */
-    const leftNameCanvas = cropImage(imgEl, 0.00, 0.36, 0.52, 0.32, 3);
-    const leftNameResult = await worker.recognize(leftNameCanvas);
-    const leftRaw        = leftNameResult.data.text.trim().replace(/\n/g, ' ');
+    /* ── 領域4・5: チーム名（左右）
+       y=40〜70% をスキャン。
+       JPGレイアウト: チーム名 y≈43〜51%（範囲内）
+       PNGレイアウト: チーム名 y≈58〜66%（範囲内）
+       得点者リスト（y≈58〜68%）が混入する可能性があるが
+       ファジーマッチングで既知チーム名に絞るため影響は軽微 ── */
+    const leftNameCanvas  = cropImage(imgEl, 0.00, 0.40, 0.52, 0.30, 3);
+    const leftNameResult  = await worker.recognize(leftNameCanvas);
+    const leftRaw         = leftNameResult.data.text.trim().replace(/\n/g, ' ');
 
-    /* ── 領域5: 右チーム名
-       y=36%〜68% で右半分をスキャン ── */
-    const rightNameCanvas = cropImage(imgEl, 0.44, 0.36, 0.56, 0.32, 3);
+    const rightNameCanvas = cropImage(imgEl, 0.44, 0.40, 0.56, 0.30, 3);
     const rightNameResult = await worker.recognize(rightNameCanvas);
     const rightRaw        = rightNameResult.data.text.trim().replace(/\n/g, ' ');
 
@@ -93,14 +115,14 @@ const OCR = (() => {
     const leftChar  = matchCharName(leftRaw, playerMap);
     const rightChar = matchCharName(rightRaw, playerMap);
 
-    const homeScore = leftIsHome ? leftScore : rightScore;
+    const homeScore = leftIsHome ? leftScore  : rightScore;
     const awayScore = leftIsHome ? rightScore : leftScore;
-    const homePK    = leftIsHome ? leftPK    : rightPK;
-    const awayPK    = leftIsHome ? rightPK   : leftPK;
-    const homeChar  = leftIsHome ? leftChar  : rightChar;
-    const awayChar  = leftIsHome ? rightChar : leftChar;
-    const homeRaw   = leftIsHome ? leftRaw   : rightRaw;
-    const awayRaw   = leftIsHome ? rightRaw  : leftRaw;
+    const homePK    = leftIsHome ? leftPK     : rightPK;
+    const awayPK    = leftIsHome ? rightPK    : leftPK;
+    const homeChar  = leftIsHome ? leftChar   : rightChar;
+    const awayChar  = leftIsHome ? rightChar  : leftChar;
+    const homeRaw   = leftIsHome ? leftRaw    : rightRaw;
+    const awayRaw   = leftIsHome ? rightRaw   : leftRaw;
 
     return {
       awayScore, homeScore,
