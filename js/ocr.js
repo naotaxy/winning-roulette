@@ -182,44 +182,45 @@ const OCR = (() => {
     const imgEl   = await loadImage(blobUrl);
     const worker  = await ensureWorker(onProgress);
 
-    /* ── 領域1: メインスコア（14〜36%・画像上端切れ対策） ── */
-    const scoreCanvas = cropImage(imgEl, 0.15, 0.14, 0.70, 0.22, 3);
+    /* ── 領域1: スコア（数字とハイフンのみ whitelist で確実に読む） ── */
+    await worker.setParameters({ tessedit_char_whitelist: '0123456789- ' });
+    const scoreCanvas = cropImage(imgEl, 0.20, 0.13, 0.60, 0.20, 3);
     preprocessForScorePK(scoreCanvas);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
-    const scoreMatch  = scoreText.match(/(\d+)\s*[-－ー]\s*(\d+)/);
+    const scoreMatch  = scoreText.match(/(\d+)\D+(\d+)/);
     const leftScore   = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
     const rightScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
+    await worker.setParameters({ tessedit_char_whitelist: '' });
 
-    /* ── 領域2: PKスコア（21〜37%・スコア直下） ── */
-    const pkCanvas = cropImage(imgEl, 0.24, 0.21, 0.52, 0.16, 3);
+    /* ── 領域2: PKスコア（whitelist で PK を確実に読む） ── */
+    await worker.setParameters({ tessedit_char_whitelist: '0123456789PKpk ' });
+    const pkCanvas = cropImage(imgEl, 0.24, 0.23, 0.52, 0.12, 3);
     preprocessForScorePK(pkCanvas);
     const pkResult = await worker.recognize(pkCanvas);
     const pkText   = pkResult.data.text;
-    const pkMatch  = pkText.match(/(\d+)\s*PK\s*(\d+)/i);
+    const pkMatch  = pkText.match(/(\d+)\s*[PpKk]+\s*(\d+)/i);
     let leftPK  = pkMatch ? parseInt(pkMatch[1], 10) : null;
     let rightPK = pkMatch ? parseInt(pkMatch[2], 10) : null;
     if (leftScore !== null && rightScore !== null && leftScore !== rightScore) {
       leftPK = null; rightPK = null;
     }
+    await worker.setParameters({ tessedit_char_whitelist: '' });
 
-    /* ── 領域3: 左バッジ（HOME / AWAY 判定・5〜22%） ── */
-    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.05, 0.44, 0.17, 2);
+    /* ── 領域3: 左バッジ（HOME / AWAY 判定・5〜17%） ── */
+    const leftBadgeCanvas = cropImage(imgEl, 0.02, 0.05, 0.44, 0.12, 2);
     const leftBadgeResult = await worker.recognize(leftBadgeCanvas);
     const leftBadgeText   = leftBadgeResult.data.text.toUpperCase().replace(/\s/g, '');
     const leftIsHome      = leftBadgeText.includes('HOME');
 
-    /* ── 領域4/5: チーム名（24〜38%・PSM 11でどこにあっても検出）
-       前処理: 閾値175でJPEG圧縮後の白文字も拾う ── */
+    /* ── 領域4/5: チーム名（前処理なし・PSM 11・y=24〜34%の細帯） ── */
     await worker.setParameters({ tessedit_pageseg_mode: '11' });
 
-    const leftNameCanvas = cropImage(imgEl, 0.03, 0.24, 0.43, 0.14, 2);
-    preprocessForTeamName(leftNameCanvas);
+    const leftNameCanvas = cropImage(imgEl, 0.03, 0.24, 0.43, 0.10, 2);
     const leftNameResult = await worker.recognize(leftNameCanvas);
     const leftTeamRaw    = leftNameResult.data.text.trim().replace(/\n/g, ' ');
 
-    const rightNameCanvas = cropImage(imgEl, 0.55, 0.24, 0.41, 0.14, 2);
-    preprocessForTeamName(rightNameCanvas);
+    const rightNameCanvas = cropImage(imgEl, 0.55, 0.24, 0.41, 0.10, 2);
     const rightNameResult = await worker.recognize(rightNameCanvas);
     const rightTeamRaw    = rightNameResult.data.text.trim().replace(/\n/g, ' ');
 
