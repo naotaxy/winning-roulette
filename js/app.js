@@ -87,20 +87,20 @@ function renderGame() {
 
   panel.innerHTML = `
     <div class="phase-strip">
-      <div class="phase-node ${STATE.phase > 1 ? 'done' : 'active'}">1st：12択×2</div>
-      <div class="phase-node ${STATE.phase === 2 ? 'active' : STATE.phase > 2 ? 'done' : ''}">2nd：6択×1</div>
+      <div class="phase-node ${STATE.phase > 1 ? 'done' : 'active'}">1st: 12択×2</div>
+      <div class="phase-node ${STATE.phase === 2 ? 'active' : STATE.phase > 2 ? 'done' : ''}">2nd: 6択×1</div>
     </div>
 
     <div class="roulette-stage" id="roulette-stage">
-      <div class="roulette-label">${isP1 ? `ROUND 1 — SPIN ${spinN}/2` : 'ROUND 2 — FINAL SPIN'}</div>
+      <div class="roulette-label">${isP1 ? `ROUND&nbsp;1 &mdash; SPIN&nbsp;${spinN}/2` : 'ROUND&nbsp;2 &mdash; FINAL&nbsp;SPIN'}</div>
       <div class="wheel-wrap" id="wheel-wrap">
         <div class="wheel-pointer"></div>
       </div>
       <div class="spin-status" id="spin-status">PRESS SPIN TO START</div>
     </div>
 
-    <div style="display:flex;justify-content:center;margin-bottom:12px;">
-      <button class="btn-spin" id="btn-spin">🎯 SPIN</button>
+    <div style="display:flex;justify-content:center;margin-bottom:14px;">
+      <button class="btn-spin" id="btn-spin">🎯&nbsp;SPIN</button>
     </div>
 
     <div id="partial-wrap"></div>

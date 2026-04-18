@@ -64,111 +64,172 @@ const LIFF_WRAPPER = (() => {
   /* ── Build Flex Message (LINE rich card) ── */
   function buildFlexMessage(entry) {
     const { name, round1, round2, pictureUrl } = entry;
+    const appUrl = location.href.split('?')[0];
 
-    const r1Items = round1.map(text => ({
+    const r1Items = round1.map((text, idx) => ({
       type: 'box',
       layout: 'horizontal',
+      spacing: 'sm',
+      margin: 'xs',
       contents: [
-        { type: 'text', text: '⚡', size: 'sm', flex: 0 },
-        { type: 'text', text, size: 'sm', weight: 'bold', margin: 'sm', color: '#f4d560' }
+        {
+          type: 'box',
+          layout: 'vertical',
+          width: '20px',
+          height: '20px',
+          backgroundColor: '#d4af3730',
+          cornerRadius: '10px',
+          alignItems: 'center',
+          justifyContent: 'center',
+          contents: [{ type: 'text', text: String(idx + 1), size: 'xxs', color: '#d4af37', weight: 'bold' }]
+        },
+        { type: 'text', text, size: 'sm', weight: 'bold', color: '#f4d560', flex: 1, wrap: true }
       ]
     }));
 
     return {
       type: 'bubble',
-      size: 'kilo',
+      size: 'mega',
+      /* ── Header bar ── */
       header: {
         type: 'box',
         layout: 'vertical',
         backgroundColor: '#07091a',
-        paddingAll: '14px',
+        paddingTop: '14px',
+        paddingBottom: '10px',
+        paddingStart: '16px',
+        paddingEnd: '16px',
         contents: [
           {
-            type: 'text',
-            text: '⚽ ウイコレ ルール決め',
-            color: '#d4af37',
-            weight: 'bold',
-            size: 'sm',
-            align: 'center',
+            type: 'box',
+            layout: 'horizontal',
+            alignItems: 'center',
+            spacing: 'sm',
+            contents: [
+              { type: 'text', text: '⚽', size: 'xl', flex: 0 },
+              {
+                type: 'box',
+                layout: 'vertical',
+                contents: [
+                  { type: 'text', text: 'WINNING ROULETTE', size: 'xs', weight: 'bold', color: '#d4af37', letterSpacing: '2px' },
+                  { type: 'text', text: 'ウイコレ ルール決め', size: 'xxs', color: '#8892b0' }
+                ]
+              }
+            ]
           }
         ]
       },
+      /* ── Body ── */
       body: {
         type: 'box',
         layout: 'vertical',
         backgroundColor: '#0e1230',
-        paddingAll: '14px',
+        paddingAll: '16px',
         spacing: 'sm',
         contents: [
-          /* User info row */
+          /* Player info */
           {
             type: 'box',
             layout: 'horizontal',
-            spacing: 'sm',
-            margin: 'none',
+            spacing: 'md',
+            alignItems: 'center',
             contents: [
               pictureUrl
-                ? { type: 'image', url: pictureUrl, size: '36px', aspectRatio: '1:1', aspectMode: 'cover', cornerRadius: '18px' }
-                : { type: 'text', text: '👤', size: 'xl', flex: 0 },
+                ? { type: 'image', url: pictureUrl, size: '40px', aspectRatio: '1:1', aspectMode: 'cover', cornerRadius: '20px', flex: 0 }
+                : { type: 'text', text: '👤', size: 'xxl', flex: 0 },
               {
                 type: 'box',
                 layout: 'vertical',
-                justifyContent: 'center',
                 contents: [
-                  { type: 'text', text: name, weight: 'bold', size: 'sm', color: '#eef0ff' },
+                  { type: 'text', text: name, weight: 'bold', size: 'md', color: '#eef0ff', wrap: true },
                   { type: 'text', text: 'がルーレットを回しました', size: 'xxs', color: '#8892b0' }
                 ]
               }
             ]
           },
-          { type: 'separator', margin: 'md', color: '#d4af3740' },
+          { type: 'separator', margin: 'md', color: '#d4af3750' },
           /* Round 1 */
           {
             type: 'box',
             layout: 'vertical',
             margin: 'md',
-            spacing: 'xs',
             contents: [
-              { type: 'text', text: '【第1回】12択から2個', size: 'xxs', color: '#8892b0' },
-              ...r1Items
+              {
+                type: 'box',
+                layout: 'horizontal',
+                alignItems: 'center',
+                spacing: 'sm',
+                margin: 'none',
+                contents: [
+                  { type: 'text', text: '▌', size: 'xs', color: '#d4af37', flex: 0 },
+                  { type: 'text', text: '【第1回】12択から2個', size: 'xs', color: '#8892b0', weight: 'bold' }
+                ]
+              },
+              {
+                type: 'box',
+                layout: 'vertical',
+                margin: 'sm',
+                paddingStart: '10px',
+                spacing: 'xs',
+                contents: r1Items
+              }
             ]
           },
+          { type: 'separator', margin: 'sm', color: '#d4af3730' },
           /* Round 2 */
           {
             type: 'box',
             layout: 'vertical',
             margin: 'sm',
-            spacing: 'xs',
             contents: [
-              { type: 'text', text: '【第2回】6択から1個', size: 'xxs', color: '#8892b0' },
               {
                 type: 'box',
                 layout: 'horizontal',
+                alignItems: 'center',
+                spacing: 'sm',
                 contents: [
-                  { type: 'text', text: '🎲', size: 'sm', flex: 0 },
-                  { type: 'text', text: round2, size: 'sm', weight: 'bold', margin: 'sm', color: '#00d9ff' }
+                  { type: 'text', text: '▌', size: 'xs', color: '#00d9ff', flex: 0 },
+                  { type: 'text', text: '【第2回】6択から1個', size: 'xs', color: '#8892b0', weight: 'bold' }
+                ]
+              },
+              {
+                type: 'box',
+                layout: 'horizontal',
+                margin: 'sm',
+                paddingStart: '10px',
+                spacing: 'sm',
+                alignItems: 'center',
+                contents: [
+                  { type: 'text', text: '🎲', size: 'lg', flex: 0 },
+                  { type: 'text', text: round2, size: 'md', weight: 'bold', color: '#00d9ff', flex: 1, wrap: true }
                 ]
               }
             ]
           }
         ]
       },
+      /* ── Footer ── */
       footer: {
         type: 'box',
         layout: 'vertical',
-        backgroundColor: '#0e1230',
+        backgroundColor: '#07091a',
         paddingAll: '12px',
+        spacing: 'sm',
         contents: [
           {
             type: 'button',
             style: 'primary',
             color: '#d4af37',
             height: 'sm',
-            action: {
-              type: 'uri',
-              label: '自分もやってみる',
-              uri: location.href.split('?')[0]
-            }
+            action: { type: 'uri', label: '⚽ 自分もやってみる', uri: appUrl }
+          },
+          {
+            type: 'text',
+            text: 'WINNING ROULETTE for ウイコレ',
+            size: 'xxs',
+            color: '#ffffff30',
+            align: 'center',
+            margin: 'sm'
           }
         ]
       }
