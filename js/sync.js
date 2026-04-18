@@ -233,6 +233,72 @@ const SYNC = (() => {
     }
   }
 
+  /* 月次ルール削除（誰が削除したか記録） */
+  async function deleteMonthlyRule(year, month, deletedBy) {
+    const key = `${year}/${month}`;
+    if (_isReady) {
+      await _db.ref(`monthlyRules/${key}`).remove();
+      await _db.ref(`deletionLog/monthlyRules/${year}_${month}`).set({
+        deletedBy, deletedAt: Date.now()
+      });
+    } else {
+      const cur = _localLoad('monthlyRules') || {};
+      if (cur[year]) delete cur[year][month];
+      _localSave('monthlyRules', cur);
+    }
+  }
+
+  /* スピン履歴（Firebase保存） */
+  async function saveSpinHistory(entry) {
+    const id = Date.now().toString(36);
+    if (_isReady) {
+      await _db.ref(`spinHistory/${id}`).set({ ...entry, savedAt: Date.now() });
+    }
+    try {
+      const h = JSON.parse(localStorage.getItem('wc_hist') || '[]');
+      h.unshift(entry);
+      localStorage.setItem('wc_hist', JSON.stringify(h.slice(0, 100)));
+    } catch(_) {}
+    return id;
+  }
+
+  function watchSpinHistory(callback) {
+    if (_isReady) {
+      _db.ref('spinHistory').on('value', snap => {
+        const data = snap.val() || {};
+        const entries = Object.values(data).sort((a,b) => (b.savedAt||0) - (a.savedAt||0)).slice(0, 100);
+        callback(entries);
+      });
+    } else {
+      callback(getLegacyHistory());
+    }
+  }
+
+  /* 年間全月の結果を一括監視 */
+  function watchAnnualResults(year, callback) {
+    if (_isReady) {
+      _db.ref(`matchResults/${year}`).on('value', snap => callback(snap.val() || {}));
+    } else {
+      const all = _localLoad('matchResults') || {};
+      callback(all[year] || {});
+    }
+  }
+
+  /* プレイヤーアバターURL保存・監視 */
+  async function savePlayerAvatar(playerName, avatarUrl) {
+    if (_isReady) {
+      await _db.ref(`playerAvatars/${playerName.replace(/[.#$/[\]]/g,'_')}`).set(avatarUrl);
+    }
+  }
+
+  function watchPlayerAvatars(callback) {
+    if (_isReady) {
+      _db.ref('playerAvatars').on('value', snap => callback(snap.val() || {}));
+    } else {
+      callback({});
+    }
+  }
+
   /* ─────────────────────────────────────────────
      LocalStorage フォールバック
   ───────────────────────────────────────────── */
@@ -252,9 +318,12 @@ const SYNC = (() => {
     init, on, isReady: () => _isReady,
     createSession, joinSession, commitSpin, finishSpin, resetSession,
     watchConfig, saveConfig,
-    watchMonthlyRules, saveMonthlyRule,
+    watchMonthlyRules, saveMonthlyRule, deleteMonthlyRule,
     watchResults, saveResult, deleteResult,
+    saveSpinHistory, watchSpinHistory,
+    watchAnnualResults,
+    savePlayerAvatar, watchPlayerAvatars,
     getLegacyHistory,
-    get sessionId() { return _sessionId; },
+    sessionId: () => _sessionId,
   };
 })();

@@ -262,22 +262,20 @@ const ROULETTE = (() => {
        Phase B [tA, tB] : 指数減衰 v = vA * e^{-k*(t-tA)}
        Phase C [tB, tC] : スプリング整定
     */
-    const totalMs = 5000 + (pw / 100) * 4000;  /* パワーが強いほど長い */
-    const tA  = totalMs * 0.08;                  /* 等速フェーズ終了 */
-    const tB  = totalMs * 0.72;                  /* 減衰フェーズ終了 */
-    const tC  = totalMs;                          /* 整定フェーズ終了 */
+    const totalMs = 9000 + (pw / 100) * 6000;  /* 9〜15秒 */
+    const tA  = totalMs * 0.06;                  /* 等速フェーズ（短め） */
+    const tB  = totalMs * 0.62;                  /* 減衰フェーズ終了 */
+    const tC  = totalMs;                          /* 整定フェーズ終了（38%を使う） */
 
-    /* フェーズAでの回転量 */
-    const rotA     = totalDelta * 0.15;
-    const vA       = rotA / (tA / 1000);
+    const rotA       = totalDelta * 0.12;
+    const vA         = rotA / (tA / 1000);
 
-    /* フェーズBでの残り回転量（ゆるやかな指数減衰） */
-    const rotB_total = totalDelta * 0.78;
+    const rotB_total = totalDelta * 0.80;
     const tB_s       = (tB - tA) / 1000;
-    const k = 1.8 / tB_s;                        /* 小さいk = ゆっくり減速 */
+    const k = 1.2 / tB_s;                        /* さらにゆっくり減速 */
 
-    /* Phase C: ほぼ止まった状態から最終位置へ超ゆっくり収束 */
-    const amp = seg * 0.18;                       /* 振れ幅を小さく */
+    /* Phase C: 非常に小さい振れで超スロー収束 */
+    const amp = seg * 0.06;
 
     const t0 = performance.now();
 
@@ -306,8 +304,8 @@ const ROULETTE = (() => {
         const t    = (elapsed - tB) / 1000;
         const tC_s = (tC - tB) / 1000;
         const prog = Math.min(t / tC_s, 1);
-        const zeta = 4.0;   /* 減衰率 */
-        const omega = 8.0;  /* 振動数（少なく） */
+        const zeta = 2.5;   /* ゆるやかな減衰 */
+        const omega = 3.0;  /* 極めて少ない振動 */
         const env  = Math.exp(-zeta * t);
         rot = finalRot + amp * env * Math.cos(omega * t + Math.PI) * (1 - prog);
       }

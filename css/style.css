@@ -1199,6 +1199,32 @@ body {
   overflow-wrap: break-word;
   min-height: 24px;
 }
+.cal-rule-meta {
+  font-size: 0.55em;
+  color: rgba(136,146,176,0.7);
+  margin-top: 2px;
+}
+.btn-cal-del {
+  margin-top: 6px;
+  background: none;
+  border: 1px solid rgba(255,23,68,0.35);
+  border-radius: 5px;
+  color: var(--red);
+  font-size: 0.6em;
+  padding: 3px 6px;
+  cursor: pointer;
+  width: 100%;
+}
+.btn-cal-del:hover { background: rgba(255,23,68,0.12); }
+
+/* 順位表アバター */
+.standings-avatar {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  vertical-align: middle;
+}
+.standings-avatar-ph { font-size: 18px; vertical-align: middle; }
 
 /* ══════════════════════════════
    STATS / OCR
