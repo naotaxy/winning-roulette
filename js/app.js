@@ -338,52 +338,84 @@ function renderCalendar() {
   panel.innerHTML = `
     <div class="cal-header">
       <h2 class="cal-title">📅 ${year}年 縛りカレンダー</h2>
-      <p class="cal-note">縛り月: 5・6・8・9・11月</p>
+      <p class="cal-note">縛り月: 5・6・8・9・11月 ／ ✏️で全月編集可</p>
     </div>
     <div class="cal-grid" id="cal-grid">
       ${MONTH_NAMES.map((mn, i) => {
         const m = i + 1;
-        const isNow = (m === month);
-        const cls   = isRestrict(m) ? 'cal-cell restrict' : 'cal-cell free';
-        return `<div class="${cls}${isNow ? ' current' : ''}" data-month="${m}">
+        const cls = isRestrict(m) ? 'cal-cell restrict' : 'cal-cell free';
+        return `<div class="${cls}${m === month ? ' current' : ''}" data-month="${m}">
           <div class="cal-month-num">${m}月</div>
           <div class="cal-badge">${isRestrict(m) ? '🔒 縛り' : '🆓 フリー'}</div>
           <div class="cal-rule-text" id="cal-rule-${m}">読み込み中…</div>
           <div class="cal-rule-meta" id="cal-meta-${m}"></div>
-          <button class="btn-cal-del" id="cal-del-${m}" style="display:none">🗑️ 削除</button>
+          <div class="cal-btn-row">
+            <button class="btn-cal-edit" id="cal-edit-${m}">✏️</button>
+            <button class="btn-cal-del"  id="cal-del-${m}"  style="display:none">🗑️</button>
+          </div>
+          <div class="cal-edit-form" id="cal-form-${m}" style="display:none">
+            <input class="cal-edit-input" id="cal-input-${m}" type="text" placeholder="ルールを入力" maxlength="40">
+            <div class="cal-edit-actions">
+              <button class="cal-edit-save" id="cal-save-${m}">保存</button>
+              <button class="cal-edit-cancel" id="cal-cancel-${m}">✕</button>
+            </div>
+          </div>
         </div>`;
       }).join('')}
     </div>`;
 
-  if (SYNC) {
-    SYNC.watchMonthlyRules(rules => {
-      const yr = rules[year] || {};
-      MONTH_NAMES.forEach((_, i) => {
-        const m      = i + 1;
-        const textEl = document.getElementById(`cal-rule-${m}`);
-        const metaEl = document.getElementById(`cal-meta-${m}`);
-        const delBtn = document.getElementById(`cal-del-${m}`);
-        if (!textEl) return;
-        const r = yr[m];
-        if (r) {
-          textEl.textContent = r.rule;
-          if (metaEl) metaEl.textContent = `設定: ${r.decidedBy || ''}`;
-          if (delBtn) {
-            delBtn.style.display = 'block';
-            delBtn.onclick = async () => {
-              if (!confirm(`${m}月のルールを削除しますか？`)) return;
-              await SYNC.deleteMonthlyRule(year, m, STATE.userName || '不明');
-              toast(`🗑️ ${m}月のルールを削除しました（by ${STATE.userName || '不明'}）`);
-            };
-          }
-        } else {
-          textEl.textContent = isRestrict(m) ? '未決定' : '縛りなし';
-          if (metaEl) metaEl.textContent = '';
-          if (delBtn) delBtn.style.display = 'none';
-        }
-      });
+  if (!SYNC) return;
+
+  /* 編集・削除ボタンのイベント設定 */
+  MONTH_NAMES.forEach((_, i) => {
+    const m = i + 1;
+    document.getElementById(`cal-edit-${m}`)?.addEventListener('click', () => {
+      const form = document.getElementById(`cal-form-${m}`);
+      const inp  = document.getElementById(`cal-input-${m}`);
+      const cur  = document.getElementById(`cal-rule-${m}`)?.textContent || '';
+      inp.value = (cur === '未決定' || cur === '縛りなし' || cur === '読み込み中…') ? '' : cur;
+      form.style.display = 'block';
+      inp.focus();
     });
-  }
+    document.getElementById(`cal-cancel-${m}`)?.addEventListener('click', () => {
+      document.getElementById(`cal-form-${m}`).style.display = 'none';
+    });
+    document.getElementById(`cal-save-${m}`)?.addEventListener('click', async () => {
+      const val = document.getElementById(`cal-input-${m}`)?.value.trim();
+      if (!val) return;
+      const who = STATE.userName || '不明';
+      await SYNC.saveMonthlyRule(year, m, val, who);
+      document.getElementById(`cal-form-${m}`).style.display = 'none';
+      toast(`✅ ${m}月のルールを保存しました（by ${who}）`);
+    });
+    document.getElementById(`cal-del-${m}`)?.addEventListener('click', async () => {
+      if (!confirm(`${m}月のルールを削除しますか？`)) return;
+      const who = STATE.userName || '不明';
+      await SYNC.deleteMonthlyRule(year, m, who);
+      toast(`🗑️ ${m}月のルールを削除しました（by ${who}）`);
+    });
+  });
+
+  SYNC.watchMonthlyRules(rules => {
+    const yr = rules[year] || {};
+    MONTH_NAMES.forEach((_, i) => {
+      const m      = i + 1;
+      const textEl = document.getElementById(`cal-rule-${m}`);
+      const metaEl = document.getElementById(`cal-meta-${m}`);
+      const delBtn = document.getElementById(`cal-del-${m}`);
+      if (!textEl) return;
+      const r = yr[m];
+      if (r) {
+        textEl.textContent = r.rule;
+        if (metaEl) metaEl.textContent = `by ${r.decidedBy || ''}`;
+        if (delBtn) delBtn.style.display = 'inline-block';
+      } else {
+        textEl.textContent = isRestrict(m) ? '未決定' : '縛りなし';
+        if (metaEl) metaEl.textContent = '';
+        if (delBtn) delBtn.style.display = 'none';
+      }
+    });
+  });
 }
 
 /* ══════════════════════════════════════════════
@@ -618,6 +650,7 @@ const RANK_BONUS = [5, 3, 2, 1, 0];
 function _renderStandings(results) {
   const el = document.getElementById('standings-table');
   if (!el) return;
+  STATE._lastMonthResults = results;
   const stats = {};
   STATE.players.forEach(p => {
     stats[p.name] = { w: 0, pkw: 0, d: 0, l: 0, gf: 0, ga: 0 };
@@ -707,10 +740,10 @@ function _calcMonthlyStats(monthResults) {
 function _renderAnnualStandings(allMonths) {
   const el = document.getElementById('annual-standings');
   if (!el) return;
+  STATE._lastAnnualMonths = allMonths;
 
-  /* 月ごとに順位ボーナスを計算して合算 */
   const annual = {};
-  STATE.players.forEach(p => { annual[p.name] = { matchPt: 0, rankPt: 0, months: 0 }; });
+  STATE.players.forEach(p => { annual[p.name] = { rankPt: 0 }; });
 
   const matchPt = s => s.w * 3 + s.pkw;
 
@@ -720,19 +753,16 @@ function _renderAnnualStandings(allMonths) {
     const active = Object.entries(stats).filter(([, s]) => s.w + s.pkw + s.d + s.l > 0);
     if (!active.length) return;
     const sorted = active.sort((a,b) => matchPt(b[1]) - matchPt(a[1]) || (b[1].gf-b[1].ga)-(a[1].gf-a[1].ga));
-    sorted.forEach(([name, s], i) => {
-      if (!annual[name]) return;
-      annual[name].matchPt += matchPt(s);
-      annual[name].rankPt  += RANK_BONUS[i] ?? 0;
-      annual[name].months++;
+    sorted.forEach(([name,, ], i) => {
+      if (annual[name] != null) annual[name].rankPt += RANK_BONUS[i] ?? 0;
     });
   });
 
-  const sorted = Object.entries(annual)
-    .filter(([, a]) => a.months > 0)
-    .sort((a,b) => (b[1].matchPt + b[1].rankPt) - (a[1].matchPt + a[1].rankPt));
+  const sorted = Object.entries(annual).sort((a,b) => b[1].rankPt - a[1].rankPt);
 
-  if (!sorted.length) { el.innerHTML = '<div class="history-empty">まだデータがありません</div>'; return; }
+  if (!sorted.some(([,a]) => a.rankPt > 0)) {
+    el.innerHTML = '<div class="history-empty">まだデータがありません</div>'; return;
+  }
 
   const avatarCell = name => {
     const url = STATE.playerAvatars[name];
@@ -741,19 +771,14 @@ function _renderAnnualStandings(allMonths) {
 
   el.innerHTML = `
     <table class="standings">
-      <thead>
-        <tr><th>#</th><th></th><th>選手</th><th>参加月</th><th>試合Pt</th><th>順位Pt</th><th>合計</th></tr>
-      </thead>
+      <thead><tr><th>#</th><th></th><th>選手</th><th>年間順位Pt</th></tr></thead>
       <tbody>
         ${sorted.map(([name, a], i) => `
           <tr class="${i===0?'rank-gold':i===1?'rank-silver':i===2?'rank-bronze':''}">
             <td>${i+1}</td>
             <td>${avatarCell(name)}</td>
             <td>${name}</td>
-            <td>${a.months}月</td>
-            <td>${a.matchPt}</td>
-            <td>${a.rankPt}</td>
-            <td><b>${a.matchPt + a.rankPt}</b></td>
+            <td><b>${a.rankPt}</b></td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -1017,6 +1042,11 @@ async function boot() {
     /* アバターURL監視・自分のアバターを保存 */
     SYNC.watchPlayerAvatars(avatars => {
       STATE.playerAvatars = avatars || {};
+      /* 集計タブが開いていれば順位表を再描画してアバターを反映 */
+      if (document.getElementById('panel-stats')?.classList.contains('active')) {
+        if (STATE._lastMonthResults != null) _renderStandings(STATE._lastMonthResults);
+        if (STATE._lastAnnualMonths  != null) _renderAnnualStandings(STATE._lastAnnualMonths);
+      }
     });
     if (STATE.userName && STATE.avatarUrl) {
       SYNC.savePlayerAvatar(STATE.userName, STATE.avatarUrl);

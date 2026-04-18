@@ -262,20 +262,18 @@ const ROULETTE = (() => {
        Phase B [tA, tB] : 指数減衰 v = vA * e^{-k*(t-tA)}
        Phase C [tB, tC] : スプリング整定
     */
-    const totalMs = 9000 + (pw / 100) * 6000;  /* 9〜15秒 */
-    const tA  = totalMs * 0.06;                  /* 等速フェーズ（短め） */
-    const tB  = totalMs * 0.62;                  /* 減衰フェーズ終了 */
-    const tC  = totalMs;                          /* 整定フェーズ終了（38%を使う） */
+    const totalMs = 10000 + (pw / 100) * 7000;  /* 10〜17秒 */
+    const tA  = totalMs * 0.05;   /* 等速フェーズ */
+    const tB  = totalMs * 0.58;   /* 指数減衰フェーズ終了 */
+    const tC  = totalMs;          /* イーズアウト収束フェーズ終了 */
 
-    const rotA       = totalDelta * 0.12;
+    const rotA       = totalDelta * 0.10;
     const vA         = rotA / (tA / 1000);
-
-    const rotB_total = totalDelta * 0.80;
+    const rotB_total = totalDelta * 0.82;
     const tB_s       = (tB - tA) / 1000;
-    const k = 1.2 / tB_s;                        /* さらにゆっくり減速 */
+    const k          = 2.2 / tB_s;   /* Phase B 終了時に約 89% 速度消費 */
 
-    /* Phase C: 非常に小さい振れで超スロー収束 */
-    const amp = seg * 0.06;
+    let _rotB_end = null;  /* Phase B→C 接続点（動的に記録） */
 
     const t0 = performance.now();
 
@@ -289,25 +287,21 @@ const ROULETTE = (() => {
         rot = state.rot + vA * (elapsed / 1000);
 
       } else if (elapsed < tB) {
-        /* ─ Phase B: 指数減衰 ─
-           θ(t) = θ_A + (vA/k) * (1 - e^{-k*t})
-           ここで t = elapsed - tA
-        */
+        /* ─ Phase B: 指数減衰 ─ */
         const t  = (elapsed - tA) / 1000;
         const dθ = (vA / k) * (1 - Math.exp(-k * t));
         rot = state.rot + rotA + dθ;
+        _rotB_end = rot;  /* 接続点を随時更新 */
 
       } else {
-        /* ─ Phase C: スプリング整定 ─
-           finalRot + overshoot * e^{-ζ*t} * cos(ω*t)
+        /* ─ Phase C: 超スローイーズアウト収束 ─
+           quintic ease-out: f(t) = 1 - (1-t)^5
+           Phase B 終了点から finalRot へなめらかに減速
         */
-        const t    = (elapsed - tB) / 1000;
-        const tC_s = (tC - tB) / 1000;
-        const prog = Math.min(t / tC_s, 1);
-        const zeta = 2.5;   /* ゆるやかな減衰 */
-        const omega = 3.0;  /* 極めて少ない振動 */
-        const env  = Math.exp(-zeta * t);
-        rot = finalRot + amp * env * Math.cos(omega * t + Math.PI) * (1 - prog);
+        if (_rotB_end === null) _rotB_end = finalRot;
+        const prog  = Math.min((elapsed - tB) / (tC - tB), 1);
+        const ease  = 1 - Math.pow(1 - prog, 5);
+        rot = _rotB_end + (finalRot - _rotB_end) * ease;
       }
 
       state.rot = rot;

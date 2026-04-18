@@ -1204,18 +1204,53 @@ body {
   color: rgba(136,146,176,0.7);
   margin-top: 2px;
 }
+.cal-btn-row { display: flex; gap: 4px; margin-top: 6px; }
+.btn-cal-edit {
+  flex: 1;
+  background: rgba(212,175,55,0.12);
+  border: 1px solid rgba(212,175,55,0.3);
+  border-radius: 5px;
+  color: var(--gold);
+  font-size: 0.65em;
+  padding: 3px 0;
+  cursor: pointer;
+}
+.btn-cal-edit:hover { background: rgba(212,175,55,0.22); }
 .btn-cal-del {
-  margin-top: 6px;
+  flex: 1;
   background: none;
   border: 1px solid rgba(255,23,68,0.35);
   border-radius: 5px;
   color: var(--red);
-  font-size: 0.6em;
-  padding: 3px 6px;
+  font-size: 0.65em;
+  padding: 3px 0;
   cursor: pointer;
-  width: 100%;
 }
 .btn-cal-del:hover { background: rgba(255,23,68,0.12); }
+.cal-edit-form { margin-top: 6px; }
+.cal-edit-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-deep);
+  border: 1px solid rgba(212,175,55,0.4);
+  border-radius: 5px;
+  color: var(--text-main);
+  font-size: 0.68em;
+  padding: 4px 6px;
+  margin-bottom: 4px;
+}
+.cal-edit-actions { display: flex; gap: 4px; }
+.cal-edit-save {
+  flex: 1;
+  background: linear-gradient(135deg,#d4af37,#f4d560);
+  color: #07091a; border: none; border-radius: 5px;
+  font-size: 0.65em; font-weight: 700; padding: 4px 0; cursor: pointer;
+}
+.cal-edit-cancel {
+  background: none; border: 1px solid var(--border);
+  border-radius: 5px; color: var(--text-sub);
+  font-size: 0.65em; padding: 4px 6px; cursor: pointer;
+}
 
 /* 順位表アバター */
 .standings-avatar {
