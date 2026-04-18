@@ -765,61 +765,57 @@ async function copyToClipboard(text) {
 
 /* ── 起動 ── */
 async function boot() {
-  /* Firebase 初期化 */
-  const syncOk = SYNC.init();
 
-  /* Firebase から設定を読み込む */
-  SYNC.watchConfig(cfg => {
-    if (cfg.items12?.length === 12) STATE.items12 = cfg.items12;
-    if (cfg.items6?.length  === 6)  STATE.items6  = cfg.items6;
-    if (cfg.players?.length)        STATE.players  = cfg.players;
-  });
-
-  /* セッション */
-  STATE.isSpinner = true;   /* デフォルト: 自分がスピナー（URLパラメータで切替可） */
-  const urlParams = new URLSearchParams(location.search);
-  const sid = urlParams.get('session');
-  if (sid) {
-    STATE.sessionId = sid;
-    STATE.isSpinner = false;  /* セッションIDで参加 → 観戦者 */
-    SYNC.joinSession(sid);
-    /* Firebase のセッション状態で UI 同期 */
-    SYNC.on('session', data => syncFromFirebase(data));
-  } else {
-    /* 新規セッション */
-    const newId = await SYNC.createSession(STATE.userName || '敗者');
-    STATE.sessionId = newId;
-    history.replaceState(null, '', `?session=${newId}`);
-  }
-
+  /* ① UI を先に描画（Firebase/LIFFより先に表示） */
   initNav();
   initHelp();
+  STATE.isSpinner = true;
   renderGame();
   renderSettings();
 
-  /* LIFF */
+  /* ② LIFF 初期化（LINE アカウント取得） */
   try {
-    const { profile, needsSetup } = await LIFF_WRAPPER.init();
-    if (profile) {
-      updateHeader(profile);
-      if (STATE.sessionId) SYNC.resetSession(profile.displayName);
-    }
-  } catch(e) { console.warn('LIFF boot error:', e); }
+    const { profile } = await LIFF_WRAPPER.init();
+    if (profile) updateHeader(profile);
+  } catch(e) {
+    console.warn('[boot] LIFF error:', e);
+  }
+
+  /* ③ Firebase 初期化と設定同期 */
+  try {
+    SYNC.init();
+    SYNC.watchConfig(cfg => {
+      if (cfg.items12?.length === 12) STATE.items12 = cfg.items12;
+      if (cfg.items6?.length  === 6)  STATE.items6  = cfg.items6;
+      if (cfg.players?.length)        STATE.players  = cfg.players;
+    });
+
+    /* セッション作成（全員が同じ current パスを参照） */
+    SYNC.on('session', data => {
+      if (!data) return;
+      /* 他の人がスピン中ならステータスだけ更新 */
+      if (data.spinning && data.spinnerName !== STATE.userName) {
+        const st = document.getElementById('spin-status');
+        if (st) st.textContent = `${data.spinnerName}がスピン中…`;
+      }
+    });
+
+    const name = STATE.userName || '敗者';
+    const newId = await SYNC.createSession(name);
+    STATE.sessionId = newId;
+
+  } catch(e) {
+    console.warn('[boot] Firebase error:', e);
+    /* Firebase 失敗でも LocalStorage でゲームは動く */
+  }
 }
 
-/* Firebase セッション状態で UI を同期（観戦者用） */
+/* Firebase セッション状態で UI を同期 */
 function syncFromFirebase(data) {
   if (!data) return;
-  STATE.phase  = data.phase  || 1;
-  STATE.round1 = data.round1 || [];
-  STATE.round2 = data.round2 !== undefined ? data.round2 : null;
-
-  if (data.spinning && !STATE.isSpinner) {
-    /* 他の人がスピン中 → ローカルでアニメーション表示 */
-    const status = document.getElementById('spin-status');
-    if (status) status.textContent = `${data.spinnerName || '敗者'}がスピン中…`;
-  } else {
-    renderGame();
+  const status = document.getElementById('spin-status');
+  if (data.spinning && data.spinnerName !== STATE.userName) {
+    if (status) status.textContent = `${data.spinnerName || '誰か'}がスピン中…`;
   }
 }
 
