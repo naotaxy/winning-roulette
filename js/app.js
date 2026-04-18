@@ -193,13 +193,6 @@ async function onSpin() {
     } else {
       STATE.round2 = idx;
       const entry  = buildEntry();
-      if (SYNC) {
-        await SYNC.saveMonthlyRule(
-          new Date().getFullYear(), new Date().getMonth() + 1,
-          `${entry.round1.join(' / ')} ／ ${entry.round2}`,
-          STATE.userName || '不明'
-        );
-      }
       addLegacyHistory(entry);
       setTimeout(() => {
         STATE.phase = 3;
@@ -231,6 +224,25 @@ function addLegacyHistory(entry) {
 
 function renderFinal(panel) {
   const entry = buildEntry();
+  const now   = new Date();
+  const yr    = now.getFullYear();
+  const curM  = now.getMonth() + 1;
+
+  /* 来月以降の縛り月を選択肢に（当月含む） */
+  const monthOptions = [];
+  for (let m = 1; m <= 12; m++) {
+    if (RESTRICT_MONTHS.includes(m)) {
+      const y = (m < curM) ? yr + 1 : yr;
+      monthOptions.push({ y, m, label: `${y}年${m}月` });
+    }
+  }
+  /* デフォルト: 当月が縛り月なら当月、そうでなければ次の縛り月 */
+  const defaultOpt = monthOptions.find(o => o.y === yr && o.m >= curM) || monthOptions[0];
+
+  const optHtml = monthOptions.map(o =>
+    `<option value="${o.y}_${o.m}" ${(o.y === defaultOpt.y && o.m === defaultOpt.m) ? 'selected' : ''}>${o.label}</option>`
+  ).join('');
+
   panel.innerHTML = `
     <div class="phase-strip">
       <div class="phase-node done">1st：12択×2</div>
@@ -248,6 +260,15 @@ function renderFinal(panel) {
         <div class="lbl">【第2回】6択から1個</div>
         <span class="big-chip" style="animation-delay:0.4s">🎲 ${STATE.items6[STATE.round2]}</span>
       </div>
+
+      <!-- 月選択 & カレンダー保存 -->
+      <div class="save-month-row">
+        <label class="save-month-label">📅 何月のルールとして保存？</label>
+        <select class="save-month-select" id="sel-month">${optHtml}</select>
+        <button class="btn-save-month" id="btn-save-month">カレンダーに保存</button>
+        <div class="save-month-status" id="save-month-status"></div>
+      </div>
+
       <div class="action-row">
         <button class="btn-line" id="btn-share">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 0C3.6 0 0 3.1 0 6.9c0 2.4 1.4 4.5 3.5 5.8L3 15l3.2-1.7c.6.2 1.2.2 1.8.2 4.4 0 8-3.1 8-6.9S12.4 0 8 0z" fill="#fff"/></svg>
@@ -257,6 +278,22 @@ function renderFinal(panel) {
         <button class="btn-reset" id="btn-reset">🔄 もう一度</button>
       </div>
     </div>`;
+
+  document.getElementById('btn-save-month').onclick = async () => {
+    const sel = document.getElementById('sel-month').value;
+    const [y, m] = sel.split('_').map(Number);
+    const statusEl = document.getElementById('save-month-status');
+    const rule = `${entry.round1.join(' / ')} ／ ${entry.round2}`;
+    try {
+      if (SYNC) await SYNC.saveMonthlyRule(y, m, rule, STATE.userName || '不明');
+      statusEl.textContent = `✅ ${y}年${m}月のルールとして保存しました`;
+      statusEl.style.color = '#4caf50';
+      document.getElementById('btn-save-month').disabled = true;
+    } catch(e) {
+      statusEl.textContent = '❌ 保存に失敗しました';
+      statusEl.style.color = '#f44';
+    }
+  };
 
   document.getElementById('btn-share').onclick = async () => {
     const result = await LIFF_WRAPPER.shareResult(entry);
