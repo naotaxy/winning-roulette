@@ -304,14 +304,26 @@ const OCR = (() => {
     const leftScore  = scoreArr ? scoreArr[0] : null;
     const rightScore = scoreArr ? scoreArr[1] : null;
 
-    /* ── 領域2: PKスコア（y=32〜41%） ── */
-    const pkCanvas = cropImage(imgEl, 0.24, 0.32, 0.52, 0.09, 3);
+    /* ── 領域2: PKスコア（y=24〜35%）
+       PK表示位置が画像によって異なるため上部クロップ優先
+       1桁 regex でノイズ "14 PK 2" 等を防ぐ ── */
+    const _findPK = text => {
+      const m = text.match(/(\d)\s*PK\s*(\d)/i);
+      return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : null;
+    };
+    const pkCanvas = cropImage(imgEl, 0.24, 0.24, 0.52, 0.11, 3);
     preprocessBgDiff(pkCanvas, 40, 40);
-    const pkResult = await worker.recognize(pkCanvas);
-    const pkText   = pkResult.data.text;
-    const pkMatch  = pkText.match(/(\d+)\s*PK\s*(\d+)/i);
-    let leftPK  = pkMatch ? parseInt(pkMatch[1], 10) : null;
-    let rightPK = pkMatch ? parseInt(pkMatch[2], 10) : null;
+    const pkResultBg = await worker.recognize(pkCanvas);
+    const pkText = pkResultBg.data.text;
+    let pkArr = _findPK(pkText);
+    if (!pkArr) {
+      const pkCanvas2 = cropImage(imgEl, 0.24, 0.24, 0.52, 0.11, 3);
+      preprocessInvert(pkCanvas2);
+      const pkResultInv = await worker.recognize(pkCanvas2);
+      pkArr = _findPK(pkResultInv.data.text);
+    }
+    let leftPK  = pkArr ? pkArr[0] : null;
+    let rightPK = pkArr ? pkArr[1] : null;
     if (leftScore !== null && rightScore !== null && leftScore !== rightScore) {
       leftPK = null; rightPK = null;
     }
