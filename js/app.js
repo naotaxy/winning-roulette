@@ -581,9 +581,13 @@ function renderStats() {
         barFill.style.width = pct + '%';
         status.textContent  = `OCR解析中… ${pct}%`;
       });
-      /* OCR未検出でも空欄（デフォルト）のままになるよう明示的にリセット */
+      /* 前回の値をリセット（スコア・PK・プレイヤー選択） */
       document.getElementById('ocr-away').value = '';
       document.getElementById('ocr-home').value = '';
+      document.getElementById('pk-check').checked = false;
+      document.getElementById('pk-inputs').style.display = 'none';
+      document.getElementById('ocr-away-pk').value = '';
+      document.getElementById('ocr-home-pk').value = '';
       const awayLabel = result.awayChar ? result.awayChar.playerName : '（未検出）';
       const homeLabel = result.homeChar ? result.homeChar.playerName : '（未検出）';
       const scoreDisp = (result.awayScore !== null && result.homeScore !== null)

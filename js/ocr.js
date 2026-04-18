@@ -162,6 +162,8 @@ const OCR = (() => {
     if (!str) return '';
     return str
       .normalize('NFKC')
+      .replace(/[ァィゥェォ]/g, c => String.fromCharCode(c.charCodeAt(0) + 1))  // 小カナ→大カナ
+      .replace(/[ッャュョ]/g, c => String.fromCharCode(c.charCodeAt(0) + 1))    // 小カナ→大カナ
       .replace(/[？?]/g, '')          // ? を両側で除去（LOVE BEER? 対応）
       .replace(/[・．。、\-_]/g, '')
       .replace(/\s+/g, '')
@@ -260,8 +262,8 @@ const OCR = (() => {
         }
       }
 
-      /* ④ bigram Jaccard（フォールバック） */
-      if (score === 0 && minLen >= 3) {
+      /* ④ bigram Jaccard（フォールバック：他の手法が閾値未満のときも発火） */
+      if (score < THRESHOLD && minLen >= 3) {
         const ngA = ngrams(normalized, 2);
         const ngB = ngrams(charNorm, 2);
         if (ngA.size > 0 && ngB.size > 0) {
