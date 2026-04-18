@@ -586,7 +586,7 @@ function renderStats() {
       document.getElementById('ocr-home').value = '';
       const awayLabel = result.awayChar ? result.awayChar.playerName : '（未検出）';
       const homeLabel = result.homeChar ? result.homeChar.playerName : '（未検出）';
-      status.textContent = `解析完了！ AWAY:${awayLabel} HOME:${homeLabel} — 内容を確認して登録`;
+      status.textContent = `解析完了 AWAY:${awayLabel} HOME:${homeLabel} / OCR生→L:「${result.awayRaw}」R:「${result.homeRaw}」`;
       document.getElementById('ocr-result-form').style.display = 'block';
       if (result.awayChar) _setSelect('ocr-away', result.awayChar.playerName);
       if (result.homeChar) _setSelect('ocr-home', result.homeChar.playerName);
