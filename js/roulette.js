@@ -262,27 +262,22 @@ const ROULETTE = (() => {
        Phase B [tA, tB] : 指数減衰 v = vA * e^{-k*(t-tA)}
        Phase C [tB, tC] : スプリング整定
     */
-    const totalMs = 3500 + (pw / 100) * 3500;  /* パワーが強いほど長い */
-    const tA  = totalMs * 0.10;                  /* 等速フェーズ終了 */
-    const tB  = totalMs * 0.88;                  /* 減衰フェーズ終了 */
+    const totalMs = 5000 + (pw / 100) * 4000;  /* パワーが強いほど長い */
+    const tA  = totalMs * 0.08;                  /* 等速フェーズ終了 */
+    const tB  = totalMs * 0.72;                  /* 減衰フェーズ終了 */
     const tC  = totalMs;                          /* 整定フェーズ終了 */
 
-    /* フェーズAでの回転量 = 全体の20% */
-    const rotA     = totalDelta * 0.18;
-    const vA       = rotA / (tA / 1000);         /* A フェーズの角速度 [rad/s] */
+    /* フェーズAでの回転量 */
+    const rotA     = totalDelta * 0.15;
+    const vA       = rotA / (tA / 1000);
 
-    /* フェーズBでの残り回転量（指数減衰で到達） */
+    /* フェーズBでの残り回転量（ゆるやかな指数減衰） */
     const rotB_total = totalDelta * 0.78;
     const tB_s       = (tB - tA) / 1000;
-    /* v0/k*(1 - e^{-k*tB_s}) = rotB_total → k を数値的に解く (近似) */
-    const k = 3.5 / tB_s;                         /* k ≈ ln(70) / tB_s で99% decay */
+    const k = 1.8 / tB_s;                        /* 小さいk = ゆっくり減速 */
 
-    /* Phase B 終了時点の推定角度 */
-    const rotB_end = state.rot + rotA + rotB_total;
-
-    /* Phase C: スプリング。finalRot への微小振動収束 */
-    /* overshoot amplitude */
-    const amp = seg * 0.55;
+    /* Phase C: ほぼ止まった状態から最終位置へ超ゆっくり収束 */
+    const amp = seg * 0.18;                       /* 振れ幅を小さく */
 
     const t0 = performance.now();
 
@@ -311,8 +306,8 @@ const ROULETTE = (() => {
         const t    = (elapsed - tB) / 1000;
         const tC_s = (tC - tB) / 1000;
         const prog = Math.min(t / tC_s, 1);
-        const zeta = 6.0;   /* 減衰率 */
-        const omega = 18.0; /* 振動数 */
+        const zeta = 4.0;   /* 減衰率 */
+        const omega = 8.0;  /* 振動数（少なく） */
         const env  = Math.exp(-zeta * t);
         rot = finalRot + amp * env * Math.cos(omega * t + Math.PI) * (1 - prog);
       }
