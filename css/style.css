@@ -1019,16 +1019,382 @@ body {
   animation: spin-button-pulse 2.2s ease-in-out infinite;
 }
 
-/* LIFF setup notice */
-.liff-notice {
-  background: var(--cyan-dim);
-  border: 1px solid rgba(0,217,255,0.3);
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-size: 0.8em;
-  color: var(--cyan);
-  margin-bottom: 14px;
-  display: none;
+/* ══════════════════════════════
+   TIMING GAUGE
+══════════════════════════════ */
+
+.gauge-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  margin-bottom: 12px;
 }
 
-.liff-notice.show { display: block; }
+.gauge-label {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.6em;
+  font-weight: 700;
+  color: var(--gold);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.gauge-track {
+  flex: 1;
+  height: 14px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 7px;
+  overflow: hidden;
+  position: relative;
+}
+
+.gauge-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 7px;
+  transition: background 0.1s;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.gauge-value {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.65em;
+  font-weight: 700;
+  color: var(--text);
+  min-width: 34px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.gauge-disabled { opacity: 0.35; pointer-events: none; }
+
+/* 観戦者向け注意 */
+.watch-notice {
+  text-align: center;
+  font-size: 0.78em;
+  color: var(--cyan);
+  padding: 8px 16px;
+  background: var(--cyan-dim);
+  border: 1px solid rgba(0,217,255,0.25);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+/* ══════════════════════════════
+   CALENDAR
+══════════════════════════════ */
+
+.cal-header {
+  margin-bottom: 14px;
+}
+.cal-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.9em;
+  color: var(--gold);
+  font-weight: 700;
+  text-shadow: 0 0 8px var(--gold);
+}
+.cal-note {
+  font-size: 0.72em;
+  color: var(--text-sub);
+  margin-top: 4px;
+}
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.cal-cell {
+  background: var(--bg-panel);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  padding: 10px 8px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.cal-cell.restrict {
+  border-color: rgba(255,23,68,0.45);
+  background: rgba(255,23,68,0.07);
+}
+.cal-cell.free {
+  border-color: rgba(6,199,85,0.3);
+  background: rgba(6,199,85,0.05);
+}
+.cal-cell.current {
+  box-shadow: 0 0 0 2px var(--gold);
+}
+.cal-month-num {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1em;
+  font-weight: 900;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.cal-badge {
+  font-size: 0.68em;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.cal-cell.restrict .cal-badge { color: var(--red); }
+.cal-cell.free     .cal-badge { color: var(--green-line); }
+.cal-rule-text {
+  font-size: 0.62em;
+  color: var(--text-sub);
+  line-height: 1.4;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  min-height: 24px;
+}
+
+/* ══════════════════════════════
+   STATS / OCR
+══════════════════════════════ */
+
+.stats-header { margin-bottom: 14px; }
+.stats-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.9em;
+  color: var(--gold);
+  font-weight: 700;
+  text-shadow: 0 0 8px var(--gold);
+}
+.stats-section-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.72em;
+  color: var(--cyan);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid rgba(0,217,255,0.2);
+}
+
+/* OCR カード */
+.ocr-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.ocr-card-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.78em;
+  color: var(--gold);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.ocr-desc {
+  font-size: 0.75em;
+  color: var(--text-sub);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+.btn-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  background: var(--gold-dim);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--gold);
+  font-size: 0.85em;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-bottom: 12px;
+}
+.btn-upload:hover { background: rgba(212,175,55,0.25); }
+
+.ocr-preview-img {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.ocr-progress-bar {
+  height: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.ocr-bar-fill {
+  height: 100%;
+  background: var(--cyan);
+  transition: width 0.3s;
+  border-radius: 3px;
+}
+.ocr-status {
+  font-size: 0.75em;
+  color: var(--text-sub);
+  margin-bottom: 10px;
+}
+
+.ocr-result-form {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 10px;
+}
+.ocr-teams {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ocr-team-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ocr-label {
+  font-size: 0.68em;
+  color: var(--text-sub);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.ocr-select, .ocr-score-input, .ocr-date-input {
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 0.82em;
+  padding: 6px 8px;
+}
+.ocr-score-input { width: 60px; text-align: center; }
+.ocr-select:focus, .ocr-score-input:focus, .ocr-date-input:focus {
+  outline: none; border-color: var(--gold);
+}
+.ocr-vs {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.85em;
+  font-weight: 900;
+  color: var(--text-sub);
+  flex-shrink: 0;
+}
+.ocr-date-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ocr-date-input { flex: 1; }
+
+/* 結果一覧 */
+.stats-table-wrap, .standings-wrap { margin-bottom: 14px; }
+.result-item {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.result-date { font-size: 0.7em; color: var(--text-sub); margin-bottom: 6px; }
+.result-match {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.result-team { font-size: 0.85em; font-weight: 700; flex: 1; }
+.result-team:last-child { text-align: right; }
+.result-score {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.95em;
+  font-weight: 900;
+  color: var(--gold);
+  text-shadow: 0 0 6px var(--gold);
+  flex-shrink: 0;
+}
+
+/* 順位表 */
+.standings {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78em;
+}
+.standings th, .standings td {
+  padding: 7px 5px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.standings th { color: var(--text-sub); font-weight: 700; font-size: 0.85em; }
+.standings .rank-gold   td { color: var(--gold-hi); }
+.standings .rank-silver td { color: #c0c0c0; }
+.standings .rank-bronze td { color: #cd7f32; }
+
+/* ══════════════════════════════
+   SETTINGS — Player rows
+══════════════════════════════ */
+
+.settings-section { margin-bottom: 14px; }
+.settings-section-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.78em;
+  color: var(--gold);
+  font-weight: 700;
+  margin-bottom: 10px;
+  letter-spacing: 0.08em;
+}
+.player-header {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding: 0 0 0 28px;
+}
+.player-col-label {
+  flex: 1;
+  font-size: 0.65em;
+  color: var(--text-sub);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.player-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.player-num {
+  width: 20px;
+  height: 20px;
+  background: var(--gold-dim);
+  border-radius: 50%;
+  font-size: 0.65em;
+  font-weight: 700;
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.player-input {
+  flex: 1;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 0.8em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.player-input:focus { outline: none; border-color: var(--gold); }
+

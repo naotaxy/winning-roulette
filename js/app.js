@@ -1,66 +1,63 @@
 /* ═══════════════════════════════════════════════════
-   WINNING ROULETTE — Main Application
-   Director: Claude / Frontend: Agent
+   WINNING ROULETTE — Main Application v4
+   ・Firebase リアルタイム共有
+   ・タイミングゲージ
+   ・カレンダー / 集計 / OCR
+   ・不正防止（スピン結果を先行コミット）
    ═══════════════════════════════════════════════════ */
-
 'use strict';
 
-/* ── Defaults ── */
+/* ── デフォルト値 ── */
 const DEFAULT_12 = [
   'スピード','スタミナ','パワー','テクニック','バランス',
   'レジェンド禁止','ナショナル限定','レギュラー限定',
   'キラ禁止','星5禁止','カスタム禁止','セレクトカスタム禁止'
 ];
-const DEFAULT_6 = ['項目1','項目2','項目3','項目4','項目5','項目6'];
+const DEFAULT_6 = [
+  '後半得点2倍','黄カード即負','赤カード即負',
+  '黄カードx2得点マイナス','先制点勝ち','選手交代負け'
+];
 
-/* ── App state ── */
+/* 縛り月（5,6,8,9,11月） */
+const RESTRICT_MONTHS = [5, 6, 8, 9, 11];
+
+/* デフォルトプレイヤー */
+const DEFAULT_PLAYERS = [
+  { name: '児玉',   lineId: 'DKJPN',    charName: 'D XIII'          },
+  { name: '柴田',   lineId: 'ﾌﾟｷﾞｰ',    charName: 'カラキソングシティ' },
+  { name: '米澤',   lineId: 'ヨ',        charName: 'トラペルソ'       },
+  { name: '矢部',   lineId: '矢部智也',  charName: 'ガパオFC'         },
+  { name: '潮田',   lineId: 'うしおだ',  charName: 'LOVE BEER?'      },
+];
+
+/* ── アプリ状態 ── */
 const STATE = {
-  items12:  [...DEFAULT_12],
-  items6:   [...DEFAULT_6],
-  phase:    1,
-  round1:   [],
-  round2:   null,
-  userName: '',
-  avatarUrl: null,
-  wheel:    null,
-};
-
-/* ── Storage ── */
-const DB = {
-  load() {
-    try {
-      const s12 = localStorage.getItem('wc_12');
-      const s6  = localStorage.getItem('wc_6');
-      if (s12) STATE.items12 = JSON.parse(s12);
-      if (s6)  STATE.items6  = JSON.parse(s6);
-    } catch(e) {}
-  },
-  saveItems() {
-    localStorage.setItem('wc_12', JSON.stringify(STATE.items12));
-    localStorage.setItem('wc_6',  JSON.stringify(STATE.items6));
-  },
-  getHistory() {
-    try { return JSON.parse(localStorage.getItem('wc_hist') || '[]'); } catch(e) { return []; }
-  },
-  addHistory(entry) {
-    const h = this.getHistory();
-    h.unshift(entry);
-    localStorage.setItem('wc_hist', JSON.stringify(h.slice(0, 100)));
-  },
-  clearHistory() { localStorage.removeItem('wc_hist'); }
+  items12:    [...DEFAULT_12],
+  items6:     [...DEFAULT_6],
+  players:    DEFAULT_PLAYERS.map(p => ({ ...p })),
+  phase:      1,
+  round1:     [],
+  round2:     null,
+  wheel:      null,
+  userName:   '',
+  avatarUrl:  null,
+  gaugeVal:   50,
+  isSpinner:  false,   /* 自分がルーレットを回す敗者か */
+  sessionId:  null,
 };
 
 /* ── Toast ── */
 let _toastTimer;
-function toast(msg, dur = 2400) {
+function toast(msg, dur = 2600) {
   const el = document.getElementById('toast');
+  if (!el) return;
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => el.classList.remove('show'), dur);
 }
 
-/* ── Tab navigation ── */
+/* ── タブナビ ── */
 function initNav() {
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -68,22 +65,27 @@ function initNav() {
       document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
-      document.getElementById('panel-' + tab).classList.add('active');
+      document.getElementById('panel-' + tab)?.classList.add('active');
       if (tab === 'history')  renderHistory();
       if (tab === 'settings') renderSettings();
+      if (tab === 'calendar') renderCalendar();
+      if (tab === 'stats')    renderStats();
     });
   });
 }
 
-/* ── Game panel ── */
+/* ══════════════════════════════════════════════
+   GAME PANEL
+══════════════════════════════════════════════ */
 function renderGame() {
   const panel = document.getElementById('panel-game');
+  if (!panel) return;
   if (STATE.phase === 3) { renderFinal(panel); return; }
 
-  const isP1   = STATE.phase === 1;
-  const items  = isP1 ? STATE.items12 : STATE.items6;
-  const colors = isP1 ? ROULETTE.PALETTE_12 : ROULETTE.PALETTE_6;
-  const spinN  = isP1 ? STATE.round1.length + 1 : 1;
+  const isP1    = STATE.phase === 1;
+  const items   = isP1 ? STATE.items12 : STATE.items6;
+  const colors  = isP1 ? ROULETTE.PALETTE_12 : ROULETTE.PALETTE_6;
+  const spinN   = isP1 ? STATE.round1.length + 1 : 1;
 
   panel.innerHTML = `
     <div class="phase-strip">
@@ -96,7 +98,16 @@ function renderGame() {
       <div class="wheel-wrap" id="wheel-wrap">
         <div class="wheel-pointer"></div>
       </div>
-      <div class="spin-status" id="spin-status">PRESS SPIN TO START</div>
+      <div class="spin-status" id="spin-status">ゲージを合わせてSPINを押してください</div>
+    </div>
+
+    <!-- タイミングゲージ -->
+    <div class="gauge-wrap" id="gauge-wrap">
+      <div class="gauge-label">SPIN POWER</div>
+      <div class="gauge-track">
+        <div class="gauge-bar" id="gauge-bar"></div>
+      </div>
+      <div class="gauge-value" id="gauge-value">0%</div>
     </div>
 
     <div style="display:flex;justify-content:center;margin-bottom:14px;">
@@ -104,14 +115,33 @@ function renderGame() {
     </div>
 
     <div id="partial-wrap"></div>
+
+    <!-- 観戦モード時の注意 -->
+    ${!STATE.isSpinner ? '<div class="watch-notice">👀 観戦中 — 敗者がスピンします</div>' : ''}
   `;
 
-  /* Build wheel */
   const wrap = document.getElementById('wheel-wrap');
   STATE.wheel = ROULETTE.create(wrap, items, colors);
 
+  /* ゲージ開始 */
+  if (STATE.isSpinner) {
+    ROULETTE.GAUGE.start(
+      document.getElementById('gauge-bar'),
+      document.getElementById('gauge-value')
+    );
+  } else {
+    /* 観戦者はゲージ操作不可 */
+    const gw = document.getElementById('gauge-wrap');
+    if (gw) gw.classList.add('gauge-disabled');
+  }
+
   renderPartial();
-  document.getElementById('btn-spin').addEventListener('click', onSpin);
+
+  const btn = document.getElementById('btn-spin');
+  if (btn) {
+    if (!STATE.isSpinner) { btn.disabled = true; }
+    else btn.addEventListener('click', onSpin);
+  }
 }
 
 function renderPartial() {
@@ -124,58 +154,83 @@ function renderPartial() {
     </div>`;
 }
 
-function onSpin() {
+async function onSpin() {
+  if (!STATE.wheel || STATE.wheel.spinning) return;
+  if (!STATE.isSpinner) return;
+
   const btn    = document.getElementById('btn-spin');
   const status = document.getElementById('spin-status');
-  if (!STATE.wheel || STATE.wheel.spinning) return;
+
+  /* ゲージ値を確定 */
+  const power = ROULETTE.GAUGE.capture();
+  STATE.gaugeVal = power;
 
   btn.disabled = true;
-  status.className = 'spin-status';
-  status.textContent = 'SPINNING…';
+  if (status) { status.className = 'spin-status'; status.textContent = `POWER ${power}% でスピン中…`; }
 
-  /* Read name from bar */
-  const nameEl = document.getElementById('name-input');
-  if (nameEl) STATE.userName = nameEl.value.trim() || STATE.userName;
+  /* ─ 不正防止: 結果を先にFirebaseにコミット ─ */
+  const n      = (STATE.phase === 1 ? STATE.items12 : STATE.items6).length;
+  const exclude = STATE.phase === 1 ? STATE.round1 : [];
+  let tgtIdx;
+  do { tgtIdx = Math.floor(Math.random() * n); }
+  while (exclude.includes(tgtIdx));
 
-  if (STATE.phase === 1) {
-    STATE.wheel.spin(STATE.round1, idx => {
+  if (SYNC) await SYNC.commitSpin(STATE.phase, tgtIdx);
+
+  /* アニメーション（既に結果はロック済み） */
+  STATE.wheel.spin(exclude, async idx => {
+    const item = STATE.phase === 1 ? STATE.items12[idx] : STATE.items6[idx];
+    if (status) { status.className = 'spin-status hit'; status.textContent = `「${item}」が選ばれました！`; }
+
+    if (STATE.phase === 1) {
       STATE.round1.push(idx);
-      status.className = 'spin-status hit';
-      status.textContent = `「${STATE.items12[idx]}」 が選ばれました！`;
       renderPartial();
       setTimeout(() => {
-        if (STATE.round1.length < 2) {
-          renderGame();
-        } else {
-          STATE.phase = 2;
-          renderGame();
-        }
-      }, 1900);
-    });
-  } else {
-    STATE.wheel.spin([], idx => {
+        STATE.phase = STATE.round1.length < 2 ? 1 : 2;
+        if (SYNC) SYNC.finishSpin();
+        renderGame();
+      }, 2000);
+    } else {
       STATE.round2 = idx;
-      status.className = 'spin-status hit';
-      status.textContent = `「${STATE.items6[idx]}」 が選ばれました！`;
+      const entry  = buildEntry();
+      if (SYNC) {
+        await SYNC.saveMonthlyRule(
+          new Date().getFullYear(), new Date().getMonth() + 1,
+          `${entry.round1.join(' / ')} ／ ${entry.round2}`,
+          STATE.userName || '不明'
+        );
+      }
+      addLegacyHistory(entry);
+      setTimeout(() => {
+        STATE.phase = 3;
+        if (SYNC) SYNC.finishSpin();
+        renderGame();
+      }, 2000);
+    }
+  }, power);
+}
 
-      /* Save history */
-      DB.addHistory({
-        name:      STATE.userName || '名無し',
-        avatarUrl: STATE.avatarUrl,
-        timestamp: new Date().toISOString(),
-        round1:    STATE.round1.map(i => STATE.items12[i]),
-        round2:    STATE.items6[idx],
-      });
+function buildEntry() {
+  return {
+    name:      STATE.userName || '名無し',
+    avatarUrl: STATE.avatarUrl,
+    timestamp: new Date().toISOString(),
+    round1:    STATE.round1.map(i => STATE.items12[i]),
+    round2:    STATE.items6[STATE.round2],
+  };
+}
 
-      setTimeout(() => { STATE.phase = 3; renderGame(); }, 1900);
-    });
-  }
+/* レガシー履歴（LocalStorage互換） */
+function addLegacyHistory(entry) {
+  try {
+    const h = JSON.parse(localStorage.getItem('wc_hist') || '[]');
+    h.unshift(entry);
+    localStorage.setItem('wc_hist', JSON.stringify(h.slice(0, 100)));
+  } catch(_) {}
 }
 
 function renderFinal(panel) {
-  const entry = DB.getHistory()[0];
-  const name  = entry?.name || '名無し';
-
+  const entry = buildEntry();
   panel.innerHTML = `
     <div class="phase-strip">
       <div class="phase-node done">1st：12択×2</div>
@@ -195,9 +250,7 @@ function renderFinal(panel) {
       </div>
       <div class="action-row">
         <button class="btn-line" id="btn-share">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M8 0C3.6 0 0 3.1 0 6.9c0 2.4 1.4 4.5 3.5 5.8L3 15l3.2-1.7c.6.2 1.2.2 1.8.2 4.4 0 8-3.1 8-6.9S12.4 0 8 0z" fill="#fff"/>
-          </svg>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 0C3.6 0 0 3.1 0 6.9c0 2.4 1.4 4.5 3.5 5.8L3 15l3.2-1.7c.6.2 1.2.2 1.8.2 4.4 0 8-3.1 8-6.9S12.4 0 8 0z" fill="#fff"/></svg>
           LINEで送る
         </button>
         <button class="btn-copy" id="btn-copy">📋 コピー</button>
@@ -205,19 +258,15 @@ function renderFinal(panel) {
       </div>
     </div>`;
 
-  const entry_ = entry;
   document.getElementById('btn-share').onclick = async () => {
-    const result = await LIFF_WRAPPER.shareResult(entry_);
+    const result = await LIFF_WRAPPER.shareResult(entry);
     if (result === 'fallback') {
-      const txt = LIFF_WRAPPER.buildText(entry_);
-      await copyToClipboard(txt);
-      toast('📋 テキストをコピーしました。LINEに貼り付けてください。', 3000);
-    } else if (result === 'shared') {
-      toast('✅ シェアしました！');
-    }
+      await copyToClipboard(LIFF_WRAPPER.buildText(entry));
+      toast('📋 コピーしました。LINEに貼り付けてください。', 3000);
+    } else if (result === 'shared') toast('✅ シェアしました！');
   };
   document.getElementById('btn-copy').onclick = async () => {
-    await copyToClipboard(LIFF_WRAPPER.buildText(entry_));
+    await copyToClipboard(LIFF_WRAPPER.buildText(entry));
     toast('📋 コピーしました！');
   };
   document.getElementById('btn-reset').onclick = resetGame;
@@ -228,13 +277,277 @@ function resetGame() {
   STATE.round1 = [];
   STATE.round2 = null;
   STATE.wheel  = null;
+  ROULETTE.GAUGE.stop();
+  if (SYNC && STATE.sessionId) SYNC.resetSession(STATE.userName);
   renderGame();
 }
 
-/* ── History panel ── */
+/* ══════════════════════════════════════════════
+   CALENDAR PANEL
+══════════════════════════════════════════════ */
+function renderCalendar() {
+  const panel = document.getElementById('panel-calendar');
+  if (!panel) return;
+
+  const now   = new Date();
+  const year  = now.getFullYear();
+  const month = now.getMonth() + 1;
+
+  const MONTH_NAMES = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+  const isRestrict  = m => RESTRICT_MONTHS.includes(m);
+
+  panel.innerHTML = `
+    <div class="cal-header">
+      <h2 class="cal-title">📅 ${year}年 縛りカレンダー</h2>
+      <p class="cal-note">縛り月: 5・6・8・9・11月</p>
+    </div>
+    <div class="cal-grid" id="cal-grid">
+      ${MONTH_NAMES.map((mn, i) => {
+        const m = i + 1;
+        const isNow = (m === month);
+        const cls   = isRestrict(m) ? 'cal-cell restrict' : 'cal-cell free';
+        return `<div class="${cls}${isNow ? ' current' : ''}" data-month="${m}">
+          <div class="cal-month-num">${m}月</div>
+          <div class="cal-badge">${isRestrict(m) ? '🔒 縛り' : '🆓 フリー'}</div>
+          <div class="cal-rule-text" id="cal-rule-${m}">読み込み中…</div>
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  /* Firebase からルールを取得 */
+  if (SYNC) {
+    SYNC.watchMonthlyRules(rules => {
+      const yr = rules[year] || {};
+      MONTH_NAMES.forEach((_, i) => {
+        const m   = i + 1;
+        const el  = document.getElementById(`cal-rule-${m}`);
+        if (!el) return;
+        const r   = yr[m];
+        el.textContent = r ? r.rule : (isRestrict(m) ? '未決定' : '縛りなし');
+      });
+    });
+  }
+}
+
+/* ══════════════════════════════════════════════
+   STATS / OCR PANEL
+══════════════════════════════════════════════ */
+function renderStats() {
+  const panel = document.getElementById('panel-stats');
+  if (!panel) return;
+
+  const now   = new Date();
+  const year  = now.getFullYear();
+  const month = now.getMonth() + 1;
+
+  panel.innerHTML = `
+    <div class="stats-header">
+      <h2 class="stats-title">📊 ${year}年${month}月 集計</h2>
+    </div>
+
+    <!-- OCR アップロード -->
+    <div class="ocr-card">
+      <div class="ocr-card-title">🖼️ 試合結果を取り込む</div>
+      <p class="ocr-desc">ウイコレの試合終了画面のスクリーンショットをアップロードしてください</p>
+      <label class="btn-upload" for="ocr-input">
+        📁 スクリーンショット選択
+        <input type="file" id="ocr-input" accept="image/*" style="display:none">
+      </label>
+      <div id="ocr-preview-wrap" style="display:none">
+        <img id="ocr-preview" class="ocr-preview-img" alt="preview">
+        <div id="ocr-progress" class="ocr-progress-bar"><div id="ocr-bar-fill" class="ocr-bar-fill" style="width:0%"></div></div>
+        <div id="ocr-status" class="ocr-status">解析中…</div>
+      </div>
+      <div id="ocr-result-form" style="display:none" class="ocr-result-form">
+        <div class="ocr-teams">
+          <div class="ocr-team-col">
+            <div class="ocr-label">AWAY</div>
+            <select id="ocr-away" class="ocr-select"></select>
+            <input type="number" id="ocr-away-score" class="ocr-score-input" min="0" max="99" placeholder="点">
+          </div>
+          <div class="ocr-vs">VS</div>
+          <div class="ocr-team-col">
+            <div class="ocr-label">HOME</div>
+            <select id="ocr-home" class="ocr-select"></select>
+            <input type="number" id="ocr-home-score" class="ocr-score-input" min="0" max="99" placeholder="点">
+          </div>
+        </div>
+        <div class="ocr-date-row">
+          <label class="ocr-label">試合日</label>
+          <input type="date" id="ocr-date" class="ocr-date-input" value="${toDateStr(now)}">
+        </div>
+        <div class="action-row">
+          <button class="btn-save" id="ocr-save-btn" style="flex:1">✅ 登録</button>
+          <button class="btn-reset" id="ocr-cancel-btn">キャンセル</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 月次集計テーブル -->
+    <div class="stats-table-wrap">
+      <div class="stats-section-title">今月の対戦結果</div>
+      <div id="results-list">読み込み中…</div>
+    </div>
+
+    <!-- 順位表 -->
+    <div class="standings-wrap">
+      <div class="stats-section-title">順位表</div>
+      <div id="standings-table">読み込み中…</div>
+    </div>
+  `;
+
+  /* ── プレイヤーセレクト ── */
+  const playerOptions = STATE.players.map(p =>
+    `<option value="${p.name}">${p.name}（${p.charName}）</option>`).join('');
+  ['ocr-away','ocr-home'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (sel) sel.innerHTML = playerOptions;
+  });
+
+  /* ── OCR ── */
+  document.getElementById('ocr-input')?.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const previewWrap = document.getElementById('ocr-preview-wrap');
+    const preview     = document.getElementById('ocr-preview');
+    const status      = document.getElementById('ocr-status');
+    const barFill     = document.getElementById('ocr-bar-fill');
+
+    preview.src = URL.createObjectURL(file);
+    previewWrap.style.display = 'block';
+    status.textContent = '解析中…';
+
+    /* Tesseract.js の動的ロード */
+    if (typeof Tesseract === 'undefined') {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+      document.head.appendChild(s);
+      await new Promise(resolve => s.onload = resolve);
+    }
+
+    try {
+      const playerMap = {};
+      STATE.players.forEach(p => { playerMap[p.charName] = p.name; });
+
+      const result = await OCR.parseMatchResult(file, playerMap, pct => {
+        barFill.style.width = pct + '%';
+        status.textContent  = `OCR解析中… ${pct}%`;
+      });
+
+      status.textContent = '解析完了！内容を確認して登録してください';
+      document.getElementById('ocr-result-form').style.display = 'block';
+
+      /* 推定値をフォームにセット */
+      if (result.awayChar) _setSelect('ocr-away', result.awayChar.playerName);
+      if (result.homeChar) _setSelect('ocr-home', result.homeChar.playerName);
+      if (result.awayScore !== null) document.getElementById('ocr-away-score').value = result.awayScore;
+      if (result.homeScore !== null) document.getElementById('ocr-home-score').value = result.homeScore;
+
+    } catch (err) {
+      status.textContent = `❌ 解析失敗: ${err.message}`;
+    }
+  });
+
+  /* ── 登録ボタン ── */
+  document.getElementById('ocr-save-btn')?.addEventListener('click', async () => {
+    const away      = document.getElementById('ocr-away')?.value;
+    const home      = document.getElementById('ocr-home')?.value;
+    const awayScore = parseInt(document.getElementById('ocr-away-score')?.value, 10);
+    const homeScore = parseInt(document.getElementById('ocr-home-score')?.value, 10);
+    const date      = document.getElementById('ocr-date')?.value;
+
+    if (!away || !home || away === home || isNaN(awayScore) || isNaN(homeScore)) {
+      toast('⚠️ 入力を確認してください'); return;
+    }
+    await SYNC.saveResult(year, month, { date, away, home, awayScore, homeScore, addedBy: STATE.userName || '不明' });
+    toast('✅ 登録しました！');
+    document.getElementById('ocr-result-form').style.display = 'none';
+    document.getElementById('ocr-preview-wrap').style.display = 'none';
+  });
+
+  document.getElementById('ocr-cancel-btn')?.addEventListener('click', () => {
+    document.getElementById('ocr-result-form').style.display = 'none';
+    document.getElementById('ocr-preview-wrap').style.display = 'none';
+  });
+
+  /* ── 結果一覧 ── */
+  SYNC.watchResults(year, month, results => {
+    _renderResultsList(results);
+    _renderStandings(results);
+  });
+}
+
+function _setSelect(id, value) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  for (const opt of sel.options) {
+    if (opt.value === value) { sel.value = value; return; }
+  }
+}
+
+function _renderResultsList(results) {
+  const el = document.getElementById('results-list');
+  if (!el) return;
+  const entries = Object.entries(results || {}).sort((a,b) => (b[1].date||'').localeCompare(a[1].date||''));
+  if (!entries.length) { el.innerHTML = '<div class="history-empty">まだ結果がありません</div>'; return; }
+
+  el.innerHTML = entries.map(([id, r]) => `
+    <div class="result-item">
+      <div class="result-date">${r.date || '日付不明'}</div>
+      <div class="result-match">
+        <span class="result-team">${r.away}</span>
+        <span class="result-score">${r.awayScore} - ${r.homeScore}</span>
+        <span class="result-team">${r.home}</span>
+      </div>
+    </div>`).join('');
+}
+
+function _renderStandings(results) {
+  const el = document.getElementById('standings-table');
+  if (!el) return;
+  const stats = {};
+  STATE.players.forEach(p => { stats[p.name] = { w: 0, d: 0, l: 0, gf: 0, ga: 0 }; });
+
+  Object.values(results || {}).forEach(r => {
+    const a = stats[r.away]; const h = stats[r.home];
+    if (!a || !h) return;
+    a.gf += r.awayScore; a.ga += r.homeScore;
+    h.gf += r.homeScore; h.ga += r.awayScore;
+    if (r.awayScore > r.homeScore) { a.w++; h.l++; }
+    else if (r.awayScore < r.homeScore) { h.w++; a.l++; }
+    else { a.d++; h.d++; }
+  });
+
+  const sorted = Object.entries(stats)
+    .sort((a,b) => (b[1].w*3+b[1].d) - (a[1].w*3+a[1].d) || (b[1].gf-b[1].ga) - (a[1].gf-a[1].ga));
+
+  el.innerHTML = `
+    <table class="standings">
+      <thead><tr><th>#</th><th>選手</th><th>勝</th><th>分</th><th>敗</th><th>得点</th><th>失点</th><th>Pt</th></tr></thead>
+      <tbody>
+        ${sorted.map(([name, s], i) => `
+          <tr class="${i===0?'rank-gold':i===1?'rank-silver':i===2?'rank-bronze':''}">
+            <td>${i+1}</td><td>${name}</td>
+            <td>${s.w}</td><td>${s.d}</td><td>${s.l}</td>
+            <td>${s.gf}</td><td>${s.ga}</td>
+            <td><b>${s.w*3+s.d}</b></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+function toDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+/* ══════════════════════════════════════════════
+   HISTORY PANEL
+══════════════════════════════════════════════ */
 function renderHistory() {
   const panel = document.getElementById('panel-history');
-  const hist  = DB.getHistory();
+  if (!panel) return;
+  const hist = SYNC?.getLegacyHistory() || [];
 
   panel.innerHTML = `
     <div class="history-toolbar">
@@ -246,45 +559,66 @@ function renderHistory() {
       : hist.map(h => {
           const dt = new Date(h.timestamp);
           const ts = `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
-          const avatar = h.avatarUrl
+          const av = h.avatarUrl
             ? `<img class="hist-avatar" src="${h.avatarUrl}" alt="">`
             : `<div class="hist-avatar" style="display:flex;align-items:center;justify-content:center;font-size:0.8em;">👤</div>`;
-          return `
-            <div class="hist-item">
-              <div class="hist-meta">
-                <div class="hist-who">
-                  ${avatar}
-                  <span class="hist-name">${h.name}</span>
-                </div>
-                <span class="hist-time">${ts}</span>
-              </div>
-              <div class="hist-results">
-                <span class="hchip r1">⚡ ${h.round1[0]}</span>
-                <span class="hchip r1">⚡ ${h.round1[1]}</span>
-                <span class="hdiv">｜</span>
-                <span class="hchip r2">🎲 ${h.round2}</span>
-              </div>
-            </div>`;
+          return `<div class="hist-item">
+            <div class="hist-meta">
+              <div class="hist-who">${av}<span class="hist-name">${h.name}</span></div>
+              <span class="hist-time">${ts}</span>
+            </div>
+            <div class="hist-results">
+              <span class="hchip r1">⚡ ${h.round1[0]}</span>
+              <span class="hchip r1">⚡ ${h.round1[1]}</span>
+              <span class="hdiv">｜</span>
+              <span class="hchip r2">🎲 ${h.round2}</span>
+            </div>
+          </div>`;
         }).join('')
     }`;
 
   document.getElementById('btn-clear')?.addEventListener('click', () => {
-    if (confirm('履歴をすべて削除しますか？')) { DB.clearHistory(); renderHistory(); }
+    if (confirm('履歴をすべて削除しますか？')) {
+      localStorage.removeItem('wc_hist');
+      renderHistory();
+    }
   });
 }
 
-/* ── Settings panel ── */
+/* ══════════════════════════════════════════════
+   SETTINGS PANEL
+══════════════════════════════════════════════ */
 function renderSettings() {
   const panel = document.getElementById('panel-settings');
+  if (!panel) return;
 
   const rows = (arr, pfx, count) =>
     Array.from({length: count}, (_, i) =>
       `<div class="item-row">
         <span class="item-num">${i+1}</span>
-        <input type="text" id="${pfx}${i}" value="${arr[i] ?? ''}">
+        <input type="text" id="${pfx}${i}" value="${(arr[i] || '').replace(/"/g,'&quot;')}" maxlength="20">
       </div>`).join('');
 
+  /* プレイヤー行 */
+  const playerRows = STATE.players.map((p, i) => `
+    <div class="player-row">
+      <span class="player-num">${i+1}</span>
+      <input class="player-input" id="pname${i}" value="${p.name}" placeholder="名前" maxlength="8">
+      <input class="player-input" id="pchar${i}" value="${p.charName}" placeholder="キャラクター名" maxlength="20">
+    </div>`).join('');
+
   panel.innerHTML = `
+    <div class="settings-section">
+      <h3 class="settings-section-title">👥 プレイヤー設定</h3>
+      <div class="player-header">
+        <span style="flex:0 0 24px"></span>
+        <span class="player-col-label">名前</span>
+        <span class="player-col-label">ゲームキャラ名</span>
+      </div>
+      ${playerRows}
+      <button class="btn-save" id="sv-players">保存</button>
+    </div>
+
     <div class="settings-grid">
       <div class="settings-card">
         <h3>🎯 12択リスト</h3>
@@ -296,41 +630,43 @@ function renderSettings() {
         ${rows(STATE.items6,'b',6)}
         <button class="btn-save" id="sv6">保存</button>
       </div>
-    </div>`;
+    </div>
 
-  document.getElementById('sv12').onclick = () => {
-    STATE.items12 = Array.from({length:12},(_,i) =>
+    <div class="settings-card" style="margin-top:10px">
+      <h3>📅 縛り月設定</h3>
+      <p style="font-size:0.78em;color:var(--text-sub);margin-bottom:10px">現在の縛り月: ${RESTRICT_MONTHS.join('・')}月</p>
+      <p style="font-size:0.75em;color:var(--text-sub)">縛り月の変更は管理者へご連絡ください</p>
+    </div>
+  `;
+
+  document.getElementById('sv-players')?.addEventListener('click', async () => {
+    STATE.players = STATE.players.map((p, i) => ({
+      ...p,
+      name:     document.getElementById(`pname${i}`)?.value.trim() || p.name,
+      charName: document.getElementById(`pchar${i}`)?.value.trim() || p.charName,
+    }));
+    if (SYNC) await SYNC.saveConfig({ players: STATE.players });
+    toast('✅ プレイヤー情報を保存しました');
+  });
+
+  document.getElementById('sv12')?.addEventListener('click', async () => {
+    STATE.items12 = Array.from({length:12}, (_,i) =>
       document.getElementById(`a${i}`)?.value.trim() || DEFAULT_12[i]);
-    DB.saveItems(); toast('✅ 12択リストを保存しました');
-  };
-  document.getElementById('sv6').onclick = () => {
-    STATE.items6 = Array.from({length:6},(_,i) =>
+    if (SYNC) await SYNC.saveConfig({ items12: STATE.items12 });
+    toast('✅ 12択リストを保存しました');
+  });
+
+  document.getElementById('sv6')?.addEventListener('click', async () => {
+    STATE.items6 = Array.from({length:6}, (_,i) =>
       document.getElementById(`b${i}`)?.value.trim() || DEFAULT_6[i]);
-    DB.saveItems(); toast('✅ 6択リストを保存しました');
-  };
+    if (SYNC) await SYNC.saveConfig({ items6: STATE.items6 });
+    toast('✅ 6択リストを保存しました');
+  });
 }
 
-/* ── Header profile ── */
-function updateHeader(profile) {
-  const nameEl   = document.getElementById('profile-name');
-  const avatarEl = document.getElementById('profile-avatar');
-
-  if (profile) {
-    STATE.userName  = profile.displayName;
-    STATE.avatarUrl = profile.pictureUrl;
-    if (nameEl)   nameEl.textContent = profile.displayName;
-    if (avatarEl && profile.pictureUrl) {
-      avatarEl.src = profile.pictureUrl;
-      avatarEl.style.display = 'block';
-    }
-  }
-
-  /* Sync name input */
-  const ni = document.getElementById('name-input');
-  if (ni && STATE.userName) ni.value = STATE.userName;
-}
-
-/* ── Help modal ── */
+/* ══════════════════════════════════════════════
+   HELP MODAL
+══════════════════════════════════════════════ */
 function initHelp() {
   const ITEMS_12 = [
     ['スピード',           'チーム全体のスピード属性を重視。足の速い選手でビルドアップ。'],
@@ -347,49 +683,31 @@ function initHelp() {
     ['セレクトカスタム禁止','プレミアム選択カスタム禁止。基本カスタムのみ許可。'],
   ];
 
-  const ITEMS_6_DEFAULT = [
-    ['項目1','説明文を設定タブで入力してください。'],
-    ['項目2','説明文を設定タブで入力してください。'],
-    ['項目3','説明文を設定タブで入力してください。'],
-    ['項目4','説明文を設定タブで入力してください。'],
-    ['項目5','説明文を設定タブで入力してください。'],
-    ['項目6','説明文を設定タブで入力してください。'],
-  ];
-
   const modal = document.getElementById('help-modal');
+  document.getElementById('btn-help')?.addEventListener('click', () => modal?.classList.add('open'));
+  document.getElementById('btn-modal-close')?.addEventListener('click', () => modal?.classList.remove('open'));
+  modal?.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
 
-  document.getElementById('btn-help').onclick = () => modal.classList.add('open');
-  document.getElementById('btn-modal-close').onclick  = () => modal.classList.remove('open');
-  modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
-
-  /* Build help content */
   const body = document.getElementById('help-body');
+  if (!body) return;
   body.innerHTML = `
     <div class="help-section">
       <h3>このアプリについて</h3>
       <p class="help-intro">
         ウイニングコレクション（ウイコレ）の対戦ルールを<b>ルーレットで公平に決定</b>するアプリです。<br>
-        LINEで開くとプロフィールが自動取得され、結果をグループにそのままシェアできます。
+        敗者がルーレットを2回まわし、2つの結果からどちらか選べます。
       </p>
     </div>
     <div class="help-section">
       <h3>使い方</h3>
-      <div class="help-item">
-        <div class="help-item-name">① 名前を確認</div>
-        <div class="help-item-desc">LINEで開いた場合はアカウント名が自動で入ります。手動でも変更できます。</div>
-      </div>
-      <div class="help-item">
-        <div class="help-item-name">② 第1回：12択を2回スピン</div>
-        <div class="help-item-desc">「SPIN」を押して、12種類のルールから2つを抽選します。</div>
-      </div>
-      <div class="help-item">
-        <div class="help-item-name">③ 第2回：6択を1回スピン</div>
-        <div class="help-item-desc">さらに6択から1つを抽選。計3つのルールが決まります。</div>
-      </div>
-      <div class="help-item">
-        <div class="help-item-name">④ 結果をLINEでシェア</div>
-        <div class="help-item-desc">「LINEで送る」ボタンでグループに結果カードを投稿できます。</div>
-      </div>
+      <div class="help-item"><div class="help-item-name">① SPIN POWER ゲージ</div>
+        <div class="help-item-desc">ゲージが動いている間に「SPIN」を押すとゲージ位置でパワーが決まります。強いほど長く回ります。</div></div>
+      <div class="help-item"><div class="help-item-name">② 第1回：12択を2回スピン</div>
+        <div class="help-item-desc">12種類のルールから2つを抽選します。</div></div>
+      <div class="help-item"><div class="help-item-name">③ 第2回：6択を1回スピン</div>
+        <div class="help-item-desc">さらに6択から1つを抽選。合計3ルールが確定します。</div></div>
+      <div class="help-item"><div class="help-item-name">④ LINEでシェア</div>
+        <div class="help-item-desc">「LINEで送る」でグループに結果カードを投稿できます。</div></div>
     </div>
     <div class="help-section">
       <h3>12択ルール一覧</h3>
@@ -400,64 +718,108 @@ function initHelp() {
         </div>`).join('')}
     </div>
     <div class="help-section">
-      <h3>6択ルール一覧</h3>
-      <p class="help-intro" style="font-size:0.8em">「⚙️ 設定」タブから項目名を自由に変更できます。</p>
-      ${ITEMS_6_DEFAULT.map(([n,d]) => `
-        <div class="help-item">
-          <div class="help-item-name">${n}</div>
-          <div class="help-item-desc">${d}</div>
-        </div>`).join('')}
-    </div>
-    <div class="help-section">
       <h3>その他</h3>
-      <div class="help-item">
-        <div class="help-item-name">📜 履歴</div>
-        <div class="help-item-desc">過去のスピン結果を一覧で確認できます。最大100件保存。</div>
-      </div>
-      <div class="help-item">
-        <div class="help-item-name">📋 コピー</div>
-        <div class="help-item-desc">結果テキストをクリップボードにコピーして他のアプリに貼り付けられます。</div>
-      </div>
+      <div class="help-item"><div class="help-item-name">📅 カレンダー</div>
+        <div class="help-item-desc">縛り月と各月のルールを確認できます。</div></div>
+      <div class="help-item"><div class="help-item-name">📊 集計</div>
+        <div class="help-item-desc">試合結果のスクリーンショットをアップロードすると自動で集計されます。</div></div>
+      <div class="help-item"><div class="help-item-name">⚙️ 設定</div>
+        <div class="help-item-desc">プレイヤー名・キャラクター名・ルール項目を自由に変更できます。</div></div>
     </div>`;
 }
 
-/* ── Clipboard helper ── */
+/* ══════════════════════════════════════════════
+   HEADER / PROFILE
+══════════════════════════════════════════════ */
+function updateHeader(profile) {
+  const avatarEl = document.getElementById('profile-avatar');
+  const nameEl   = document.getElementById('name-input');
+
+  if (profile) {
+    STATE.userName  = profile.displayName;
+    STATE.avatarUrl = profile.pictureUrl;
+
+    if (avatarEl && profile.pictureUrl) avatarEl.src = profile.pictureUrl;
+    if (nameEl) {
+      nameEl.value    = profile.displayName;
+      nameEl.readOnly = true;   /* LINE取得時は編集不可 */
+      nameEl.style.opacity = '0.75';
+      nameEl.title    = 'LINEアカウント名は変更できません';
+    }
+  }
+}
+
+/* ── クリップボード ── */
 async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text);
-  } catch(e) {
-    const el = document.createElement('textarea');
-    el.value = text;
-    el.style.position = 'fixed';
-    el.style.opacity = '0';
+  } catch(_) {
+    const el = Object.assign(document.createElement('textarea'), {
+      value: text, style: 'position:fixed;opacity:0'
+    });
     document.body.appendChild(el);
-    el.select();
-    document.execCommand('copy');
+    el.select(); document.execCommand('copy');
     document.body.removeChild(el);
   }
 }
 
-/* ── LIFF setup notice ── */
-function showLiffNotice(needsSetup) {
-  const el = document.getElementById('liff-notice');
-  if (el && needsSetup) el.classList.add('show');
-}
-
-/* ── Boot ── */
+/* ── 起動 ── */
 async function boot() {
-  DB.load();
+  /* Firebase 初期化 */
+  const syncOk = SYNC.init();
+
+  /* Firebase から設定を読み込む */
+  SYNC.watchConfig(cfg => {
+    if (cfg.items12?.length === 12) STATE.items12 = cfg.items12;
+    if (cfg.items6?.length  === 6)  STATE.items6  = cfg.items6;
+    if (cfg.players?.length)        STATE.players  = cfg.players;
+  });
+
+  /* セッション */
+  STATE.isSpinner = true;   /* デフォルト: 自分がスピナー（URLパラメータで切替可） */
+  const urlParams = new URLSearchParams(location.search);
+  const sid = urlParams.get('session');
+  if (sid) {
+    STATE.sessionId = sid;
+    STATE.isSpinner = false;  /* セッションIDで参加 → 観戦者 */
+    SYNC.joinSession(sid);
+    /* Firebase のセッション状態で UI 同期 */
+    SYNC.on('session', data => syncFromFirebase(data));
+  } else {
+    /* 新規セッション */
+    const newId = await SYNC.createSession(STATE.userName || '敗者');
+    STATE.sessionId = newId;
+    history.replaceState(null, '', `?session=${newId}`);
+  }
+
   initNav();
   initHelp();
   renderGame();
   renderSettings();
 
-  /* Try LIFF init */
+  /* LIFF */
   try {
     const { profile, needsSetup } = await LIFF_WRAPPER.init();
-    if (profile) updateHeader(profile);
-    if (needsSetup) showLiffNotice(true);
-  } catch(e) {
-    console.warn('LIFF boot error:', e);
+    if (profile) {
+      updateHeader(profile);
+      if (STATE.sessionId) SYNC.resetSession(profile.displayName);
+    }
+  } catch(e) { console.warn('LIFF boot error:', e); }
+}
+
+/* Firebase セッション状態で UI を同期（観戦者用） */
+function syncFromFirebase(data) {
+  if (!data) return;
+  STATE.phase  = data.phase  || 1;
+  STATE.round1 = data.round1 || [];
+  STATE.round2 = data.round2 !== undefined ? data.round2 : null;
+
+  if (data.spinning && !STATE.isSpinner) {
+    /* 他の人がスピン中 → ローカルでアニメーション表示 */
+    const status = document.getElementById('spin-status');
+    if (status) status.textContent = `${data.spinnerName || '敗者'}がスピン中…`;
+  } else {
+    renderGame();
   }
 }
 
