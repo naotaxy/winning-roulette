@@ -264,6 +264,15 @@ const OCR = (() => {
       awayChar, homeChar,
       awayRaw, homeRaw,
       scoreRaw: scoreText.trim(),
+      _debug: {
+        pkRaw:        pkText.trim(),
+        badgeRaw:     leftBadgeText,
+        leftIsHome,
+        leftTeamRaw,
+        rightTeamRaw,
+        leftMatch:    leftTeamMatch,
+        rightMatch:   rightTeamMatch,
+      },
     };
   }
 
