@@ -17,8 +17,8 @@
 
 const LIFF_WRAPPER = (() => {
 
-  /* ── Replace with your LIFF ID after creating in LINE Developers Console ── */
-  const LIFF_ID = 'YOUR_LIFF_ID_HERE';
+  /* ── LIFF ID (LINE Developers Console で取得した値) ── */
+  const LIFF_ID = '2009825025-LzTdx4vR';
 
   let _profile    = null;
   let _inLine     = false;
@@ -26,7 +26,7 @@ const LIFF_WRAPPER = (() => {
 
   /* ── Initialize ── */
   async function init() {
-    if (LIFF_ID === 'YOUR_LIFF_ID_HERE') {
+    if (!LIFF_ID || LIFF_ID === 'YOUR_LIFF_ID_HERE') {
       console.info('[LIFF] No LIFF ID set — running in browser-only mode.');
       _ready = true;
       return { inLine: false, profile: null, needsSetup: true };
