@@ -37,13 +37,25 @@ const LIFF_WRAPPER = (() => {
       _inLine = liff.isInClient();
       _ready  = true;
 
+      console.info('[LIFF] isInClient:', _inLine, '/ isLoggedIn:', liff.isLoggedIn());
+
       if (liff.isLoggedIn()) {
-        /* 既にログイン済み（LINE内ブラウザ・OAuth後リダイレクト） */
+        /* ログイン済み → プロフィール取得 */
         _profile = await liff.getProfile();
+        console.info('[LIFF] Profile:', _profile?.displayName);
+      } else if (_inLine) {
+        /* LINE内ブラウザなのにログインできていない → 再試行 */
+        _profile = await liff.getProfile().catch(() => null);
+        if (!_profile) {
+          const baseUrl = location.origin + location.pathname;
+          liff.login({ redirectUri: baseUrl });
+          return { inLine: true, profile: null, needsSetup: false };
+        }
       } else {
-        /* 未ログイン → LINEログイン画面へリダイレクト */
-        liff.login({ redirectUri: location.href });
-        return { inLine: _inLine, profile: null, needsSetup: false };
+        /* 外部ブラウザ・未ログイン → LINE認証画面へ */
+        const baseUrl = location.origin + location.pathname;
+        liff.login({ redirectUri: baseUrl });
+        return { inLine: false, profile: null, needsSetup: false };
       }
 
       return { inLine: _inLine, profile: _profile, needsSetup: false };
