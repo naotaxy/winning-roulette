@@ -547,9 +547,11 @@ function renderStats() {
     _loadStatsData();
   });
 
-  /* プレイヤーセレクト */
-  const playerOptions = STATE.players.map(p =>
-    `<option value="${p.name}">${p.name}（${p.charName}）</option>`).join('');
+  /* プレイヤーセレクト（先頭に空欄を追加してOCR未検出を明示） */
+  const playerOptions =
+    '<option value="">-- 選択してください --</option>' +
+    STATE.players.map(p =>
+      `<option value="${p.name}">${p.name}（${p.charName}）</option>`).join('');
   ['ocr-away','ocr-home'].forEach(id => {
     const sel = document.getElementById(id);
     if (sel) sel.innerHTML = playerOptions;
@@ -579,7 +581,12 @@ function renderStats() {
         barFill.style.width = pct + '%';
         status.textContent  = `OCR解析中… ${pct}%`;
       });
-      status.textContent = '解析完了！内容を確認して登録してください';
+      /* OCR未検出でも空欄（デフォルト）のままになるよう明示的にリセット */
+      document.getElementById('ocr-away').value = '';
+      document.getElementById('ocr-home').value = '';
+      const awayLabel = result.awayChar ? result.awayChar.playerName : '（未検出）';
+      const homeLabel = result.homeChar ? result.homeChar.playerName : '（未検出）';
+      status.textContent = `解析完了！ AWAY:${awayLabel} HOME:${homeLabel} — 内容を確認して登録`;
       document.getElementById('ocr-result-form').style.display = 'block';
       if (result.awayChar) _setSelect('ocr-away', result.awayChar.playerName);
       if (result.homeChar) _setSelect('ocr-home', result.homeChar.playerName);
