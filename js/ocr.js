@@ -48,8 +48,8 @@ const OCR = (() => {
 
     const worker = await ensureWorker(onProgress);
 
-    /* ── 領域1: スコアエリア（画像上半分の中央） ── */
-    const scoreCanvas = cropImage(imgEl, 0.2, 0.10, 0.6, 0.22);
+    /* ── 領域1: スコアエリア（上半分中央） ── */
+    const scoreCanvas = cropImage(imgEl, 0.2, 0.10, 0.6, 0.28);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
 
@@ -58,24 +58,29 @@ const OCR = (() => {
     const awayScore = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
     const homeScore = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
 
+    /* PKパターン: 数字 PK 数字 */
+    const pkMatch  = scoreText.match(/(\d+)\s*PK\s*(\d+)/i);
+    const awayPK   = pkMatch ? parseInt(pkMatch[1], 10) : null;
+    const homePK   = pkMatch ? parseInt(pkMatch[2], 10) : null;
+
     /* ── 領域2: AWAYチーム名（左側） ── */
-    const awayCanvas = cropImage(imgEl, 0.02, 0.20, 0.40, 0.20);
+    const awayCanvas = cropImage(imgEl, 0.02, 0.28, 0.40, 0.18);
     const awayResult = await worker.recognize(awayCanvas);
     const awayRaw    = awayResult.data.text.trim().replace(/\n/g, ' ');
 
     /* ── 領域3: HOMEチーム名（右側） ── */
-    const homeCanvas = cropImage(imgEl, 0.55, 0.20, 0.43, 0.20);
+    const homeCanvas = cropImage(imgEl, 0.55, 0.28, 0.43, 0.18);
     const homeResult = await worker.recognize(homeCanvas);
     const homeRaw    = homeResult.data.text.trim().replace(/\n/g, ' ');
 
     URL.revokeObjectURL(blobUrl);
 
-    /* OCRテキストとキャラクター名を照合（部分一致・類似） */
     const awayChar = matchCharName(awayRaw, playerMap);
     const homeChar = matchCharName(homeRaw, playerMap);
 
     return {
       awayScore, homeScore,
+      awayPK, homePK,
       awayChar, homeChar,
       awayRaw, homeRaw,
       scoreRaw: scoreText.trim(),

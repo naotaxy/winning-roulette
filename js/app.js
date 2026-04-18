@@ -409,6 +409,16 @@ function renderStats() {
             <input type="number" id="ocr-home-score" class="ocr-score-input" min="0" max="99" placeholder="点">
           </div>
         </div>
+        <div class="pk-row" id="pk-row">
+          <label class="pk-toggle-label">
+            <input type="checkbox" id="pk-check"> PK戦あり
+          </label>
+          <div class="pk-inputs" id="pk-inputs" style="display:none">
+            <input type="number" id="ocr-away-pk" class="ocr-score-input" min="0" max="99" placeholder="AWAY PK">
+            <span class="pk-label-center">PK</span>
+            <input type="number" id="ocr-home-pk" class="ocr-score-input" min="0" max="99" placeholder="HOME PK">
+          </div>
+        </div>
         <div class="ocr-date-row">
           <label class="ocr-label">試合日</label>
           <input type="date" id="ocr-date" class="ocr-date-input" value="${toDateStr(now)}">
@@ -480,6 +490,12 @@ function renderStats() {
       if (result.homeChar) _setSelect('ocr-home', result.homeChar.playerName);
       if (result.awayScore !== null) document.getElementById('ocr-away-score').value = result.awayScore;
       if (result.homeScore !== null) document.getElementById('ocr-home-score').value = result.homeScore;
+      if (result.awayPK !== null && result.homePK !== null) {
+        document.getElementById('pk-check').checked = true;
+        document.getElementById('pk-inputs').style.display = 'flex';
+        document.getElementById('ocr-away-pk').value = result.awayPK;
+        document.getElementById('ocr-home-pk').value = result.homePK;
+      }
 
     } catch (err) {
       status.textContent = `❌ 解析失敗: ${err.message}`;
@@ -497,10 +513,17 @@ function renderStats() {
     if (!away || !home || away === home || isNaN(awayScore) || isNaN(homeScore)) {
       toast('⚠️ 入力を確認してください'); return;
     }
-    await SYNC.saveResult(year, month, { date, away, home, awayScore, homeScore, addedBy: STATE.userName || '不明' });
+    const hasPK   = document.getElementById('pk-check')?.checked;
+    const awayPK  = hasPK ? parseInt(document.getElementById('ocr-away-pk')?.value, 10) : null;
+    const homePK  = hasPK ? parseInt(document.getElementById('ocr-home-pk')?.value, 10) : null;
+    await SYNC.saveResult(year, month, { date, away, home, awayScore, homeScore, awayPK, homePK, addedBy: STATE.userName || '不明' });
     toast('✅ 登録しました！');
     document.getElementById('ocr-result-form').style.display = 'none';
     document.getElementById('ocr-preview-wrap').style.display = 'none';
+  });
+
+  document.getElementById('pk-check')?.addEventListener('change', e => {
+    document.getElementById('pk-inputs').style.display = e.target.checked ? 'flex' : 'none';
   });
 
   document.getElementById('ocr-cancel-btn')?.addEventListener('click', () => {
@@ -526,49 +549,93 @@ function _setSelect(id, value) {
 function _renderResultsList(results) {
   const el = document.getElementById('results-list');
   if (!el) return;
+  const now   = new Date();
+  const year  = now.getFullYear();
+  const month = now.getMonth() + 1;
   const entries = Object.entries(results || {}).sort((a,b) => (b[1].date||'').localeCompare(a[1].date||''));
   if (!entries.length) { el.innerHTML = '<div class="history-empty">まだ結果がありません</div>'; return; }
 
-  el.innerHTML = entries.map(([id, r]) => `
-    <div class="result-item">
-      <div class="result-date">${r.date || '日付不明'}</div>
-      <div class="result-match">
-        <span class="result-team">${r.away}</span>
-        <span class="result-score">${r.awayScore} - ${r.homeScore}</span>
-        <span class="result-team">${r.home}</span>
+  el.innerHTML = entries.map(([id, r]) => {
+    const pkStr = (r.awayPK != null && r.homePK != null)
+      ? `<div class="result-pk">${r.awayPK} PK ${r.homePK}</div>` : '';
+    return `
+    <div class="result-item" data-id="${id}">
+      <div style="flex:1">
+        <div class="result-date">${r.date || '日付不明'}</div>
+        <div class="result-match">
+          <span class="result-team">${r.away}</span>
+          <span class="result-score">${r.awayScore} - ${r.homeScore}${pkStr}</span>
+          <span class="result-team">${r.home}</span>
+        </div>
       </div>
-    </div>`).join('');
+      <button class="btn-del-result" data-id="${id}">🗑️</button>
+    </div>`;
+  }).join('');
+
+  el.querySelectorAll('.btn-del-result').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('この結果を削除しますか？')) return;
+      await SYNC.deleteResult(year, month, btn.dataset.id);
+      toast('🗑️ 削除しました');
+    });
+  });
 }
+
+/* リーグ順位ボーナス: 1位=5, 2位=3, 3位=2, 4位=1, 5位=0 */
+const RANK_BONUS = [5, 3, 2, 1, 0];
 
 function _renderStandings(results) {
   const el = document.getElementById('standings-table');
   if (!el) return;
   const stats = {};
-  STATE.players.forEach(p => { stats[p.name] = { w: 0, d: 0, l: 0, gf: 0, ga: 0 }; });
+  STATE.players.forEach(p => {
+    stats[p.name] = { w: 0, pkw: 0, d: 0, l: 0, gf: 0, ga: 0 };
+  });
 
   Object.values(results || {}).forEach(r => {
     const a = stats[r.away]; const h = stats[r.home];
     if (!a || !h) return;
     a.gf += r.awayScore; a.ga += r.homeScore;
     h.gf += r.homeScore; h.ga += r.awayScore;
-    if (r.awayScore > r.homeScore) { a.w++; h.l++; }
-    else if (r.awayScore < r.homeScore) { h.w++; a.l++; }
-    else { a.d++; h.d++; }
+
+    const hasPK = r.awayPK != null && r.homePK != null;
+    if (r.awayScore > r.homeScore) {
+      a.w++; h.l++;
+    } else if (r.awayScore < r.homeScore) {
+      h.w++; a.l++;
+    } else if (hasPK) {
+      /* 引き分け→PK: PK勝者に1pt */
+      if (r.awayPK > r.homePK) { a.pkw++; h.l++; }
+      else                      { h.pkw++; a.l++; }
+    } else {
+      a.d++; h.d++;
+    }
   });
 
+  /* 試合勝点で順位付け */
+  const matchPt = s => s.w * 3 + s.pkw * 1;
   const sorted = Object.entries(stats)
-    .sort((a,b) => (b[1].w*3+b[1].d) - (a[1].w*3+a[1].d) || (b[1].gf-b[1].ga) - (a[1].gf-a[1].ga));
+    .sort((a,b) => matchPt(b[1]) - matchPt(a[1]) || (b[1].gf - b[1].ga) - (a[1].gf - a[1].ga));
+
+  /* リーグ順位ボーナス付与 */
+  sorted.forEach(([, s], i) => { s.rankBonus = RANK_BONUS[i] ?? 0; });
 
   el.innerHTML = `
     <table class="standings">
-      <thead><tr><th>#</th><th>選手</th><th>勝</th><th>分</th><th>敗</th><th>得点</th><th>失点</th><th>Pt</th></tr></thead>
+      <thead>
+        <tr>
+          <th>#</th><th>選手</th><th>勝</th><th>PK勝</th><th>分</th><th>敗</th>
+          <th>試合Pt</th><th>順位Pt</th><th>合計</th>
+        </tr>
+      </thead>
       <tbody>
         ${sorted.map(([name, s], i) => `
           <tr class="${i===0?'rank-gold':i===1?'rank-silver':i===2?'rank-bronze':''}">
             <td>${i+1}</td><td>${name}</td>
-            <td>${s.w}</td><td>${s.d}</td><td>${s.l}</td>
-            <td>${s.gf}</td><td>${s.ga}</td>
-            <td><b>${s.w*3+s.d}</b></td>
+            <td>${s.w}</td><td>${s.pkw}</td><td>${s.d}</td><td>${s.l}</td>
+            <td>${matchPt(s)}</td>
+            <td>${s.rankBonus}</td>
+            <td><b>${matchPt(s) + s.rankBonus}</b></td>
           </tr>`).join('')}
       </tbody>
     </table>`;

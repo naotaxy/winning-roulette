@@ -1350,8 +1350,12 @@ body {
   border-radius: 10px;
   padding: 10px 12px;
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.result-date { font-size: 0.7em; color: var(--text-sub); margin-bottom: 6px; }
+.result-item > .result-match { flex: 1; }
+.result-date { font-size: 0.7em; color: var(--text-sub); margin-bottom: 4px; }
 .result-match {
   display: flex;
   align-items: center;
@@ -1367,7 +1371,30 @@ body {
   color: var(--gold);
   text-shadow: 0 0 6px var(--gold);
   flex-shrink: 0;
+  text-align: center;
 }
+.result-pk {
+  font-size: 0.65em;
+  color: #00d9ff;
+  margin-top: 2px;
+  font-family: 'Orbitron', sans-serif;
+}
+.btn-del-result {
+  background: none;
+  border: none;
+  font-size: 1.1em;
+  cursor: pointer;
+  padding: 4px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+.btn-del-result:hover { opacity: 1; }
+
+/* PK入力行 */
+.pk-row { margin: 8px 0; }
+.pk-toggle-label { font-size: 0.85em; color: var(--text-sub); cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.pk-inputs { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.pk-label-center { font-size: 0.85em; font-weight: 700; color: #00d9ff; }
 
 /* 順位表 */
 .standings {
