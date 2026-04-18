@@ -314,6 +314,13 @@ const SYNC = (() => {
     try { return JSON.parse(localStorage.getItem('wc_hist') || '[]'); } catch(_) { return []; }
   }
 
+  async function saveOcrLog(log) {
+    const id = new Date().toISOString().replace(/[:.]/g, '-');
+    if (_isReady) {
+      await _db.ref(`ocr_logs/${id}`).set(log);
+    }
+  }
+
   return {
     init, on, isReady: () => _isReady,
     createSession, joinSession, commitSpin, finishSpin, resetSession,
@@ -324,6 +331,7 @@ const SYNC = (() => {
     watchAnnualResults,
     savePlayerAvatar, watchPlayerAvatars,
     getLegacyHistory,
+    saveOcrLog,
     sessionId: () => _sessionId,
   };
 })();
