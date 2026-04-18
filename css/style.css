@@ -1378,9 +1378,9 @@ body {
 
 .ocr-preview-img {
   width: 100%;
-  max-height: 180px;
+  max-height: 220px;
   object-fit: cover;
-  object-position: top;
+  object-position: center 22%;
   border-radius: 8px;
   margin-bottom: 10px;
 }
