@@ -123,12 +123,13 @@ const ROULETTE = (() => {
 
     /* ── Segment labels ── */
     for (let i = 0; i < n; i++) {
-      const a0  = rotation + i * segArc - Math.PI / 2;
+      const a0   = rotation + i * segArc - Math.PI / 2;
       const midA = a0 + segArc / 2;
       const isH  = (i === hilite);
 
-      const lx = cx + Math.cos(midA) * outerR * 0.62;
-      const ly = cy + Math.sin(midA) * outerR * 0.62;
+      /* ラベル位置：セグメント中間のやや外寄り */
+      const lx = cx + Math.cos(midA) * outerR * 0.63;
+      const ly = cy + Math.sin(midA) * outerR * 0.63;
 
       ctx.save();
       ctx.translate(lx, ly);
@@ -136,19 +137,42 @@ const ROULETTE = (() => {
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
 
-      const fs = n > 8 ? (outerR > 100 ? 10 : 8) : 13;
-      ctx.font        = `700 ${fs}px 'Noto Sans JP',sans-serif`;
-      ctx.fillStyle   = isH ? '#1a0f00' : '#fff';
-      ctx.shadowColor = isH ? 'transparent' : 'rgba(0,0,0,0.9)';
-      ctx.shadowBlur  = isH ? 0 : 3;
+      /* フォントサイズ：12択は少し大きく（可読性優先） */
+      const fs = n > 8 ? (outerR > 100 ? 11 : 9) : 14;
+      ctx.font = `700 ${fs}px 'Noto Sans JP',sans-serif`;
 
-      const maxW = outerR * 0.44;
+      /* テキスト最大幅に合わせてトリム */
+      const maxW = outerR * 0.46;
       let label  = items[i];
       while (ctx.measureText(label).width > maxW && label.length > 1)
         label = label.slice(0, -1);
       if (label !== items[i]) label = label.slice(0, -1) + '…';
 
+      /* ── 背景ピル（視認性向上）── */
+      const tw = Math.min(ctx.measureText(label).width + 8, maxW + 8);
+      const th = fs + 6;
+      ctx.fillStyle = isH
+        ? 'rgba(255,240,80,0.3)'
+        : 'rgba(0,0,0,0.45)';
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(-tw / 2, -th / 2, tw, th, 3);
+      } else {
+        ctx.rect(-tw / 2, -th / 2, tw, th);
+      }
+      ctx.fill();
+
+      /* ── テキスト：アウトライン → 本文の順で描画 ── */
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur  = 0;
+      ctx.lineJoin    = 'round';
+      ctx.lineWidth   = 3;
+      ctx.strokeStyle = isH ? 'rgba(120,70,0,0.95)' : 'rgba(0,0,0,0.95)';
+      ctx.strokeText(label, 0, 0);
+
+      ctx.fillStyle = isH ? '#1a0800' : '#ffffff';
       ctx.fillText(label, 0, 0);
+
       ctx.restore();
     }
 

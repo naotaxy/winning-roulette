@@ -37,10 +37,13 @@ const LIFF_WRAPPER = (() => {
       _inLine = liff.isInClient();
       _ready  = true;
 
-      if (_inLine || liff.isLoggedIn()) {
+      if (liff.isLoggedIn()) {
+        /* 既にログイン済み（LINE内ブラウザ・OAuth後リダイレクト） */
         _profile = await liff.getProfile();
-      } else if (_inLine) {
+      } else {
+        /* 未ログイン → LINEログイン画面へリダイレクト */
         liff.login({ redirectUri: location.href });
+        return { inLine: _inLine, profile: null, needsSetup: false };
       }
 
       return { inLine: _inLine, profile: _profile, needsSetup: false };

@@ -368,16 +368,31 @@ function initHelp() {
     <div class="help-section">
       <h3>このアプリについて</h3>
       <p class="help-intro">
-        ウイニングコレクション（ウイコレ）の対戦ルールをルーレットで公平に決定するアプリです。<br><br>
-        <b>使い方</b><br>
-        ① 名前を入力（LINEで開くと自動取得）<br>
-        ② 第1回：12択ルーレットを2回スピン<br>
-        ③ 第2回：6択ルーレットを1回スピン<br>
-        ④ 「LINEで送る」でグループに結果を投稿
+        ウイニングコレクション（ウイコレ）の対戦ルールを<b>ルーレットで公平に決定</b>するアプリです。<br>
+        LINEで開くとプロフィールが自動取得され、結果をグループにそのままシェアできます。
       </p>
     </div>
     <div class="help-section">
-      <h3>12択ルール説明</h3>
+      <h3>使い方</h3>
+      <div class="help-item">
+        <div class="help-item-name">① 名前を確認</div>
+        <div class="help-item-desc">LINEで開いた場合はアカウント名が自動で入ります。手動でも変更できます。</div>
+      </div>
+      <div class="help-item">
+        <div class="help-item-name">② 第1回：12択を2回スピン</div>
+        <div class="help-item-desc">「SPIN」を押して、12種類のルールから2つを抽選します。</div>
+      </div>
+      <div class="help-item">
+        <div class="help-item-name">③ 第2回：6択を1回スピン</div>
+        <div class="help-item-desc">さらに6択から1つを抽選。計3つのルールが決まります。</div>
+      </div>
+      <div class="help-item">
+        <div class="help-item-name">④ 結果をLINEでシェア</div>
+        <div class="help-item-desc">「LINEで送る」ボタンでグループに結果カードを投稿できます。</div>
+      </div>
+    </div>
+    <div class="help-section">
+      <h3>12択ルール一覧</h3>
       ${ITEMS_12.map(([n,d]) => `
         <div class="help-item">
           <div class="help-item-name">${n}</div>
@@ -385,8 +400,8 @@ function initHelp() {
         </div>`).join('')}
     </div>
     <div class="help-section">
-      <h3>6択ルール説明</h3>
-      <p class="help-intro" style="font-size:0.8em">「設定」タブから6択の項目名を自由に設定できます。</p>
+      <h3>6択ルール一覧</h3>
+      <p class="help-intro" style="font-size:0.8em">「⚙️ 設定」タブから項目名を自由に変更できます。</p>
       ${ITEMS_6_DEFAULT.map(([n,d]) => `
         <div class="help-item">
           <div class="help-item-name">${n}</div>
@@ -394,16 +409,15 @@ function initHelp() {
         </div>`).join('')}
     </div>
     <div class="help-section">
-      <h3>LINEで送る 設定手順</h3>
-      <p class="help-intro">
-        LIFF IDを設定することでLINE上から名前自動取得・シェアが可能になります。<br><br>
-        1. <b>LINE Developersコンソール</b> (developers.line.biz) にアクセス<br>
-        2. プロバイダー作成 → <b>LINEログインチャネル</b>を作成<br>
-        3. 「LIFF」タブ → 「追加」<br>
-        4. サイズ: <b>Full</b>、スコープ: <b>profile</b> にチェック<br>
-        5. エンドポイントURL: GitHub Pages の URL (https必須)<br>
-        6. 発行されたLIFF IDを <b>js/liff.js</b> の <code>LIFF_ID</code> に設定
-      </p>
+      <h3>その他</h3>
+      <div class="help-item">
+        <div class="help-item-name">📜 履歴</div>
+        <div class="help-item-desc">過去のスピン結果を一覧で確認できます。最大100件保存。</div>
+      </div>
+      <div class="help-item">
+        <div class="help-item-name">📋 コピー</div>
+        <div class="help-item-desc">結果テキストをクリップボードにコピーして他のアプリに貼り付けられます。</div>
+      </div>
     </div>`;
 }
 
