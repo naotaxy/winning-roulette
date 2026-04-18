@@ -1118,15 +1118,29 @@ async function boot() {
 
     /* アバターURL監視・自分のアバターを保存 */
     SYNC.watchPlayerAvatars(avatars => {
-      STATE.playerAvatars = avatars || {};
-      /* 順位表を常に再描画してアバターを反映 */
+      /* Firebase キー（LINE表示名）→ 設定プレイヤー名 へ正規化して格納
+         例: "矢部智也" → "矢部"（プレイヤー名が含まれていれば一致とみなす） */
+      const raw = avatars || {};
+      const mapped = {};
+      for (const [key, url] of Object.entries(raw)) {
+        const hit = STATE.players.find(p =>
+          p.name === key ||
+          key.includes(p.name) ||
+          p.name.includes(key)
+        );
+        mapped[hit ? hit.name : key] = url;
+      }
+      STATE.playerAvatars = mapped;
       if (STATE._lastMonthResults != null) _renderStandings(STATE._lastMonthResults);
       if (STATE._lastAnnualMonths  != null) _renderAnnualStandings(STATE._lastAnnualMonths);
     });
     if (STATE.userName && STATE.avatarUrl) {
-      /* lineId または name で照合してプレイヤー名キーで保存 */
+      /* lineId・完全一致・部分一致の順でプレイヤーを照合してから保存 */
       const matched = STATE.players.find(p =>
-        p.lineId === STATE.userName || p.name === STATE.userName
+        p.lineId === STATE.userName ||
+        p.name === STATE.userName ||
+        STATE.userName.includes(p.name) ||
+        p.name.includes(STATE.userName)
       );
       SYNC.savePlayerAvatar(matched ? matched.name : STATE.userName, STATE.avatarUrl);
     }
