@@ -47,9 +47,8 @@ const OCR = (() => {
 
     const worker = await ensureWorker(onProgress);
 
-    /* ── 領域1: メインスコア（中央）
-       比率: x=39.7%〜60.9%, y=26.4%〜32.9% ── */
-    const scoreCanvas = cropImage(imgEl, 0.397, 0.264, 0.212, 0.065, 3);
+    /* ── 領域1: メインスコア（中央）— 上下左右に余裕を持たせて広めに取得 ── */
+    const scoreCanvas = cropImage(imgEl, 0.360, 0.240, 0.280, 0.100, 3);
     const scoreResult = await worker.recognize(scoreCanvas);
     const scoreText   = scoreResult.data.text;
 
@@ -57,9 +56,8 @@ const OCR = (() => {
     const awayScore  = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
     const homeScore  = scoreMatch ? parseInt(scoreMatch[2], 10) : null;
 
-    /* ── 領域2: PKスコア（スコア下）
-       比率: x=39.0%〜61.6%, y=33.5%〜37.1% ── */
-    const pkCanvas = cropImage(imgEl, 0.390, 0.335, 0.226, 0.036, 3);
+    /* ── 領域2: PKスコア（スコア下）— 広めに取得 ── */
+    const pkCanvas = cropImage(imgEl, 0.340, 0.315, 0.320, 0.070, 3);
     const pkResult = await worker.recognize(pkCanvas);
     const pkText   = pkResult.data.text;
 
@@ -67,15 +65,13 @@ const OCR = (() => {
     const awayPK  = pkMatch ? parseInt(pkMatch[1], 10) : null;
     const homePK  = pkMatch ? parseInt(pkMatch[2], 10) : null;
 
-    /* ── 領域3: AWAYプレイヤー名（左）
-       比率: x=14.9%〜41.1%, y=36.5%〜39.7% ── */
-    const awayCanvas = cropImage(imgEl, 0.149, 0.365, 0.262, 0.032, 3);
+    /* ── 領域3: AWAYプレイヤー名（左）— 広めに取得 ── */
+    const awayCanvas = cropImage(imgEl, 0.080, 0.340, 0.360, 0.065, 3);
     const awayResult = await worker.recognize(awayCanvas);
     const awayRaw    = awayResult.data.text.trim().replace(/\n/g, ' ');
 
-    /* ── 領域4: HOMEプレイヤー名（右）
-       比率: x=60.2%〜91.4%, y=36.5%〜39.7% ── */
-    const homeCanvas = cropImage(imgEl, 0.602, 0.365, 0.312, 0.032, 3);
+    /* ── 領域4: HOMEプレイヤー名（右）— 広めに取得 ── */
+    const homeCanvas = cropImage(imgEl, 0.560, 0.340, 0.380, 0.065, 3);
     const homeResult = await worker.recognize(homeCanvas);
     const homeRaw    = homeResult.data.text.trim().replace(/\n/g, ' ');
 
