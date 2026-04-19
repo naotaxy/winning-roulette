@@ -228,12 +228,12 @@ const ROULETTE = (() => {
   })();
 
   /* ══════════════════════════════════════════════
-     スピン（正弦イーズアウト）
-     ・ゆっくりスタート → なめらかに停止
-     ・1 回転 + 目標角度補正
-     ・2.5〜4 秒
+     スピン（cubic ease-out）
+     ・先行コミット済み結果を優先して停止
+     ・整数回転 + 目標角度補正
+     ・4.2〜9.5 秒
   ══════════════════════════════════════════════ */
-  function spin(state, canvas, items, colors, exclude, onDone, power) {
+  function spin(state, canvas, items, colors, exclude, onDone, power, forcedTarget) {
     if (state.spinning) return;
     state.spinning = true;
 
@@ -241,9 +241,11 @@ const ROULETTE = (() => {
     const n   = items.length;
     const seg = (2 * Math.PI) / n;
 
-    let tgt;
-    do { tgt = Math.floor(Math.random() * n); }
-    while (exclude.includes(tgt));
+    let tgt = Number.isInteger(forcedTarget) ? forcedTarget : null;
+    if (tgt == null || tgt < 0 || tgt >= n || exclude.includes(tgt)) {
+      do { tgt = Math.floor(Math.random() * n); }
+      while (exclude.includes(tgt));
+    }
 
     /* 目標角度 */
     const jitter   = (Math.random() - 0.5) * seg * 0.25;
@@ -252,8 +254,8 @@ const ROULETTE = (() => {
     const tgtNorm  = ((tgtAngle  % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
     const diff     = (tgtNorm - curNorm + 2*Math.PI) % (2*Math.PI);
 
-    /* パワーに応じた回転数: 4〜12周 + 差分 */
-    const rotations  = 4 + (pw / 100) * 8;
+    /* パワーに応じた整数回転数: 4〜12周 + 差分 */
+    const rotations  = 4 + Math.round((pw / 100) * 8);
     const totalDelta = rotations * 2 * Math.PI + diff;
     const finalRot   = state.rot + totalDelta;
 
@@ -297,7 +299,7 @@ const ROULETTE = (() => {
 
     const wheel = {
       canvas, state, GAUGE,
-      spin:     (exclude, onDone, power) => spin(state, canvas, items, colors, exclude, onDone, power),
+      spin:     (exclude, onDone, power, targetIdx) => spin(state, canvas, items, colors, exclude, onDone, power, targetIdx),
       redraw:   (hilite = -1) => draw(canvas, items, colors, state.rot, hilite),
       resetRot: () => { state.rot = 0; },
       get spinning() { return state.spinning; },
