@@ -1,0 +1,46 @@
+name: 秘書トラペル子 日次日記
+
+on:
+  schedule:
+    - cron: '0 22 * * *'   # 毎日 07:00 JST (= UTC 22:00 前日)
+  workflow_dispatch:         # 手動実行も可能
+
+jobs:
+  generate-diary:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # blog/ へのコミットに必要
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: scripts
+
+      - name: Generate diary
+        env:
+          YOUTUBE_API_KEY:          ${{ secrets.YOUTUBE_API_KEY }}
+          GEMINI_API_KEY:           ${{ secrets.GEMINI_API_KEY }}
+          HATENA_ID:                ${{ secrets.HATENA_ID }}
+          HATENA_BLOG_ID:           ${{ secrets.HATENA_BLOG_ID }}
+          HATENA_API_KEY:           ${{ secrets.HATENA_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_DATABASE_URL:    ${{ secrets.FIREBASE_DATABASE_URL }}
+        run: node scripts/generate-diary.js
+
+      - name: Commit blog archive
+        run: |
+          git config user.email "traperuko@winning-roulette.local"
+          git config user.name "秘書トラペル子"
+          git add blog/
+          git diff --cached --quiet && echo "no changes" || git commit -m "日記: $(TZ=Asia/Tokyo date +%Y-%m-%d)"
+          git push
