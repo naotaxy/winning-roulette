@@ -732,10 +732,11 @@ function renderStats() {
         + `<br>HOME=${d.leftIsHome?'左':'右'}</small>`;
       try {
         if (typeof firebase !== 'undefined' && firebase.apps.length) {
-          firebase.database().ref('config/ocrDebug').set({
+          const debugPayload = {
             ts: new Date().toISOString(),
             fileName: file.name,
             scoreRaw: result.scoreRaw,
+            scoreMethod: d.scoreMethod || '',
             awayScore: result.awayScore, homeScore: result.homeScore,
             awayPK: result.awayPK,       homePK: result.homePK,
             awayRaw: result.awayRaw,     homeRaw: result.homeRaw,
@@ -743,7 +744,12 @@ function renderStats() {
             pkRaw: d.pkRaw, badgeRaw: d.badgeRaw,
             leftTeamRaw: d.leftTeamRaw, rightTeamRaw: d.rightTeamRaw,
             leftIsHome: d.leftIsHome,
-          }).catch(e => console.warn('[OCR debug write]', e));
+          };
+          firebase.database().ref('config/ocrDebug').set(debugPayload)
+            .catch(e => console.warn('[OCR debug write]', e));
+          if (SYNC?.saveOcrLog) {
+            SYNC.saveOcrLog(debugPayload).catch(e => console.warn('[OCR log write]', e));
+          }
         }
       } catch(e) {}
       document.getElementById('ocr-result-form').style.display = 'block';
