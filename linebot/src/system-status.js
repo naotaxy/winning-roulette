@@ -92,6 +92,7 @@ function formatGithubStatus(status) {
 
 function formatOverallStatus([firebase, github]) {
   const renderCommit = shortSha(process.env.RENDER_GIT_COMMIT) || '不明';
+  const ai = getAiStatusLine();
   const githubLine = github.ok
     ? `GitHub: OK（${shortSha(github.sha)} / ${github.latencyMs}ms）`
     : `GitHub: NG（${trimError(github.error)}）`;
@@ -104,10 +105,21 @@ function formatOverallStatus([firebase, github]) {
     `Render: OK（この返事ができてる / 起動 ${formatDuration(process.uptime())} / commit ${renderCommit}）`,
     firebaseLine,
     githubLine,
+    ai,
     `Node: ${process.version}`,
     `メモリ: ${formatMemory(process.memoryUsage().rss)}`,
     '全部を公式障害情報まで見てるわけじゃないけど、私から見える健康状態はここまでだよ。',
   ].join('\n');
+}
+
+function getAiStatusLine() {
+  try {
+    const { getAiChatStatus } = require('./ai-chat');
+    const status = getAiChatStatus();
+    return `AI会話: ${status.enabled ? 'ON' : 'OFF'}（${status.text}）`;
+  } catch (err) {
+    return `AI会話: 確認NG（${trimError(err?.message || err)}）`;
+  }
 }
 
 async function checkGithubStatus() {

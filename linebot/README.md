@@ -150,6 +150,9 @@ Renderの無料プランは15分アクセスがないとスリープする。
 
 「課金」「無料枠」「料金」「コスト」など:
   → 無料枠からはみ出しそうな赤信号と、Botから見える状態を返信
+
+AI自然会話:
+  → `AI_CHAT_ENABLED=true` と `OPENAI_API_KEY` がある時だけ、メンション付き雑談をOpenAI Responses APIへ渡す。未設定時は無料テンプレ返答に戻る
 ```
 
 ### OK / キャンセル時
@@ -175,6 +178,9 @@ OK押下:
 | `LINE_CHANNEL_ACCESS_TOKEN` | メッセージ返信に使用 |
 | `FIREBASE_SERVICE_ACCOUNT` | Firebase Admin SDK 認証（JSON文字列） |
 | `FIREBASE_DATABASE_URL` | Firebase Realtime Database のURL |
+| `AI_CHAT_ENABLED` | 任意。`true` の時だけAI自然会話を有効化（課金リスクあり） |
+| `OPENAI_API_KEY` | 任意。AI自然会話で使うOpenAI APIキー |
+| `OPENAI_MODEL` | 任意。既定値は `gpt-5-nano` |
 | `PORT` | サーバーポート（Renderが自動設定） |
 
 ---
@@ -192,6 +198,7 @@ linebot/
     ├── standings.js       # 月次・年間順位集計とテキスト整形
     ├── rule-message.js    # 縛りルール返信文の整形
     ├── secretary-chat.js  # メンション付き雑談の返答バリエーション
+    ├── ai-chat.js         # 任意のOpenAI Responses API自然会話
     ├── system-status.js   # Render / Firebase / GitHub / システム状況の返信
     ├── billing-risk.js    # 無料枠・課金リスクの返信
     ├── date-utils.js      # 日本時間の日付取得

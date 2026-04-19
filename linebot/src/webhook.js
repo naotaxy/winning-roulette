@@ -27,6 +27,7 @@ const { formatSecretaryHelp } = require('./help-message');
 const { getSecretaryMentionInfo, getCasualReply } = require('./secretary-chat');
 const { detectSystemStatusKind, formatSystemStatusReply } = require('./system-status');
 const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-risk');
+const { shouldUseAiChat, formatAiChatReply } = require('./ai-chat');
 
 async function handle(event, client) {
   /* ── 画像メッセージ → OCR → 確認FlexMessage ── */
@@ -138,9 +139,12 @@ async function handleText(event, client) {
   }
 
   if (intent === 'casual') {
+    const aiReply = shouldUseAiChat()
+      ? await formatAiChatReply(event.message.text || '', await buildAiConversationContext(year, month))
+      : null;
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: getCasualReply(event.message.text || ''),
+      text: aiReply || getCasualReply(event.message.text || ''),
     });
   }
 
@@ -203,6 +207,31 @@ async function handleText(event, client) {
     type: 'text',
     text: formatSecretaryStatus(year, month, monthlyRows, annualRows),
   });
+}
+
+async function buildAiConversationContext(year, month) {
+  try {
+    const players = await getPlayers();
+    const [monthResults, yearResults] = await Promise.all([
+      getMonthResults(year, month),
+      getYearResults(year),
+    ]);
+    const monthlyRows = calculateMonthlyStandings(players, monthResults);
+    const annualRows = calculateAnnualStandings(players, yearResults);
+    const playerNames = (Array.isArray(players) ? players : Object.values(players || {}))
+      .map(p => p?.name)
+      .filter(Boolean);
+    return {
+      year,
+      month,
+      players: playerNames,
+      monthlyTop: monthlyRows[0] || null,
+      annualTop: annualRows[0] || null,
+    };
+  } catch (err) {
+    console.error('[ai-chat] context failed', err?.message || err);
+    return { year, month };
+  }
 }
 
 function detectTextIntent(text) {
