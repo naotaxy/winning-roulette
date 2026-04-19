@@ -294,7 +294,7 @@ async function buildAiConversationContext(year, month) {
       annualTop: annualRows[0] || null,
       recentDiaries: diaries.slice(0, 3).map(d => ({
         date: d.date,
-        text: d.text?.slice(0, 200) || '',
+        text: d.text?.slice(0, 600) || '',
       })),
     };
   } catch (err) {
