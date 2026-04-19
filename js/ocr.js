@@ -442,7 +442,8 @@ const OCR = (() => {
 
     const shouldCheckDigits = (!scoreBg && !scoreInv) ||
       (scoreBg && scoreInv && !sameScore(scoreBg, scoreInv)) ||
-      (scoreBg && scoreBg[0] === scoreBg[1]);
+      (scoreBg && scoreBg[0] === scoreBg[1]) ||
+      (scoreInv && scoreInv[0] === scoreInv[1]);
     if (shouldCheckDigits) {
       const digitFallback = await readScoreDigitsFallback(worker, imgEl);
       if (digitFallback.score) {
