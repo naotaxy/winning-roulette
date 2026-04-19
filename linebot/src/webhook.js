@@ -23,6 +23,7 @@ const {
   formatSecretaryStatus,
 } = require('./standings');
 const { formatRuleReply } = require('./rule-message');
+const { formatSecretaryHelp } = require('./help-message');
 
 async function handle(event, client) {
   /* ── 画像メッセージ → OCR → 確認FlexMessage ── */
@@ -126,6 +127,13 @@ async function handleText(event, client) {
 
   const { year, month } = getTokyoDateParts();
 
+  if (intent === 'help') {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatSecretaryHelp(),
+    });
+  }
+
   if (intent === 'nextRule' || intent === 'currentRule') {
     const target = intent === 'nextRule' ? shiftMonth(year, month, 1) : { year, month };
     const [rule, restrictMonths] = await Promise.all([
@@ -176,6 +184,8 @@ async function handleText(event, client) {
 function detectTextIntent(text) {
   const compact = String(text || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
   if (!compact) return null;
+
+  if (/@?秘書トラペル子/.test(compact)) return 'help';
 
   const wantsRule = /(縛り|しばり|ルール|rule|制限|条件)/.test(compact);
   if (wantsRule && /(来月|次月|翌月)/.test(compact)) return 'nextRule';
