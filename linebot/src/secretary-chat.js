@@ -1,8 +1,20 @@
 'use strict';
 
-const { formatLifeMemoryReply, formatCompactLifeMemory } = require('./character-memory');
+const { formatPersonaReply, formatLifeMemoryReply, formatCompactLifeMemory } = require('./character-memory');
 
 const TOPICS = [
+  {
+    name: 'persona',
+    pattern: /(年齢|何歳|なんさい|プロフィール|ペルソナ|設定|身長|出身|性格|好きなもの|苦手|どんな子|どんな人)/,
+    replies: [
+      formatPersonaReply(),
+      [
+        'プロフィールを短く言うね。',
+        formatCompactLifeMemory(),
+        '几帳面で世話焼きで、頼られるとすぐ嬉しくなります。こういうの、少し照れるけど。',
+      ].join('\n'),
+    ],
+  },
   {
     name: 'lifeMemory',
     pattern: /(生い立ち|人生|過去|記憶|思い出|雇われ|雇った|なぜ秘書|どうして秘書|経歴|履歴書|米澤さん.*(雇|秘書|出会|関係)|米澤.*(雇|秘書|出会|関係))/,
