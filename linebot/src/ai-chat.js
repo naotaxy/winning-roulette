@@ -405,6 +405,13 @@ function formatContext(context = {}) {
   if (context.annualTop) {
     lines.push(`年間首位: ${context.annualTop.name}さん ${context.annualTop.rankPt}pt`);
   }
+  if (context.recentDiaries?.length) {
+    lines.push('');
+    lines.push('【私が最近書いた日記（知識として使ってよい）】');
+    context.recentDiaries.forEach(d => {
+      lines.push(`${d.date}: ${d.text}`);
+    });
+  }
   return lines.join('\n');
 }
 

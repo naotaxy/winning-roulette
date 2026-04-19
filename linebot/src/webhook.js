@@ -276,9 +276,10 @@ async function handleText(event, client) {
 async function buildAiConversationContext(year, month) {
   try {
     const players = await getPlayers();
-    const [monthResults, yearResults] = await Promise.all([
+    const [monthResults, yearResults, diaries] = await Promise.all([
       getMonthResults(year, month),
       getYearResults(year),
+      getRecentDiaries(3),
     ]);
     const monthlyRows = calculateMonthlyStandings(players, monthResults);
     const annualRows = calculateAnnualStandings(players, yearResults);
@@ -291,6 +292,10 @@ async function buildAiConversationContext(year, month) {
       players: playerNames,
       monthlyTop: monthlyRows[0] || null,
       annualTop: annualRows[0] || null,
+      recentDiaries: diaries.slice(0, 3).map(d => ({
+        date: d.date,
+        text: d.text?.slice(0, 200) || '',
+      })),
     };
   } catch (err) {
     console.error('[ai-chat] context failed', err?.message || err);
