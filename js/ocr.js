@@ -247,7 +247,12 @@ const OCR = (() => {
   /* ── スコア抽出（・区切り対応・ノイズ過大値切り詰め付き） ──
      "1・ 1" → 1-1、"5 - 28" → 5-2（28→ノイズ→2桁目切り捨て） ── */
   function extractScore(text) {
-    for (const line of text.split('\n')) {
+    for (let line of text.split('\n')) {
+      /* OCR alias: セパレータ隣の b→6, B→8（'6'が'b'に誤読される頻出パターン） */
+      line = line.replace(/\bb([-－—–−―・])/g, '6$1')
+                 .replace(/([-－—–−―・])b\b/g, '$16')
+                 .replace(/\bB([-－—–−―・])/g, '8$1')
+                 .replace(/([-－—–−―・])B\b/g, '$18');
       const m = line.match(/(\d{1,2})\s*[-－—–−―・]\s*(\d{1,2})/)
              || line.match(/\b(\d)\s{1,4}(\d)\b/);
       if (!m) continue;
@@ -322,7 +327,7 @@ const OCR = (() => {
 
     if (!best && karaEntry) {
       const [charName, playerName] = karaEntry;
-      if (normalized.startsWith('カラキ') ||
+      if (normalized.includes('カラキ') ||
           normalized.includes('キゾラツク') ||
           normalized.includes('カみキ') ||
           normalized.includes('カミキ') ||
