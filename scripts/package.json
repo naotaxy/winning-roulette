@@ -1,0 +1,8 @@
+{
+  "name": "diary-scripts",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "firebase-admin": "^12.1.0"
+  }
+}

@@ -71,11 +71,21 @@ async function getMonthlyRule(year, month) {
   return snap.val() || null;
 }
 
-/* ウイコレのリアルタイム情報（管理者が Firebase コンソールから書き込む）
-   config/uicolleNews: { event: string, gacha: string, updatedAt: string } */
+/* ウイコレのリアルタイム情報
+   config/uicolleNews: { event, gacha, updatedAt, diary, blogUrl } */
 async function getUicolleNews() {
   const snap = await getDb().ref('config/uicolleNews').once('value');
   return snap.val() || null;
+}
+
+/* 日記アーカイブ — 直近N件 */
+async function getRecentDiaries(limit = 7) {
+  const snap = await getDb().ref('diary').orderByChild('createdAt').limitToLast(limit).once('value');
+  const raw = snap.val();
+  if (!raw) return [];
+  return Object.entries(raw)
+    .map(([date, entry]) => ({ date, ...entry }))
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 async function getRestrictMonths() {
@@ -454,6 +464,7 @@ module.exports = {
   getMonthlyRule,
   getRestrictMonths,
   getUicolleNews,
+  getRecentDiaries,
   checkFirebaseStatus,
   getAiChatGuardState,
   reserveAiChatRequest,

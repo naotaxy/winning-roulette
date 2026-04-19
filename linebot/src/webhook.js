@@ -12,6 +12,7 @@ const {
   getMonthlyRule,
   getRestrictMonths,
   getUicolleNews,
+  getRecentDiaries,
 } = require('./firebase-admin');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
 const { getTokyoDateParts, shiftMonth } = require('./date-utils');
@@ -197,6 +198,25 @@ async function handleText(event, client) {
     return client.replyMessage(event.replyToken, { type: 'text', text });
   }
 
+  if (intent === 'diary') {
+    const diaries = await getRecentDiaries(3);
+    if (!diaries.length) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'まだ日記が書けてないみたい。毎朝7時に書くようにしてるから、しばらく待っててね。',
+      });
+    }
+    const latest = diaries[0];
+    const lines = [
+      `${latest.date} の日記、読んでくれるの？ うれしい。`,
+      '',
+      latest.text?.slice(0, 400) || '（本文取得できなかった）',
+      latest.text?.length > 400 ? '\n…（続きははてなブログで）' : '',
+      latest.blogUrl ? `\n${latest.blogUrl}` : '',
+    ].filter(Boolean);
+    return client.replyMessage(event.replyToken, { type: 'text', text: lines.join('\n') });
+  }
+
   if (intent === 'nextRule' || intent === 'currentRule') {
     const target = intent === 'nextRule' ? shiftMonth(year, month, 1) : { year, month };
     const [rule, restrictMonths] = await Promise.all([
@@ -290,6 +310,7 @@ function detectTextIntent(text) {
   const uicolleKind = detectUicolleIntent(targetText);
   if (uicolleKind) return `uicolle:${uicolleKind}`;
   if (/(今のイベント|開催中のイベント|今のガチャ|開催中.*ガチャ|ガチャ.*今|最新情報|ウイコレ.*情報)/.test(targetText)) return 'uicolle:news';
+  if (/(日記|読んで|ブログ|最近書いた|最新の日記|何書いた)/.test(targetText)) return 'diary';
 
   const systemStatusKind = detectSystemStatusKind(targetText);
   if (systemStatusKind) return `system:${systemStatusKind}`;
