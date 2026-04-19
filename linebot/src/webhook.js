@@ -26,6 +26,7 @@ const { formatRuleReply } = require('./rule-message');
 const { formatSecretaryHelp } = require('./help-message');
 const { getSecretaryMentionInfo, getCasualReply } = require('./secretary-chat');
 const { detectSystemStatusKind, formatSystemStatusReply } = require('./system-status');
+const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-risk');
 
 async function handle(event, client) {
   /* ── 画像メッセージ → OCR → 確認FlexMessage ── */
@@ -150,6 +151,13 @@ async function handleText(event, client) {
     });
   }
 
+  if (intent === 'billing') {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: await formatBillingRiskReply(),
+    });
+  }
+
   if (intent === 'nextRule' || intent === 'currentRule') {
     const target = intent === 'nextRule' ? shiftMonth(year, month, 1) : { year, month };
     const [rule, restrictMonths] = await Promise.all([
@@ -204,6 +212,8 @@ function detectTextIntent(text) {
   if (mentioned && (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention))) return 'help';
 
   const targetText = mentioned ? withoutMention : compact;
+
+  if (detectBillingRiskIntent(targetText)) return 'billing';
 
   const systemStatusKind = detectSystemStatusKind(targetText);
   if (systemStatusKind) return `system:${systemStatusKind}`;

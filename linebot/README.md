@@ -147,6 +147,9 @@ Renderの無料プランは15分アクセスがないとスリープする。
 
 「レンダー」「ファイアベース」「ギットハブ」「システム」など:
   → Botから見える範囲で Render / Firebase / GitHub / 全体の稼働状況を返信
+
+「課金」「無料枠」「料金」「コスト」など:
+  → 無料枠からはみ出しそうな赤信号と、Botから見える状態を返信
 ```
 
 ### OK / キャンセル時
@@ -190,6 +193,7 @@ linebot/
     ├── rule-message.js    # 縛りルール返信文の整形
     ├── secretary-chat.js  # メンション付き雑談の返答バリエーション
     ├── system-status.js   # Render / Firebase / GitHub / システム状況の返信
+    ├── billing-risk.js    # 無料枠・課金リスクの返信
     ├── date-utils.js      # 日本時間の日付取得
     ├── ocr-node.js        # OCRロジック（ブラウザ版ocr.jsのNode.js移植）
     ├── firebase-admin.js  # Firebase Admin SDK（読み書き）
