@@ -284,7 +284,9 @@ const ROULETTE = (() => {
   /* ── ホイールインスタンス生成 ── */
   function create(containerEl, items, colors) {
     const available = containerEl.offsetWidth || 300;
-    const cssW      = Math.min(available - 8, 284);
+    const vh        = window.innerHeight || 720;
+    const maxByH    = vh < 680 ? 218 : vh < 760 ? 238 : 264;
+    const cssW      = Math.min(available - 8, maxByH);
     const canvas    = makeCanvas(cssW, cssW);
     const state     = { rot: 0, spinning: false, animId: null };
 
