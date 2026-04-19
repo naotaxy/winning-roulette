@@ -112,12 +112,29 @@ Renderの無料プランは15分アクセスがないとスリープする。
 1. LINEグループに画像投稿
 2. Webhook受信 → Render(Node.js)へ転送
 3. LINE Content APIから画像バイナリ取得
-4. Firebase config/players からプレイヤーマップ取得（5分キャッシュ）
-5. Tesseract.js (jpn+eng) でOCR
+4. 端末スクリーンショットらしい画像だけOCR対象にする
+5. Firebase config/players からプレイヤーマップ取得（5分キャッシュ）
+6. Tesseract.js (jpn+eng) でOCR
    - スコア: BgDiff → Invert → DigitFallback の3段階
    - チーム名: ファジーマッチング（Levenshtein + bigram Jaccard、閾値0.45）
-6. 結果を Firebase pendingOcr/{msgId} に一時保存（TTL: 1時間）
-7. 確認FlexMessage を返信
+7. スコアと両チームが揃ったウイコレ結果だけ pendingOcr/{msgId} に一時保存（TTL: 1時間）
+8. 確認FlexMessage を返信
+
+ウイコレ結果ではなさそうな画像は、グループを邪魔しないように返信せず無視します。
+試合結果らしいが一部だけ読めない画像は、登録せず再送を促します。
+```
+
+### テキスト受信時
+
+```
+「順位」「ランキング」「今何位」など:
+  → 当月の順位表を返信
+
+「年間順位」「今年のpt」など:
+  → 年間順位Ptを返信
+
+「状況」「秘書」「bot」「お話」など:
+  → 現在の月次・年間状況を踏まえて秘書キャラで返信
 ```
 
 ### OK / キャンセル時
@@ -155,7 +172,10 @@ linebot/
 ├── render.yaml            # Renderデプロイ設定
 ├── package.json
 └── src/
-    ├── webhook.js         # イベントハンドラ（画像・Postback）
+    ├── webhook.js         # イベントハンドラ（画像・テキスト・Postback）
+    ├── image-guard.js     # 非スクリーンショット・非ウイコレ画像の無視判定
+    ├── standings.js       # 月次・年間順位集計とテキスト整形
+    ├── date-utils.js      # 日本時間の日付取得
     ├── ocr-node.js        # OCRロジック（ブラウザ版ocr.jsのNode.js移植）
     ├── firebase-admin.js  # Firebase Admin SDK（読み書き）
     └── flex-message.js    # LINE FlexMessage生成

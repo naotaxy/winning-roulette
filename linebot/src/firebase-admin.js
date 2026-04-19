@@ -52,6 +52,16 @@ async function deletePending(msgId) {
   await getDb().ref(`pendingOcr/${msgId}`).remove();
 }
 
+async function getMonthResults(year, month) {
+  const snap = await getDb().ref(`matchResults/${year}/${month}`).once('value');
+  return snap.val() || {};
+}
+
+async function getYearResults(year) {
+  const snap = await getDb().ref(`matchResults/${year}`).once('value');
+  return snap.val() || {};
+}
+
 /* matchResults に保存 */
 async function saveResult(pending) {
   const { year, month, away, home, awayScore, homeScore, awayPK, homePK, date, addedBy } = pending;
@@ -69,4 +79,12 @@ async function saveResult(pending) {
   await ref.push(entry);
 }
 
-module.exports = { getPlayers, savePending, getPending, deletePending, saveResult };
+module.exports = {
+  getPlayers,
+  savePending,
+  getPending,
+  deletePending,
+  getMonthResults,
+  getYearResults,
+  saveResult,
+};
