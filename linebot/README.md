@@ -152,8 +152,9 @@ Renderの無料プランは15分アクセスがないとスリープする。
   → 無料枠からはみ出しそうな赤信号と、Botから見える状態を返信
 
 AI自然会話:
-  → `AI_CHAT_ENABLED=true` と `OPENAI_API_KEY` がある時だけ、メンション付き雑談をOpenAI Responses APIへ渡す。未設定時は無料テンプレ返答に戻る
-  → `AI_COST_GUARD_ENABLED=true` なら、日次/月次回数・トークン上限・OpenAIのquota/billing系エラーでFirebaseに自動停止フラグを保存し、それ以降はAIを呼ばない
+  → `AI_CHAT_ENABLED=true` とプロバイダーAPIキーがある時だけ、メンション付き雑談を外部AIへ渡す。未設定時は無料テンプレ返答に戻る
+  → 無料運用の推奨は `AI_PROVIDER=gemini` + `GEMINI_API_KEY`。Google AI Studio / Cloud Billing は有効化しない
+  → `AI_COST_GUARD_ENABLED=true` なら、日次/月次回数・トークン上限・quota/billing系エラーでFirebaseに自動停止フラグを保存し、それ以降はAIを呼ばない
 ```
 
 ### OK / キャンセル時
@@ -180,8 +181,11 @@ OK押下:
 | `FIREBASE_SERVICE_ACCOUNT` | Firebase Admin SDK 認証（JSON文字列） |
 | `FIREBASE_DATABASE_URL` | Firebase Realtime Database のURL |
 | `AI_CHAT_ENABLED` | 任意。`true` の時だけAI自然会話を有効化（課金リスクあり） |
-| `OPENAI_API_KEY` | 任意。AI自然会話で使うOpenAI APIキー |
-| `OPENAI_MODEL` | 任意。既定値は `gpt-5-nano` |
+| `AI_PROVIDER` | 任意。`gemini` 推奨。`openai` も指定可 |
+| `GEMINI_API_KEY` | 任意。Gemini無料枠で使うGoogle AI Studio APIキー |
+| `GEMINI_MODEL` | 任意。既定値は `gemini-2.5-flash-lite` |
+| `OPENAI_API_KEY` | 任意。OpenAIを使う時だけ設定（従量課金なので無料運用では非推奨） |
+| `OPENAI_MODEL` | 任意。OpenAI利用時の既定値は `gpt-5-nano` |
 | `AI_COST_GUARD_ENABLED` | 任意。既定値はON。`false` にしない限り、課金ガードでAIを自動停止 |
 | `AI_CHAT_DAILY_LIMIT` | 任意。AI会話の日次上限。既定値は `10` 回 |
 | `AI_CHAT_MONTHLY_LIMIT` | 任意。AI会話の月次上限。既定値は `50` 回 |
@@ -191,6 +195,8 @@ OK押下:
 | `PORT` | サーバーポート（Renderが自動設定） |
 
 AI課金ガードは `config/aiChatGuard/autoDisabled` に停止理由を保存する。上限到達後に再開したい時は、Firebaseでこの `disabled` を `false` に戻し、必要なら上限値を見直してからRenderを再デプロイする。
+
+Gemini無料枠で自然会話を使う場合は、Renderに `AI_CHAT_ENABLED=true`、`AI_PROVIDER=gemini`、`GEMINI_API_KEY=...` を設定する。Google AI StudioでAPIキーを作る時にCloud Billingは有効化しない。BotからGoogle側の請求先状態までは直接読めないので、無料運用では管理画面の「Billing未設定」を必ず確認する。
 
 ---
 
@@ -207,7 +213,7 @@ linebot/
     ├── standings.js       # 月次・年間順位集計とテキスト整形
     ├── rule-message.js    # 縛りルール返信文の整形
     ├── secretary-chat.js  # メンション付き雑談の返答バリエーション
-    ├── ai-chat.js         # 任意のOpenAI Responses API自然会話
+    ├── ai-chat.js         # 任意のGemini/OpenAI自然会話
     ├── character-memory.js # 秘書トラペル子の固定プロフィール記憶
     ├── system-status.js   # Render / Firebase / GitHub / システム状況の返信
     ├── billing-risk.js    # 無料枠・課金リスクの返信

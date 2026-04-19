@@ -27,7 +27,7 @@ function formatSecretaryHelp() {
     '無料枠からはみ出しそうな赤信号を、私から見える範囲でまとめるね。',
     '',
     'AI自然会話',
-    'AI_CHAT_ENABLED=true と OPENAI_API_KEY がある時だけ使うよ。ONでも課金ガードが危なそうなら自動で止めるけど、無料運用ならOFFが一番安心。',
+    'AI_CHAT_ENABLED=true、AI_PROVIDER=gemini、GEMINI_API_KEY がある時に使えるよ。無料運用ならGoogle側の請求先は有効化しないで、課金ガードもONのままにしてね。',
     '',
     '「@秘書トラペル子 みんなに自己紹介して」',
     'はじめての人向けに、私ができることを可愛く紹介するね。',

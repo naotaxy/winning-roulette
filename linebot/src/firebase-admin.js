@@ -116,8 +116,9 @@ async function getAiChatGuardState(limits) {
   });
 }
 
-async function reserveAiChatRequest(limits) {
+async function reserveAiChatRequest(limits, metadata = {}) {
   const period = getAiUsagePeriod();
+  const meta = normalizeAiMetadata(metadata);
   const autoDisabled = await getAiAutoDisabled();
   if (autoDisabled.disabled) {
     return {
@@ -137,10 +138,14 @@ async function reserveAiChatRequest(limits) {
 
     usage.calls += 1;
     usage.reservedCalls += 1;
+    if (meta.provider) usage.lastProvider = meta.provider;
+    if (meta.model) usage.lastModel = meta.model;
     usage.days[period.dayKey] = {
       ...dayUsage,
       calls: dayUsage.calls + 1,
       reservedCalls: dayUsage.reservedCalls + 1,
+      ...(meta.provider ? { lastProvider: meta.provider } : {}),
+      ...(meta.model ? { lastModel: meta.model } : {}),
       updatedAt: now,
     };
     usage.updatedAt = now;
@@ -167,6 +172,8 @@ async function reserveAiChatRequest(limits) {
   );
   await disableAiChatForBillingRisk(reason?.message || 'AI会話の無料枠ガード上限に達しました', {
     code: reason?.code || 'ai_guard_limit',
+    provider: meta.provider,
+    model: meta.model,
     usage: state.usage,
     limits: state.limits,
     period: state.period,
@@ -178,13 +185,14 @@ async function reserveAiChatRequest(limits) {
   };
 }
 
-async function recordAiChatUsage(usage, limits) {
+async function recordAiChatUsage(usage, limits, metadata = {}) {
   const tokenUsage = normalizeAiTokenUsage(usage);
   if (!tokenUsage.totalTokens && !tokenUsage.inputTokens && !tokenUsage.outputTokens) {
     return getAiChatGuardState(limits);
   }
 
   const period = getAiUsagePeriod();
+  const meta = normalizeAiMetadata(metadata);
   const ref = getDb().ref(getAiUsagePath(period));
   const now = Date.now();
   const result = await ref.transaction(current => {
@@ -193,11 +201,15 @@ async function recordAiChatUsage(usage, limits) {
     monthUsage.tokens += tokenUsage.totalTokens;
     monthUsage.inputTokens += tokenUsage.inputTokens;
     monthUsage.outputTokens += tokenUsage.outputTokens;
+    if (meta.provider) monthUsage.lastProvider = meta.provider;
+    if (meta.model) monthUsage.lastModel = meta.model;
     monthUsage.days[period.dayKey] = {
       ...dayUsage,
       tokens: dayUsage.tokens + tokenUsage.totalTokens,
       inputTokens: dayUsage.inputTokens + tokenUsage.inputTokens,
       outputTokens: dayUsage.outputTokens + tokenUsage.outputTokens,
+      ...(meta.provider ? { lastProvider: meta.provider } : {}),
+      ...(meta.model ? { lastModel: meta.model } : {}),
       updatedAt: now,
     };
     monthUsage.updatedAt = now;
@@ -219,6 +231,8 @@ async function recordAiChatUsage(usage, limits) {
   if (reason) {
     await disableAiChatForBillingRisk(reason.message, {
       code: reason.code,
+      provider: meta.provider,
+      model: meta.model,
       usage: state.usage,
       limits: state.limits,
       period: state.period,
@@ -316,10 +330,18 @@ function normalizeAiDayUsage(raw) {
 
 function normalizeAiTokenUsage(usage) {
   const source = usage && typeof usage === 'object' ? usage : {};
-  const inputTokens = toNonNegativeInteger(source.input_tokens ?? source.inputTokens);
-  const outputTokens = toNonNegativeInteger(source.output_tokens ?? source.outputTokens);
-  const totalTokens = toNonNegativeInteger(source.total_tokens ?? source.totalTokens) || inputTokens + outputTokens;
+  const inputTokens = toNonNegativeInteger(source.input_tokens ?? source.inputTokens ?? source.promptTokenCount);
+  const outputTokens = toNonNegativeInteger(source.output_tokens ?? source.outputTokens ?? source.candidatesTokenCount);
+  const totalTokens = toNonNegativeInteger(source.total_tokens ?? source.totalTokens ?? source.totalTokenCount) || inputTokens + outputTokens;
   return { inputTokens, outputTokens, totalTokens };
+}
+
+function normalizeAiMetadata(metadata) {
+  const source = metadata && typeof metadata === 'object' ? metadata : {};
+  return {
+    provider: trimGuardText(source.provider || ''),
+    model: trimGuardText(source.model || ''),
+  };
 }
 
 function normalizeAiLimits(limits) {

@@ -3,39 +3,55 @@
 const { getCharacterMemoryPrompt } = require('./character-memory');
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
-const DEFAULT_AI_MODEL = 'gpt-5-nano';
+const GEMINI_GENERATE_CONTENT_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+const DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite';
 const DEFAULT_AI_DAILY_LIMIT = 10;
 const DEFAULT_AI_MONTHLY_LIMIT = 50;
 const DEFAULT_AI_DAILY_TOKEN_LIMIT = 10000;
 const DEFAULT_AI_MONTHLY_TOKEN_LIMIT = 50000;
 const DEFAULT_AI_ESTIMATED_TOKENS_PER_REPLY = 900;
+const SUPPORTED_AI_PROVIDERS = new Set(['gemini', 'openai']);
 
 function shouldUseAiChat() {
-  return process.env.AI_CHAT_ENABLED === 'true' && !!process.env.OPENAI_API_KEY;
+  const config = getAiConfig();
+  return process.env.AI_CHAT_ENABLED === 'true' && config.supported && !!config.apiKey;
 }
 
 function getAiChatStatus() {
-  if (!process.env.OPENAI_API_KEY) {
+  const config = getAiConfig();
+  if (!config.supported) {
     return {
       enabled: false,
       guarded: true,
-      text: 'OPENAI_API_KEYなし。外部AIは呼ばないので課金リスクなし。',
+      text: `AI_PROVIDER=${config.provider} は未対応だよ。gemini か openai を指定してね。`,
+    };
+  }
+  if (!config.apiKey) {
+    return {
+      enabled: false,
+      guarded: true,
+      provider: config.provider,
+      text: `${config.keyName}なし。外部AIは呼ばないので課金リスクなし。`,
     };
   }
   if (process.env.AI_CHAT_ENABLED !== 'true') {
     return {
       enabled: false,
       guarded: true,
-      text: 'OPENAI_API_KEYはあるけどAI_CHAT_ENABLEDがtrueではないよ。AI課金は発生しない設定。',
+      provider: config.provider,
+      text: `${config.keyName}はあるけどAI_CHAT_ENABLEDがtrueではないよ。AI課金は発生しない設定。`,
     };
   }
   const limits = getAiGuardLimits();
   return {
     enabled: true,
     guarded: isAiCostGuardEnabled(),
+    provider: config.provider,
+    model: config.model,
     text: isAiCostGuardEnabled()
-      ? `AI会話ON候補。model ${getAiModel()} / 課金ガードON（日${limits.dailyRequests}回・月${limits.monthlyRequests}回まで）。`
-      : `AI会話ON。model ${getAiModel()} をResponses APIで呼ぶので、OpenAI API利用料に注意してね。`,
+      ? `AI会話ON候補。provider ${config.label} / model ${config.model} / 課金ガードON（日${limits.dailyRequests}回・月${limits.monthlyRequests}回まで）。${formatProviderSafetyNote(config.provider)}`
+      : `AI会話ON。provider ${config.label} / model ${config.model} を呼ぶので、API利用料に注意してね。`,
   };
 }
 
@@ -66,10 +82,13 @@ async function getAiChatDetailedStatus() {
     return {
       enabled: true,
       guarded: true,
+      provider: status.provider,
+      model: status.model,
       text: [
-        `AI会話ON。model ${getAiModel()} / 課金ガードON。`,
+        `AI会話ON。provider ${getAiProviderLabel(status.provider)} / model ${status.model} / 課金ガードON。`,
         `今日 ${state.usage.dayCalls}/${state.limits.dailyRequests}回、今月 ${state.usage.monthCalls}/${state.limits.monthlyRequests}回。`,
         `今月tokens ${state.usage.monthTokens}/${state.limits.monthlyTokens || '上限なし'}。`,
+        formatProviderSafetyNote(status.provider),
       ].join(' '),
       state,
     };
@@ -83,8 +102,66 @@ async function getAiChatDetailedStatus() {
   }
 }
 
-function getAiModel() {
-  return process.env.OPENAI_MODEL || DEFAULT_AI_MODEL;
+function getAiProvider() {
+  const configured = normalizeProvider(process.env.AI_PROVIDER);
+  if (configured) return configured;
+  if (process.env.GEMINI_API_KEY) return 'gemini';
+  if (process.env.OPENAI_API_KEY) return 'openai';
+  return 'gemini';
+}
+
+function getAiConfig() {
+  const provider = getAiProvider();
+  const supported = SUPPORTED_AI_PROVIDERS.has(provider);
+  return {
+    provider,
+    supported,
+    label: getAiProviderLabel(provider),
+    keyName: getAiProviderKeyName(provider),
+    apiKey: supported ? getAiProviderApiKey(provider) : '',
+    model: supported ? getAiModel(provider) : '',
+  };
+}
+
+function normalizeProvider(value) {
+  const provider = String(value || '').trim().toLowerCase();
+  if (!provider) return '';
+  if (provider === 'google' || provider === 'googleai' || provider === 'google-ai') return 'gemini';
+  if (provider === 'open-ai') return 'openai';
+  return provider;
+}
+
+function getAiProviderLabel(provider) {
+  if (provider === 'gemini') return 'Gemini API';
+  if (provider === 'openai') return 'OpenAI API';
+  return provider || 'unknown';
+}
+
+function getAiProviderKeyName(provider) {
+  if (provider === 'gemini') return 'GEMINI_API_KEY';
+  if (provider === 'openai') return 'OPENAI_API_KEY';
+  return 'AI API key';
+}
+
+function getAiProviderApiKey(provider) {
+  if (provider === 'gemini') return process.env.GEMINI_API_KEY || '';
+  if (provider === 'openai') return process.env.OPENAI_API_KEY || '';
+  return '';
+}
+
+function getAiModel(provider = getAiProvider()) {
+  if (provider === 'gemini') return process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+  return process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
+}
+
+function formatProviderSafetyNote(provider) {
+  if (provider === 'gemini') {
+    return '無料運用ならGoogle AI Studio/Cloud Billingを有効化しない設定で使ってね。';
+  }
+  if (provider === 'openai') {
+    return 'OpenAIは従量課金なので、無料運用なら普段OFFが安全。';
+  }
+  return '';
 }
 
 function isAiCostGuardEnabled() {
@@ -102,9 +179,10 @@ function getAiGuardLimits() {
 }
 
 async function formatAiChatReply(userText, context) {
+  const config = getAiConfig();
   if (!shouldUseAiChat()) return null;
   if (typeof fetch !== 'function') return null;
-  const reservation = await reserveAiChatCostGuard();
+  const reservation = await reserveAiChatCostGuard(config);
   if (!reservation.allowed) {
     console.warn('[ai-chat] blocked by cost guard', reservation.reason);
     return null;
@@ -113,32 +191,15 @@ async function formatAiChatReply(userText, context) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4500);
   try {
-    const res = await fetch(OPENAI_RESPONSES_URL, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: getAiModel(),
-        store: false,
-        max_output_tokens: 180,
-        instructions: buildInstructions(),
-        input: buildInput(userText, context),
-      }),
-    });
-
-    if (!res.ok) {
-      const errorText = await safeReadText(res);
-      console.error('[ai-chat] OpenAI API failed', res.status, errorText);
-      await disableAiIfBillingRisk(res.status, errorText);
+    const result = await callAiProvider(config, userText, context, controller.signal);
+    if (!result.ok) {
+      console.error(`[ai-chat] ${config.provider} API failed`, result.status, result.errorText);
+      await disableAiIfBillingRisk(config, result.status, result.errorText);
       return null;
     }
 
-    const data = await res.json();
-    await recordAiChatCost(data?.usage);
-    return normalizeReply(extractOutputText(data));
+    await recordAiChatCost(result.usage, config);
+    return normalizeReply(result.text);
   } catch (err) {
     console.error('[ai-chat] failed', err?.message || err);
     return null;
@@ -147,7 +208,85 @@ async function formatAiChatReply(userText, context) {
   }
 }
 
-async function reserveAiChatCostGuard() {
+async function callAiProvider(config, userText, context, signal) {
+  if (config.provider === 'gemini') return callGeminiChat(config, userText, context, signal);
+  return callOpenAiChat(config, userText, context, signal);
+}
+
+async function callOpenAiChat(config, userText, context, signal) {
+  const res = await fetch(OPENAI_RESPONSES_URL, {
+    method: 'POST',
+    signal,
+    headers: {
+      authorization: `Bearer ${config.apiKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: config.model,
+      store: false,
+      max_output_tokens: 180,
+      instructions: buildInstructions(),
+      input: buildInput(userText, context),
+    }),
+  });
+
+  if (!res.ok) {
+    return { ok: false, status: res.status, errorText: await safeReadText(res) };
+  }
+
+  const data = await res.json();
+  return {
+    ok: true,
+    status: res.status,
+    text: extractOpenAiOutputText(data),
+    usage: data?.usage,
+  };
+}
+
+async function callGeminiChat(config, userText, context, signal) {
+  const model = stripGeminiModelPrefix(config.model);
+  const url = `${GEMINI_GENERATE_CONTENT_URL}/${encodeURIComponent(model)}:generateContent`;
+  const res = await fetch(url, {
+    method: 'POST',
+    signal,
+    headers: {
+      'x-goog-api-key': config.apiKey,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: buildInstructions() }],
+      },
+      contents: [{
+        role: 'user',
+        parts: [{ text: buildInput(userText, context) }],
+      }],
+      generationConfig: {
+        maxOutputTokens: 180,
+        temperature: 0.8,
+        topP: 0.9,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    return { ok: false, status: res.status, errorText: await safeReadText(res) };
+  }
+
+  const data = await res.json();
+  return {
+    ok: true,
+    status: res.status,
+    text: extractGeminiOutputText(data),
+    usage: normalizeGeminiUsage(data?.usageMetadata),
+  };
+}
+
+function stripGeminiModelPrefix(model) {
+  return String(model || DEFAULT_GEMINI_MODEL).replace(/^models\//, '');
+}
+
+async function reserveAiChatCostGuard(config) {
   if (!isAiCostGuardEnabled()) return { allowed: true };
 
   const guard = loadAiUsageGuard();
@@ -156,32 +295,40 @@ async function reserveAiChatCostGuard() {
   }
 
   try {
-    return await guard.reserveAiChatRequest(getAiGuardLimits());
+    return await guard.reserveAiChatRequest(getAiGuardLimits(), {
+      provider: config.provider,
+      model: config.model,
+    });
   } catch (err) {
     console.error('[ai-chat] cost guard reserve failed', err?.message || err);
     return { allowed: false, reason: '課金ガード確認に失敗したためAIを呼びません' };
   }
 }
 
-async function recordAiChatCost(usage) {
+async function recordAiChatCost(usage, config) {
   if (!isAiCostGuardEnabled()) return;
   const guard = loadAiUsageGuard();
   if (!guard) return;
   try {
-    await guard.recordAiChatUsage(usage, getAiGuardLimits());
+    await guard.recordAiChatUsage(usage, getAiGuardLimits(), {
+      provider: config.provider,
+      model: config.model,
+    });
   } catch (err) {
     console.error('[ai-chat] cost guard record failed', err?.message || err);
   }
 }
 
-async function disableAiIfBillingRisk(status, errorText) {
+async function disableAiIfBillingRisk(config, status, errorText) {
   if (!isAiCostGuardEnabled()) return;
-  const reason = detectOpenAiBillingRisk(status, errorText);
+  const reason = detectAiBillingRisk(config.provider, status, errorText);
   if (!reason) return;
   const guard = loadAiUsageGuard();
   if (!guard) return;
   try {
     await guard.disableAiChatForBillingRisk(reason, {
+      provider: config.provider,
+      model: config.model,
       status,
       error: String(errorText || '').slice(0, 300),
     });
@@ -190,16 +337,19 @@ async function disableAiIfBillingRisk(status, errorText) {
   }
 }
 
-function detectOpenAiBillingRisk(status, errorText) {
+function detectAiBillingRisk(provider, status, errorText) {
   const text = String(errorText || '').toLowerCase();
   if (text.includes('insufficient_quota')) {
-    return 'OpenAI APIの insufficient_quota を検知したのでAI会話を自動停止しました';
+    return `${getAiProviderLabel(provider)}の insufficient_quota を検知したのでAI会話を自動停止しました`;
   }
-  if (text.includes('billing') || text.includes('hard_limit') || text.includes('quota exceeded')) {
-    return 'OpenAI APIの請求/上限系エラーを検知したのでAI会話を自動停止しました';
+  if (text.includes('billing') || text.includes('hard_limit') || text.includes('quota exceeded') || text.includes('quota_exceeded')) {
+    return `${getAiProviderLabel(provider)}の請求/上限系エラーを検知したのでAI会話を自動停止しました`;
+  }
+  if (provider === 'gemini' && (status === 429 || text.includes('quota') || text.includes('rate limit'))) {
+    return 'Gemini APIの無料枠またはレート上限に触れた可能性があるのでAI会話を自動停止しました';
   }
   if (status === 401 || status === 403) {
-    return 'OpenAI APIキーの認証エラーを検知したのでAI会話を自動停止しました';
+    return `${getAiProviderLabel(provider)}キーの認証/権限エラーを検知したのでAI会話を自動停止しました`;
   }
   return null;
 }
@@ -258,7 +408,7 @@ function formatContext(context = {}) {
   return lines.join('\n');
 }
 
-function extractOutputText(data) {
+function extractOpenAiOutputText(data) {
   if (typeof data?.output_text === 'string') return data.output_text;
   const chunks = [];
   for (const item of data?.output || []) {
@@ -267,6 +417,25 @@ function extractOutputText(data) {
     }
   }
   return chunks.join('\n');
+}
+
+function extractGeminiOutputText(data) {
+  const chunks = [];
+  for (const candidate of data?.candidates || []) {
+    for (const part of candidate?.content?.parts || []) {
+      if (part?.text) chunks.push(part.text);
+    }
+  }
+  return chunks.join('\n');
+}
+
+function normalizeGeminiUsage(usage) {
+  const source = usage && typeof usage === 'object' ? usage : {};
+  return {
+    inputTokens: source.promptTokenCount,
+    outputTokens: source.candidatesTokenCount,
+    totalTokens: source.totalTokenCount,
+  };
 }
 
 function normalizeReply(text) {
@@ -289,4 +458,6 @@ module.exports = {
   getAiChatDetailedStatus,
   formatAiChatReply,
   getAiGuardLimits,
+  getAiProvider,
+  getAiModel,
 };
