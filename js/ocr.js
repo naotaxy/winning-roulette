@@ -40,6 +40,27 @@ const OCR = (() => {
     return canvas;
   }
 
+  function firstDigit(text) {
+    const m = String(text || '').match(/\d/);
+    return m ? parseInt(m[0], 10) : null;
+  }
+
+  function pickVotedDigit(values) {
+    const counts = new Map();
+    for (const value of values) {
+      if (value === null || value === undefined) continue;
+      counts.set(value, (counts.get(value) || 0) + 1);
+    }
+    let best = null, bestCount = 0;
+    for (const [value, count] of counts.entries()) {
+      if (count > bestCount) {
+        best = value;
+        bestCount = count;
+      }
+    }
+    return bestCount >= 2 ? best : null;
+  }
+
   /* ── 反転前処理（BgDiff失敗時のフォールバック） ── */
   function preprocessInvert(canvas) {
     const ctx = canvas.getContext('2d');
@@ -231,6 +252,10 @@ const OCR = (() => {
     const normalized = normalizeText(ocrText);
     if (normalized.length < 2) return null;
 
+    /* カラキソングシティは一部画像で文字列が壊滅的に崩れるため、既知パターンだけ救済 */
+    const karaEntry = Object.entries(playerMap).find(([charName]) =>
+      normalizeText(charName) === normalizeText('カラキソングシティ'));
+
     const THRESHOLD = 0.45;
     let best = null, bestScore = 0;
 
@@ -279,7 +304,72 @@ const OCR = (() => {
         best = { charName, playerName, score: Math.round(score * 100) / 100 };
       }
     }
+
+    if (!best && karaEntry) {
+      const [charName, playerName] = karaEntry;
+      if (normalized.startsWith('カラキ') ||
+          normalized.includes('キゾラツク') ||
+          normalized.includes('カみキ') ||
+          normalized.includes('カミキ') ||
+          normalized === '0sl' ||
+          normalized === 'osl') {
+        best = { charName, playerName, score: 0.46 };
+      }
+    }
     return best;
+  }
+
+  async function readDigitSide(worker, imgEl, boxes, sideLabel) {
+    const values = [];
+    const raw = [];
+    for (const box of boxes) {
+      for (const psm of ['10', '13']) {
+        await worker.setParameters({
+          tessedit_pageseg_mode: psm,
+          tessedit_char_whitelist: '0123456789',
+        });
+        const canvas = cropImage(imgEl, box[0], box[1], box[2], box[3], 4);
+        preprocessBgDiff(canvas, 40, 40);
+        const result = await worker.recognize(canvas);
+        const text = result.data.text.trim();
+        const digit = firstDigit(text);
+        values.push(digit);
+        raw.push(`${sideLabel}${psm}:${text || '-'}`);
+      }
+    }
+    return { digit: pickVotedDigit(values), raw: raw.join(' ') };
+  }
+
+  async function readScoreDigitsFallback(worker, imgEl) {
+    const leftBoxes = [
+      [0.365, 0.235, 0.105, 0.095],
+      [0.375, 0.235, 0.090, 0.095],
+    ];
+    const rightBoxes = [
+      [0.535, 0.235, 0.090, 0.095],
+      [0.525, 0.235, 0.105, 0.095],
+    ];
+    const left = await readDigitSide(worker, imgEl, leftBoxes, 'L');
+    const right = await readDigitSide(worker, imgEl, rightBoxes, 'R');
+    await worker.setParameters({
+      tessedit_pageseg_mode: '11',
+      tessedit_char_whitelist: '',
+    });
+    if (left.digit === null || right.digit === null) {
+      return { score: null, raw: `${left.raw} ${right.raw}` };
+    }
+    return { score: [left.digit, right.digit], raw: `${left.raw} ${right.raw}` };
+  }
+
+  async function retryTeamName(worker, imgEl, relX, relY, relW, relH, playerMap) {
+    await worker.setParameters({
+      tessedit_pageseg_mode: '6',
+      tessedit_char_whitelist: '',
+    });
+    const canvas = cropImage(imgEl, relX, relY, relW, relH, 3);
+    const result = await worker.recognize(canvas);
+    const raw = result.data.text.trim().replace(/\n/g, ' ');
+    return { raw, match: matchTeamName(raw, playerMap) };
   }
 
   /* ── スコアとチーム名を解析 ── */
@@ -289,11 +379,15 @@ const OCR = (() => {
     const worker  = await ensureWorker(onProgress);
 
     /* ── 領域1: スコア（y=23〜34%・x=30〜70%でロゴノイズ排除） ── */
-    await worker.setParameters({ tessedit_pageseg_mode: '11' });
+    await worker.setParameters({
+      tessedit_pageseg_mode: '11',
+      tessedit_char_whitelist: '',
+    });
     const scoreCanvas = cropImage(imgEl, 0.30, 0.23, 0.40, 0.11, 3);
     preprocessBgDiff(scoreCanvas, 40, 40);
     const scoreResult = await worker.recognize(scoreCanvas);
-    const scoreText   = scoreResult.data.text;
+    let scoreText     = scoreResult.data.text;
+    let scoreMethod   = 'BgDiff';
     let scoreArr = extractScore(scoreText);
 
     /* BgDiff で検出できない画像はシンプル反転でフォールバック */
@@ -301,7 +395,19 @@ const OCR = (() => {
       const scoreCanvas2 = cropImage(imgEl, 0.30, 0.23, 0.40, 0.11, 3);
       preprocessInvert(scoreCanvas2);
       const scoreResult2 = await worker.recognize(scoreCanvas2);
-      scoreArr = extractScore(scoreResult2.data.text);
+      scoreText = scoreResult2.data.text;
+      scoreMethod = 'Invert';
+      scoreArr = extractScore(scoreText);
+    }
+
+    /* 全体OCRが失敗した場合のみ、左右の数字を1桁ずつ読む */
+    if (!scoreArr) {
+      const digitFallback = await readScoreDigitsFallback(worker, imgEl);
+      if (digitFallback.score) {
+        scoreArr = digitFallback.score;
+        scoreMethod = 'DigitFallback';
+      }
+      scoreText = `${scoreText.trim()}\n[${scoreMethod}] ${digitFallback.raw}`.trim();
     }
     const leftScore  = scoreArr ? scoreArr[0] : null;
     const rightScore = scoreArr ? scoreArr[1] : null;
@@ -313,6 +419,10 @@ const OCR = (() => {
       const m = text.match(/(\d)\s*PK\s*(\d)/i);
       return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : null;
     };
+    await worker.setParameters({
+      tessedit_pageseg_mode: '11',
+      tessedit_char_whitelist: '',
+    });
     const pkCanvas = cropImage(imgEl, 0.24, 0.24, 0.52, 0.11, 3);
     preprocessBgDiff(pkCanvas, 40, 40);
     const pkResultBg = await worker.recognize(pkCanvas);
@@ -336,22 +446,40 @@ const OCR = (() => {
     const leftBadgeText = badgeDebug;
 
     /* ── 領域4/5: チーム名（前処理なし・PSM 11・y=34〜44%） ── */
-    await worker.setParameters({ tessedit_pageseg_mode: '11' });
+    await worker.setParameters({
+      tessedit_pageseg_mode: '11',
+      tessedit_char_whitelist: '',
+    });
 
     const leftNameCanvas = cropImage(imgEl, 0.02, 0.34, 0.44, 0.10, 2);
     const leftNameResult = await worker.recognize(leftNameCanvas);
-    const leftTeamRaw    = leftNameResult.data.text.trim().replace(/\n/g, ' ');
+    let leftTeamRaw      = leftNameResult.data.text.trim().replace(/\n/g, ' ');
 
     const rightNameCanvas = cropImage(imgEl, 0.54, 0.34, 0.43, 0.10, 2);
     const rightNameResult = await worker.recognize(rightNameCanvas);
-    const rightTeamRaw    = rightNameResult.data.text.trim().replace(/\n/g, ' ');
-
-    await worker.setParameters({ tessedit_pageseg_mode: '3' });
-
-    URL.revokeObjectURL(blobUrl);
+    let rightTeamRaw      = rightNameResult.data.text.trim().replace(/\n/g, ' ');
 
     let leftTeamMatch  = matchTeamName(leftTeamRaw, playerMap);
     let rightTeamMatch = matchTeamName(rightTeamRaw, playerMap);
+
+    if (!leftTeamMatch) {
+      const retry = await retryTeamName(worker, imgEl, 0.02, 0.34, 0.44, 0.10, playerMap);
+      if (retry.raw) leftTeamRaw = leftTeamRaw ? `${leftTeamRaw} / ${retry.raw}` : retry.raw;
+      if (retry.match) leftTeamMatch = retry.match;
+    }
+
+    if (!rightTeamMatch) {
+      const retry = await retryTeamName(worker, imgEl, 0.54, 0.34, 0.43, 0.10, playerMap);
+      if (retry.raw) rightTeamRaw = rightTeamRaw ? `${rightTeamRaw} / ${retry.raw}` : retry.raw;
+      if (retry.match) rightTeamMatch = retry.match;
+    }
+
+    await worker.setParameters({
+      tessedit_pageseg_mode: '3',
+      tessedit_char_whitelist: '',
+    });
+
+    URL.revokeObjectURL(blobUrl);
 
     /* 同一プレイヤー重複 → 両方 null */
     if (leftTeamMatch && rightTeamMatch &&
@@ -362,6 +490,7 @@ const OCR = (() => {
     const _log = {
       ts: new Date().toISOString(),
       scoreRaw: scoreText.trim(), leftScore, rightScore,
+      scoreMethod,
       pkRaw: pkText.trim(), leftPK, rightPK,
       leftBadgeText, leftIsHome,
       leftTeamRaw, rightTeamRaw,
