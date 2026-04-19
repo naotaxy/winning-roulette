@@ -24,6 +24,7 @@ const {
 } = require('./standings');
 const { formatRuleReply } = require('./rule-message');
 const { formatSecretaryHelp } = require('./help-message');
+const { getSecretaryMentionInfo, getCasualReply } = require('./secretary-chat');
 
 async function handle(event, client) {
   /* ── 画像メッセージ → OCR → 確認FlexMessage ── */
@@ -134,6 +135,13 @@ async function handleText(event, client) {
     });
   }
 
+  if (intent === 'casual') {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: getCasualReply(event.message.text || ''),
+    });
+  }
+
   if (intent === 'nextRule' || intent === 'currentRule') {
     const target = intent === 'nextRule' ? shiftMonth(year, month, 1) : { year, month };
     const [rule, restrictMonths] = await Promise.all([
@@ -182,24 +190,27 @@ async function handleText(event, client) {
 }
 
 function detectTextIntent(text) {
-  const compact = String(text || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+  const { compact, mentioned, withoutMention } = getSecretaryMentionInfo(text);
   if (!compact) return null;
 
-  if (/@?秘書トラペル子/.test(compact)) return 'help';
+  if (mentioned && (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention))) return 'help';
 
-  const wantsRule = /(縛り|しばり|ルール|rule|制限|条件)/.test(compact);
-  if (wantsRule && /(来月|次月|翌月)/.test(compact)) return 'nextRule';
-  if (wantsRule && /(今月|当月|現在)/.test(compact)) return 'currentRule';
+  const targetText = mentioned ? withoutMention : compact;
+
+  const wantsRule = /(縛り|しばり|ルール|rule|制限|条件)/.test(targetText);
+  if (wantsRule && /(来月|次月|翌月)/.test(targetText)) return 'nextRule';
+  if (wantsRule && /(今月|当月|現在)/.test(targetText)) return 'currentRule';
   if (wantsRule) return 'nextRule';
 
-  const wantsAnnual = /(年間|今年|年内|総合)/.test(compact);
-  const wantsRank = /(順位|ランキング|rank|何位|なんい|首位|トップ)/.test(compact);
-  const wantsAnnualPoint = wantsAnnual && /(pt|ポイント)/.test(compact);
+  const wantsAnnual = /(年間|今年|年内|総合)/.test(targetText);
+  const wantsRank = /(順位|ランキング|rank|何位|なんい|首位|トップ)/.test(targetText);
+  const wantsAnnualPoint = wantsAnnual && /(pt|ポイント)/.test(targetText);
   if (wantsAnnual && (wantsRank || wantsAnnualPoint)) return 'annual';
   if (wantsRank) return 'monthly';
 
-  if (/(状況|戦況|成績|調子|まとめ|誰が強い|だれが強い|勝ってる)/.test(compact)) return 'status';
-  if (/(秘書|bot|ぼっと|ウイコレちゃん|お話|話そ|相談)/.test(compact)) return 'status';
+  if (/(状況|戦況|成績|調子|まとめ|誰が強い|だれが強い|勝ってる)/.test(targetText)) return 'status';
+  if (!mentioned && /(秘書|bot|ぼっと|ウイコレちゃん|お話|話そ|相談)/.test(targetText)) return 'status';
+  if (mentioned) return 'casual';
 
   return null;
 }
