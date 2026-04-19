@@ -231,7 +231,7 @@ async function onSpin() {
         renderGame();
       }, 2000);
     }
-  }, power);
+  }, power, tgtIdx);
 }
 
 function buildEntry() {
