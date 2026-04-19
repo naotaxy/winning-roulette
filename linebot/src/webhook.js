@@ -40,7 +40,7 @@ async function handleImage(event, client) {
     console.error('[webhook] OCR failed', err);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'OCR処理に失敗しました。アプリから手動入力してください。\nhttps://naotaxy.github.io/winning-roulette/',
+      text: 'ごめん、うまく読み取れなかった...\nアプリから入力してくれたら、ちゃんと受け取るから。\nhttps://naotaxy.github.io/winning-roulette/',
     });
   }
 
@@ -75,7 +75,7 @@ async function handlePostback(event, client) {
     const msgId = data.replace('ocr_ok:', '');
     const pending = await getPending(msgId);
     if (!pending) {
-      return client.replyMessage(event.replyToken, { type: 'text', text: '登録データが見つかりません（有効期限切れの可能性があります）' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: 'データが見つからなかった... ちょっと時間が経ちすぎちゃったかも。\nもう一回送ってくれたら、今度はちゃんとするよ。' });
     }
     await saveResult(pending);
     await deletePending(msgId);
@@ -88,7 +88,7 @@ async function handlePostback(event, client) {
     await deletePending(msgId);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'キャンセルしました。アプリから手動入力してください。\nhttps://naotaxy.github.io/winning-roulette/',
+      text: 'わかった、キャンセルにするね。\nもしよければアプリから入力してくれると、うれしいな。\nhttps://naotaxy.github.io/winning-roulette/',
     });
   }
 }

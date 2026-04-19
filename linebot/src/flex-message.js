@@ -10,18 +10,18 @@ function buildConfirmFlex(ocr, msgId) {
   const pkText = (ocr.awayPK != null && ocr.homePK != null)
     ? `PK ${ocr.awayPK} - ${ocr.homePK}` : null;
 
-  const okLabel = hasMissing ? '⚠️ このまま登録' : '✅ OK 登録';
+  const okLabel = hasMissing ? 'このまま登録して' : 'これで登録して';
 
   return {
     type: 'flex',
-    altText: `試合結果確認: ${away} ${awayScore}-${homeScore} ${home}`,
+    altText: `試合結果、読めたよ。確認してくれる？`,
     contents: {
       type: 'bubble',
       size: 'kilo',
       header: {
         type: 'box', layout: 'vertical', backgroundColor: '#0d1b2a',
         contents: [{
-          type: 'text', text: '📊 試合結果 OCR確認',
+          type: 'text', text: '試合結果、読めたよ。確認してくれる？',
           color: '#ffffff', size: 'sm', weight: 'bold',
         }],
       },
@@ -53,7 +53,7 @@ function buildConfirmFlex(ocr, msgId) {
           /* 未検出警告 */
           ...(hasMissing ? [{
             type: 'text',
-            text: '⚠️ 未検出の項目があります。このまま登録するかキャンセルしてアプリで修正してください。',
+            text: '読み取れなかった項目があるよ。このまま登録するか、アプリで直してくれると助かるな。',
             wrap: true, size: 'xs', color: '#cc6600',
           }] : []),
         ],
@@ -68,7 +68,7 @@ function buildConfirmFlex(ocr, msgId) {
           },
           {
             type: 'button', style: 'secondary',
-            action: { type: 'postback', label: '❌ キャンセル', data: `ocr_ng:${msgId}` },
+            action: { type: 'postback', label: 'やっぱりやめる', data: `ocr_ng:${msgId}` },
             flex: 1,
           },
         ],
@@ -82,15 +82,15 @@ function buildCompleteFlex(pending) {
   const pkText = (awayPK != null && homePK != null) ? ` (PK ${awayPK}-${homePK})` : '';
   return {
     type: 'flex',
-    altText: `登録完了: ${away} ${awayScore}-${homeScore} ${home}`,
+    altText: `登録できたよ、よかった。`,
     contents: {
       type: 'bubble', size: 'kilo',
       body: {
         type: 'box', layout: 'vertical', spacing: 'sm',
         contents: [
-          { type: 'text', text: '✅ 登録完了', weight: 'bold', size: 'md', color: '#1a73e8' },
+          { type: 'text', text: '登録できたよ、よかった。', weight: 'bold', size: 'md', color: '#1a73e8' },
           { type: 'text', text: `${away} ${awayScore} - ${homeScore} ${home}${pkText}`, wrap: true, size: 'sm' },
-          { type: 'text', text: `${year}年${month}月 に保存しました`, size: 'xs', color: '#888888' },
+          { type: 'text', text: `${year}年${month}月 に保存しておいたから。`, size: 'xs', color: '#888888' },
         ],
       },
     },
