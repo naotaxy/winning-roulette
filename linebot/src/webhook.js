@@ -11,6 +11,7 @@ const {
   getYearResults,
   getMonthlyRule,
   getRestrictMonths,
+  getUicolleNews,
 } = require('./firebase-admin');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
 const { getTokyoDateParts, shiftMonth } = require('./date-utils');
@@ -29,6 +30,15 @@ const { formatSecretaryHelp } = require('./help-message');
 const { getSecretaryMentionInfo, getCasualReply } = require('./secretary-chat');
 const { detectSystemStatusKind, formatSystemStatusReply } = require('./system-status');
 const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-risk');
+const {
+  formatAttributeGuide,
+  formatRarityGuide,
+  formatFormationTips,
+  formatMetaKnowledge,
+  formatBeginnerTips,
+  detectAttributeKeyword,
+  detectUicolleIntent,
+} = require('./uicolle-knowledge');
 const { shouldUseAiChat, formatAiChatReply } = require('./ai-chat');
 
 async function handle(event, client) {
@@ -164,6 +174,29 @@ async function handleText(event, client) {
     });
   }
 
+  if (intent?.startsWith('uicolle:')) {
+    const kind = intent.replace('uicolle:', '');
+    let text;
+    if (kind === 'news') {
+      const news = await getUicolleNews();
+      text = news
+        ? `最新情報、登録されてたよ。\n\n${news.event ? `【イベント】\n${news.event}` : ''}${news.gacha ? `\n\n【ガチャ・スカウト】\n${news.gacha}` : ''}${news.updatedAt ? `\n\n（更新: ${news.updatedAt}）` : ''}`
+        : 'ごめん、今のところ最新情報が登録されてないみたい。\n管理者が Firebase の config/uicolleNews に書き込んでくれれば、すぐ伝えられるよ。';
+    } else if (kind === 'attribute') {
+      const attr = detectAttributeKeyword(event.message.text || '');
+      text = formatAttributeGuide(attr);
+    } else if (kind === 'rarity') {
+      text = formatRarityGuide();
+    } else if (kind === 'formation') {
+      text = formatFormationTips();
+    } else if (kind === 'beginner') {
+      text = formatBeginnerTips();
+    } else {
+      text = formatMetaKnowledge();
+    }
+    return client.replyMessage(event.replyToken, { type: 'text', text });
+  }
+
   if (intent === 'nextRule' || intent === 'currentRule') {
     const target = intent === 'nextRule' ? shiftMonth(year, month, 1) : { year, month };
     const [rule, restrictMonths] = await Promise.all([
@@ -253,6 +286,10 @@ function detectTextIntent(text) {
   const targetText = mentioned ? withoutMention : compact;
 
   if (detectBillingRiskIntent(targetText)) return 'billing';
+
+  const uicolleKind = detectUicolleIntent(targetText);
+  if (uicolleKind) return `uicolle:${uicolleKind}`;
+  if (/(今のイベント|開催中のイベント|今のガチャ|開催中.*ガチャ|ガチャ.*今|最新情報|ウイコレ.*情報)/.test(targetText)) return 'uicolle:news';
 
   const systemStatusKind = detectSystemStatusKind(targetText);
   if (systemStatusKind) return `system:${systemStatusKind}`;
