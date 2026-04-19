@@ -21,10 +21,13 @@ async function formatSystemStatusReply(kind) {
   const checkFirebaseStatus = loadFirebaseChecker();
   if (kind === 'firebase') return formatFirebaseStatus(await checkFirebaseStatus());
   if (kind === 'github') return formatGithubStatus(await checkGithubStatus());
-  return formatOverallStatus(await Promise.all([
-    checkFirebaseStatus(),
-    checkGithubStatus(),
-  ]));
+  return formatOverallStatus(
+    await Promise.all([
+      checkFirebaseStatus(),
+      checkGithubStatus(),
+    ]),
+    await getAiStatusLine(),
+  );
 }
 
 function formatRenderStatus() {
@@ -90,9 +93,8 @@ function formatGithubStatus(status) {
   ].join('\n');
 }
 
-function formatOverallStatus([firebase, github]) {
+function formatOverallStatus([firebase, github], ai) {
   const renderCommit = shortSha(process.env.RENDER_GIT_COMMIT) || '不明';
-  const ai = getAiStatusLine();
   const githubLine = github.ok
     ? `GitHub: OK（${shortSha(github.sha)} / ${github.latencyMs}ms）`
     : `GitHub: NG（${trimError(github.error)}）`;
@@ -112,10 +114,10 @@ function formatOverallStatus([firebase, github]) {
   ].join('\n');
 }
 
-function getAiStatusLine() {
+async function getAiStatusLine() {
   try {
-    const { getAiChatStatus } = require('./ai-chat');
-    const status = getAiChatStatus();
+    const { getAiChatDetailedStatus } = require('./ai-chat');
+    const status = await getAiChatDetailedStatus();
     return `AI会話: ${status.enabled ? 'ON' : 'OFF'}（${status.text}）`;
   } catch (err) {
     return `AI会話: 確認NG（${trimError(err?.message || err)}）`;

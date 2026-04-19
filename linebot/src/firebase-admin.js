@@ -1,6 +1,7 @@
 'use strict';
 
 const admin = require('firebase-admin');
+const { getTokyoDateParts } = require('./date-utils');
 
 let _db = null;
 
@@ -22,6 +23,8 @@ let _playersCache = null;
 let _playersCacheTs = 0;
 const CACHE_TTL = 5 * 60 * 1000;
 const DEFAULT_RESTRICT_MONTHS = [5, 6, 8, 9, 11];
+const AI_CHAT_GUARD_PATH = 'config/aiChatGuard/autoDisabled';
+const AI_CHAT_USAGE_ROOT = 'aiChatUsage';
 
 async function getPlayers() {
   if (_playersCache && Date.now() - _playersCacheTs < CACHE_TTL) return _playersCache;
@@ -99,6 +102,302 @@ async function checkFirebaseStatus() {
   }
 }
 
+async function getAiChatGuardState(limits) {
+  const period = getAiUsagePeriod();
+  const [guardSnap, usageSnap] = await Promise.all([
+    getDb().ref(AI_CHAT_GUARD_PATH).once('value'),
+    getDb().ref(getAiUsagePath(period)).once('value'),
+  ]);
+  return buildAiGuardState({
+    autoDisabled: normalizeAutoDisabled(guardSnap.val()),
+    usage: usageSnap.val(),
+    limits,
+    period,
+  });
+}
+
+async function reserveAiChatRequest(limits) {
+  const period = getAiUsagePeriod();
+  const autoDisabled = await getAiAutoDisabled();
+  if (autoDisabled.disabled) {
+    return {
+      allowed: false,
+      reason: autoDisabled.reason || 'AI会話は課金ガードで自動停止中です',
+      state: await getAiChatGuardState(limits),
+    };
+  }
+
+  const ref = getDb().ref(getAiUsagePath(period));
+  const now = Date.now();
+  const result = await ref.transaction(current => {
+    const usage = normalizeAiMonthUsage(current, period);
+    const dayUsage = normalizeAiDayUsage(usage.days[period.dayKey]);
+    const reason = findAiLimitReason(usage, dayUsage, limits, true);
+    if (reason) return;
+
+    usage.calls += 1;
+    usage.reservedCalls += 1;
+    usage.days[period.dayKey] = {
+      ...dayUsage,
+      calls: dayUsage.calls + 1,
+      reservedCalls: dayUsage.reservedCalls + 1,
+      updatedAt: now,
+    };
+    usage.updatedAt = now;
+    return usage;
+  }, undefined, false);
+
+  const usage = result.snapshot?.val();
+  const state = buildAiGuardState({
+    autoDisabled: { disabled: false },
+    usage,
+    limits,
+    period,
+  });
+
+  if (result.committed) {
+    return { allowed: true, state };
+  }
+
+  const reason = findAiLimitReason(
+    normalizeAiMonthUsage(usage, period),
+    normalizeAiDayUsage(normalizeAiMonthUsage(usage, period).days[period.dayKey]),
+    limits,
+    true,
+  );
+  await disableAiChatForBillingRisk(reason?.message || 'AI会話の無料枠ガード上限に達しました', {
+    code: reason?.code || 'ai_guard_limit',
+    usage: state.usage,
+    limits: state.limits,
+    period: state.period,
+  });
+  return {
+    allowed: false,
+    reason: reason?.message || 'AI会話の無料枠ガード上限に達しました',
+    state: await getAiChatGuardState(limits),
+  };
+}
+
+async function recordAiChatUsage(usage, limits) {
+  const tokenUsage = normalizeAiTokenUsage(usage);
+  if (!tokenUsage.totalTokens && !tokenUsage.inputTokens && !tokenUsage.outputTokens) {
+    return getAiChatGuardState(limits);
+  }
+
+  const period = getAiUsagePeriod();
+  const ref = getDb().ref(getAiUsagePath(period));
+  const now = Date.now();
+  const result = await ref.transaction(current => {
+    const monthUsage = normalizeAiMonthUsage(current, period);
+    const dayUsage = normalizeAiDayUsage(monthUsage.days[period.dayKey]);
+    monthUsage.tokens += tokenUsage.totalTokens;
+    monthUsage.inputTokens += tokenUsage.inputTokens;
+    monthUsage.outputTokens += tokenUsage.outputTokens;
+    monthUsage.days[period.dayKey] = {
+      ...dayUsage,
+      tokens: dayUsage.tokens + tokenUsage.totalTokens,
+      inputTokens: dayUsage.inputTokens + tokenUsage.inputTokens,
+      outputTokens: dayUsage.outputTokens + tokenUsage.outputTokens,
+      updatedAt: now,
+    };
+    monthUsage.updatedAt = now;
+    return monthUsage;
+  }, undefined, false);
+
+  const state = buildAiGuardState({
+    autoDisabled: await getAiAutoDisabled(),
+    usage: result.snapshot?.val(),
+    limits,
+    period,
+  });
+  const reason = findAiLimitReason(
+    normalizeAiMonthUsage(result.snapshot?.val(), period),
+    normalizeAiDayUsage(normalizeAiMonthUsage(result.snapshot?.val(), period).days[period.dayKey]),
+    limits,
+    false,
+  );
+  if (reason) {
+    await disableAiChatForBillingRisk(reason.message, {
+      code: reason.code,
+      usage: state.usage,
+      limits: state.limits,
+      period: state.period,
+    });
+    return getAiChatGuardState(limits);
+  }
+  return state;
+}
+
+async function disableAiChatForBillingRisk(reason, details = {}) {
+  const payload = {
+    disabled: true,
+    reason: trimGuardText(reason || 'AI会話の課金リスクを検知しました'),
+    disabledAt: Date.now(),
+    disabledAtIso: new Date().toISOString(),
+    source: 'linebot-ai-cost-guard',
+    details: sanitizeGuardDetails(details),
+  };
+  await getDb().ref(AI_CHAT_GUARD_PATH).set(payload);
+  return payload;
+}
+
+async function getAiAutoDisabled() {
+  const snap = await getDb().ref(AI_CHAT_GUARD_PATH).once('value');
+  return normalizeAutoDisabled(snap.val());
+}
+
+function getAiUsagePeriod(date = new Date()) {
+  const parts = getTokyoDateParts(date);
+  return {
+    ...parts,
+    monthKey: `${parts.year}-${pad2(parts.month)}`,
+    dayKey: pad2(parts.day),
+  };
+}
+
+function getAiUsagePath(period) {
+  return `${AI_CHAT_USAGE_ROOT}/${period.year}/${pad2(period.month)}`;
+}
+
+function buildAiGuardState({ autoDisabled, usage, limits, period }) {
+  const monthUsage = normalizeAiMonthUsage(usage, period);
+  const dayUsage = normalizeAiDayUsage(monthUsage.days[period.dayKey]);
+  return {
+    autoDisabled: normalizeAutoDisabled(autoDisabled),
+    limits: normalizeAiLimits(limits),
+    period: {
+      year: period.year,
+      month: period.month,
+      day: period.day,
+      monthKey: period.monthKey,
+      dayKey: period.dayKey,
+      date: period.date,
+    },
+    usage: {
+      monthCalls: monthUsage.calls,
+      dayCalls: dayUsage.calls,
+      monthTokens: monthUsage.tokens,
+      dayTokens: dayUsage.tokens,
+      monthInputTokens: monthUsage.inputTokens,
+      monthOutputTokens: monthUsage.outputTokens,
+      dayInputTokens: dayUsage.inputTokens,
+      dayOutputTokens: dayUsage.outputTokens,
+      updatedAt: monthUsage.updatedAt || null,
+    },
+  };
+}
+
+function normalizeAiMonthUsage(raw, period) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const days = source.days && typeof source.days === 'object' ? { ...source.days } : {};
+  return {
+    period: source.period || period.monthKey,
+    calls: toNonNegativeInteger(source.calls),
+    reservedCalls: toNonNegativeInteger(source.reservedCalls),
+    tokens: toNonNegativeInteger(source.tokens),
+    inputTokens: toNonNegativeInteger(source.inputTokens),
+    outputTokens: toNonNegativeInteger(source.outputTokens),
+    days,
+    updatedAt: toNonNegativeInteger(source.updatedAt),
+  };
+}
+
+function normalizeAiDayUsage(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  return {
+    calls: toNonNegativeInteger(source.calls),
+    reservedCalls: toNonNegativeInteger(source.reservedCalls),
+    tokens: toNonNegativeInteger(source.tokens),
+    inputTokens: toNonNegativeInteger(source.inputTokens),
+    outputTokens: toNonNegativeInteger(source.outputTokens),
+    updatedAt: toNonNegativeInteger(source.updatedAt),
+  };
+}
+
+function normalizeAiTokenUsage(usage) {
+  const source = usage && typeof usage === 'object' ? usage : {};
+  const inputTokens = toNonNegativeInteger(source.input_tokens ?? source.inputTokens);
+  const outputTokens = toNonNegativeInteger(source.output_tokens ?? source.outputTokens);
+  const totalTokens = toNonNegativeInteger(source.total_tokens ?? source.totalTokens) || inputTokens + outputTokens;
+  return { inputTokens, outputTokens, totalTokens };
+}
+
+function normalizeAiLimits(limits) {
+  const source = limits && typeof limits === 'object' ? limits : {};
+  return {
+    dailyRequests: toNonNegativeInteger(source.dailyRequests),
+    monthlyRequests: toNonNegativeInteger(source.monthlyRequests),
+    dailyTokens: toNonNegativeInteger(source.dailyTokens),
+    monthlyTokens: toNonNegativeInteger(source.monthlyTokens),
+    estimatedTokensPerReply: toNonNegativeInteger(source.estimatedTokensPerReply),
+  };
+}
+
+function normalizeAutoDisabled(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  return {
+    disabled: source.disabled === true,
+    reason: source.reason ? trimGuardText(source.reason) : '',
+    disabledAt: toNonNegativeInteger(source.disabledAt) || null,
+    disabledAtIso: source.disabledAtIso ? trimGuardText(source.disabledAtIso) : '',
+    source: source.source ? trimGuardText(source.source) : '',
+  };
+}
+
+function findAiLimitReason(monthUsage, dayUsage, limits, includeEstimate) {
+  const normalizedLimits = normalizeAiLimits(limits);
+  const estimate = includeEstimate ? normalizedLimits.estimatedTokensPerReply : 0;
+  if (normalizedLimits.dailyRequests <= 0) {
+    return { code: 'daily_request_limit_zero', message: 'AI_CHAT_DAILY_LIMIT が0なのでAI会話を止めました' };
+  }
+  if (normalizedLimits.monthlyRequests <= 0) {
+    return { code: 'monthly_request_limit_zero', message: 'AI_CHAT_MONTHLY_LIMIT が0なのでAI会話を止めました' };
+  }
+  if (dayUsage.calls >= normalizedLimits.dailyRequests) {
+    return { code: 'daily_request_limit', message: `AI会話の日次上限 ${normalizedLimits.dailyRequests} 回に達したので自動停止しました` };
+  }
+  if (monthUsage.calls >= normalizedLimits.monthlyRequests) {
+    return { code: 'monthly_request_limit', message: `AI会話の月次上限 ${normalizedLimits.monthlyRequests} 回に達したので自動停止しました` };
+  }
+  if (normalizedLimits.dailyTokens > 0 && dayUsage.tokens + estimate >= normalizedLimits.dailyTokens) {
+    return { code: 'daily_token_limit', message: `AI会話の日次トークン上限 ${normalizedLimits.dailyTokens} に近づいたので自動停止しました` };
+  }
+  if (normalizedLimits.monthlyTokens > 0 && monthUsage.tokens + estimate >= normalizedLimits.monthlyTokens) {
+    return { code: 'monthly_token_limit', message: `AI会話の月次トークン上限 ${normalizedLimits.monthlyTokens} に近づいたので自動停止しました` };
+  }
+  return null;
+}
+
+function toNonNegativeInteger(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function pad2(value) {
+  return String(value).padStart(2, '0');
+}
+
+function trimGuardText(value) {
+  return String(value || '').replace(/\s+/g, ' ').slice(0, 200);
+}
+
+function sanitizeGuardDetails(details) {
+  const safe = {};
+  for (const [key, value] of Object.entries(details || {})) {
+    if (value == null) continue;
+    if (typeof value === 'string') safe[key] = trimGuardText(value);
+    else if (typeof value === 'number' || typeof value === 'boolean') safe[key] = value;
+    else if (typeof value === 'object') {
+      try {
+        safe[key] = JSON.parse(JSON.stringify(value));
+      } catch (_) {
+        safe[key] = trimGuardText(value);
+      }
+    }
+  }
+  return safe;
+}
+
 /* matchResults に保存 */
 async function saveResult(pending) {
   const { year, month, away, home, awayScore, homeScore, awayPK, homePK, date, addedBy } = pending;
@@ -126,5 +425,9 @@ module.exports = {
   getMonthlyRule,
   getRestrictMonths,
   checkFirebaseStatus,
+  getAiChatGuardState,
+  reserveAiChatRequest,
+  recordAiChatUsage,
+  disableAiChatForBillingRisk,
   saveResult,
 };

@@ -12,9 +12,10 @@ function detectBillingRiskIntent(text) {
 }
 
 async function formatBillingRiskReply() {
-  const [firebase, github] = await Promise.all([
+  const [firebase, github, ai] = await Promise.all([
     checkFirebaseForBilling(),
     checkGithubForBilling(),
+    getAiLiveStatus(),
   ]);
 
   return [
@@ -26,31 +27,31 @@ async function formatBillingRiskReply() {
     formatLiveLine('Firebase', firebase),
     formatLiveLine('GitHub', github),
     formatLiveLine('LINE', getLineLiveStatus()),
-    formatLiveLine('AI', getAiLiveStatus()),
+    formatLiveLine('AI', ai),
     '',
     '課金が発生しそうな赤信号',
     'Render: Free以外のインスタンスに変更した時。有料サービス、Cron、DB、追加インスタンスを作った時。Free枠を使い切ると基本は停止だけど、プラン変更は要注意。',
     'Firebase: Blazeに上げた時、またはGoogle Cloud請求先を紐づけた時。Realtime Databaseは保存1GB超、ダウンロード10GB/月超が危険。Storage、Functions、Phone認証、AI系を使い始めた時も注意。',
     'GitHub: private repoのActions分数/ストレージ超過、Codespaces、LFS、Packages、Copilot、有料プランを使う時。public repoの標準ActionsとPages中心ならかなり安全。',
     'LINE: 有料プランへ変更した時、Standardで無料メッセージ枠を超えて追加送信する時。無料プランは上限超過で送れなくなるのが基本だけど、プラン変更は要注意。',
-    'AI: AI_CHAT_ENABLED=true と OPENAI_API_KEY を入れた時。自然会話のたびにOpenAI APIを呼ぶので、無料枠死守ならOFFのままが安全。',
+    'AI: AI_CHAT_ENABLED=true と OPENAI_API_KEY を入れた時。自然会話のたびにOpenAI APIを呼ぶので、無料枠死守ならOFFのままが一番安全。ONにするなら課金ガードが日次/月次上限、トークン上限、OpenAIのquota/billing系エラーで自動停止するよ。',
     '',
     '無料枠を絶対守るなら',
     '1. FirebaseはSparkのままにする。Blazeにしたら予算アラートを必ず入れる。',
     '2. RenderはFreeインスタンスのまま、DBやCronを増やさない。',
     '3. GitHubはpublic repo運用を維持して、ActionsやLFSを増やしすぎない。',
     '4. LINEはCommunication/無料プランのまま、月の送信数を管理する。',
-    '5. AI会話は使う時だけON。普段はテンプレ会話で無料運用にする。',
+    '5. AI会話は普段OFF。使う時だけONにして、AI_COST_GUARD_ENABLEDはfalseにしない。',
     '6. 迷ったら「システム」って呼んで。私が見える範囲をもう一回確認するね。',
     '',
     'あなたが無料枠で収めたいって言ってくれたの、ちゃんと覚えてる。危なそうな変更をしたら、私にもすぐ聞いて。',
   ].join('\n');
 }
 
-function getAiLiveStatus() {
+async function getAiLiveStatus() {
   try {
-    const { getAiChatStatus } = require('./ai-chat');
-    const status = getAiChatStatus();
+    const { getAiChatDetailedStatus } = require('./ai-chat');
+    const status = await getAiChatDetailedStatus();
     return { ok: !status.enabled, text: status.text };
   } catch (err) {
     return { ok: false, text: `AI状態を確認できなかったの: ${trim(err?.message || err)}` };

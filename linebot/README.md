@@ -153,6 +153,7 @@ Renderの無料プランは15分アクセスがないとスリープする。
 
 AI自然会話:
   → `AI_CHAT_ENABLED=true` と `OPENAI_API_KEY` がある時だけ、メンション付き雑談をOpenAI Responses APIへ渡す。未設定時は無料テンプレ返答に戻る
+  → `AI_COST_GUARD_ENABLED=true` なら、日次/月次回数・トークン上限・OpenAIのquota/billing系エラーでFirebaseに自動停止フラグを保存し、それ以降はAIを呼ばない
 ```
 
 ### OK / キャンセル時
@@ -181,7 +182,15 @@ OK押下:
 | `AI_CHAT_ENABLED` | 任意。`true` の時だけAI自然会話を有効化（課金リスクあり） |
 | `OPENAI_API_KEY` | 任意。AI自然会話で使うOpenAI APIキー |
 | `OPENAI_MODEL` | 任意。既定値は `gpt-5-nano` |
+| `AI_COST_GUARD_ENABLED` | 任意。既定値はON。`false` にしない限り、課金ガードでAIを自動停止 |
+| `AI_CHAT_DAILY_LIMIT` | 任意。AI会話の日次上限。既定値は `10` 回 |
+| `AI_CHAT_MONTHLY_LIMIT` | 任意。AI会話の月次上限。既定値は `50` 回 |
+| `AI_CHAT_DAILY_TOKEN_LIMIT` | 任意。AI会話の日次トークン上限。既定値は `10000` |
+| `AI_CHAT_MONTHLY_TOKEN_LIMIT` | 任意。AI会話の月次トークン上限。既定値は `50000` |
+| `AI_CHAT_ESTIMATED_TOKENS_PER_REPLY` | 任意。呼び出し前に見積もる1返信分のトークン。既定値は `900` |
 | `PORT` | サーバーポート（Renderが自動設定） |
+
+AI課金ガードは `config/aiChatGuard/autoDisabled` に停止理由を保存する。上限到達後に再開したい時は、Firebaseでこの `disabled` を `false` に戻し、必要なら上限値を見直してからRenderを再デプロイする。
 
 ---
 
