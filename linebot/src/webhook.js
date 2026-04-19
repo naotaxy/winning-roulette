@@ -34,10 +34,12 @@ const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-r
 const {
   formatAttributeGuide,
   formatRarityGuide,
+  formatSenseGuide,
   formatFormationTips,
   formatMetaKnowledge,
   formatBeginnerTips,
   detectAttributeKeyword,
+  detectSenseKeyword,
   detectUicolleIntent,
 } = require('./uicolle-knowledge');
 const { shouldUseAiChat, formatAiChatReply } = require('./ai-chat');
@@ -183,6 +185,9 @@ async function handleText(event, client) {
       text = news
         ? `最新情報、登録されてたよ。\n\n${news.event ? `【イベント】\n${news.event}` : ''}${news.gacha ? `\n\n【ガチャ・スカウト】\n${news.gacha}` : ''}${news.updatedAt ? `\n\n（更新: ${news.updatedAt}）` : ''}`
         : 'ごめん、今のところ最新情報が登録されてないみたい。\n管理者が Firebase の config/uicolleNews に書き込んでくれれば、すぐ伝えられるよ。';
+    } else if (kind === 'sense') {
+      const senseKind = detectSenseKeyword(event.message.text || '');
+      text = formatSenseGuide(senseKind);
     } else if (kind === 'attribute') {
       const attr = detectAttributeKeyword(event.message.text || '');
       text = formatAttributeGuide(attr);
