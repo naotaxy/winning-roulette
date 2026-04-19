@@ -325,6 +325,7 @@ async function parseMatchResult(imageBuffer, playerMap) {
   let leftTeamRaw=(await worker.recognize(leftNameCanvas.toBuffer('image/png'))).data.text.trim().replace(/\n/g,' ');
   const rightNameCanvas=cropImage(imgEl,0.54,0.34,0.43,0.10,2);
   let rightTeamRaw=(await worker.recognize(rightNameCanvas.toBuffer('image/png'))).data.text.trim().replace(/\n/g,' ');
+  console.log(`[OCR] leftRaw="${leftTeamRaw}" rightRaw="${rightTeamRaw}" playerMapKeys=${Object.keys(playerMap).length}`);
   let leftTeamMatch=matchTeamName(leftTeamRaw,playerMap);
   let rightTeamMatch=matchTeamName(rightTeamRaw,playerMap);
   if(!leftTeamMatch){const retry=await retryTeamName(worker,imgEl,0.02,0.34,0.44,0.10,playerMap);if(retry.raw)leftTeamRaw=leftTeamRaw?`${leftTeamRaw} / ${retry.raw}`:retry.raw;if(retry.match)leftTeamMatch=retry.match;}

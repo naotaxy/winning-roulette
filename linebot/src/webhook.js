@@ -26,8 +26,11 @@ async function handleImage(event, client) {
 
   /* プレイヤーマップを Firebase から取得 */
   const players   = await getPlayers();
+  console.log(`[webhook] players count=${Array.isArray(players) ? players.length : Object.keys(players||{}).length} type=${Array.isArray(players)?'array':typeof players}`);
   const playerMap = {};
-  players.forEach(p => { playerMap[p.charName] = p.name; });
+  (Array.isArray(players) ? players : Object.values(players || {})).forEach(p => {
+    if (p?.charName) playerMap[p.charName] = p.name;
+  });
 
   /* OCR */
   let ocrResult;
