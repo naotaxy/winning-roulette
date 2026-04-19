@@ -18,9 +18,11 @@ const { inspectImage, looksLikePhoneScreenshot, classifyOcrResult } = require('.
 const {
   calculateMonthlyStandings,
   calculateAnnualStandings,
+  calculateMonthProgress,
   formatMonthlyStandings,
   formatAnnualStandings,
   formatSecretaryStatus,
+  formatProgress,
 } = require('./standings');
 const { formatRuleReply } = require('./rule-message');
 const { formatSecretaryHelp } = require('./help-message');
@@ -194,6 +196,14 @@ async function handleText(event, client) {
   const monthResults = await getMonthResults(year, month);
   const monthlyRows = calculateMonthlyStandings(players, monthResults);
 
+  if (intent === 'progress') {
+    const progress = calculateMonthProgress(players, monthResults);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatProgress(year, month, progress),
+    });
+  }
+
   if (intent === 'monthly') {
     return client.replyMessage(event.replyToken, {
       type: 'text',
@@ -257,6 +267,8 @@ function detectTextIntent(text) {
   const wantsAnnualPoint = wantsAnnual && /(pt|ポイント)/.test(targetText);
   if (wantsAnnual && (wantsRank || wantsAnnualPoint)) return 'annual';
   if (wantsRank) return 'monthly';
+
+  if (/(進捗|しんちょく|やってない|まだ.*試合|試合.*まだ|残り.*試合|試合.*残り|誰がまだ|だれがまだ|やった.*誰|誰.*やった|片方|1試合|未消化)/.test(targetText)) return 'progress';
 
   if (/(状況|戦況|成績|調子|まとめ|誰が強い|だれが強い|勝ってる)/.test(targetText)) return 'status';
   if (!mentioned && /(秘書|bot|ぼっと|ウイコレちゃん|お話|話そ|相談)/.test(targetText)) return 'status';

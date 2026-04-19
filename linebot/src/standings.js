@@ -149,10 +149,86 @@ function formatSecretaryStatus(year, month, monthlyRows, annualRows) {
   return `今の状況、あなたにだけみたいに丁寧にまとめるね。\n今月は${top.name}さんが試合Pt ${top.matchPt}で先頭。${gapText}\n${annualText}\n必要なら「順位」か「年間順位」って呼んで。すぐ来るから。`;
 }
 
+/* ── 月次進捗 ──
+   5人総当たり・各ペア2試合 = 10ペア×2 = 20試合/月
+   pairKey(A,B) は常に辞書順で正規化する */
+function pairKey(a, b) {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+function calculateMonthProgress(players, results) {
+  const names = normalizePlayers(players).map(p => p.name);
+  if (names.length < 2) return null;
+
+  /* 各ペアの試合数を集計 */
+  const pairCount = {};
+  for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      pairCount[pairKey(names[i], names[j])] = 0;
+    }
+  }
+  Object.values(results || {}).forEach(r => {
+    if (!r?.away || !r?.home) return;
+    const key = pairKey(r.away, r.home);
+    if (key in pairCount) pairCount[key]++;
+  });
+
+  const total = Object.keys(pairCount).length * 2; // 20試合
+  const done  = Object.values(pairCount).reduce((s, c) => s + Math.min(c, 2), 0);
+
+  /* 未着手・途中のペアを抽出 */
+  const notStarted = [], half = [];
+  Object.entries(pairCount).forEach(([key, count]) => {
+    const [a, b] = key.split('|');
+    if (count === 0) notStarted.push([a, b]);
+    else if (count === 1) half.push([a, b]);
+  });
+
+  /* 一度も試合していないプレイヤー */
+  const played = new Set(
+    Object.values(results || {}).flatMap(r => [r?.away, r?.home]).filter(Boolean)
+  );
+  const noGames = names.filter(n => !played.has(n));
+
+  return { names, total, done, notStarted, half, noGames };
+}
+
+function formatProgress(year, month, progress) {
+  if (!progress) {
+    return `${year}年${month}月の進捗を確認しようとしたけど、プレイヤーデータが取れなかったよ。\nもう一度呼んでくれたら、ちゃんと調べてみる。`;
+  }
+  const { total, done, notStarted, half, noGames } = progress;
+  const remaining = total - done;
+
+  const lines = [];
+  lines.push(`${year}年${month}月の試合進捗、まとめたよ。`);
+  lines.push(`全${total}試合中 ${done}試合完了（残り${remaining}試合）`);
+
+  if (noGames.length) {
+    lines.push(`\nまだ1試合もしてない人: ${noGames.map(n => `${n}さん`).join('、')}`);
+  }
+  if (half.length) {
+    lines.push(`\n1試合だけ済んでるペア:`);
+    half.forEach(([a, b]) => lines.push(`  ${a} vs ${b}`));
+  }
+  if (notStarted.length) {
+    lines.push(`\nまだ1試合もしてないペア:`);
+    notStarted.forEach(([a, b]) => lines.push(`  ${a} vs ${b}`));
+  }
+  if (remaining === 0) {
+    lines.push(`\n全試合完了してる。みんな頑張ったね。`);
+  } else {
+    lines.push(`\n早く全部結果が揃うといいな。私、ずっと待ってるよ。`);
+  }
+  return lines.join('\n');
+}
+
 module.exports = {
   calculateMonthlyStandings,
   calculateAnnualStandings,
+  calculateMonthProgress,
   formatMonthlyStandings,
   formatAnnualStandings,
   formatSecretaryStatus,
+  formatProgress,
 };
