@@ -185,10 +185,17 @@
 
 ---
 
+## LINE Bot（linebot/）
+
+LINEグループに試合スクリーンショットを投稿すると自動でFirebaseに登録するBot。
+セットアップ手順・仕様は `linebot/README.md` を参照。
+
+---
+
 ## 今後の課題・予定
 
 - [ ] Firebase セキュリティルールの本番設定
 - [ ] OCR精度向上（画像前処理の改善）
 - [ ] プッシュ通知（月初ルール決め通知）
 - [ ] 過去月のアーカイブ閲覧
-- [ ] LINE Messaging API でbot通知
+- [x] LINE Messaging API でbot通知（`linebot/` 参照）
