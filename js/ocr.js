@@ -472,8 +472,31 @@ const OCR = (() => {
        PK表示位置が画像によって異なるため上部クロップ優先
        1桁 regex でノイズ "14 PK 2" 等を防ぐ ── */
     const _findPK = text => {
-      const m = text.match(/(\d)\s*PK\s*(\d)/i);
-      return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : null;
+      /* 一次: 標準 \d PK \d */
+      let m = text.match(/(\d)\s*PK\s*(\d)/i);
+      if (m) return [parseInt(m[1], 10), parseInt(m[2], 10)];
+
+      /* ノイズ除去後に再試行 (_「」[]|,'` がPK前後の数字を隠す) */
+      const stripped = text.replace(/[_「」\[\]|,.'`~]/g, ' ');
+      m = stripped.match(/(\d)\s*PK\s*(\d)/i);
+      if (m) return [parseInt(m[1], 10), parseInt(m[2], 10)];
+
+      /* 行単位 + OCRエイリアス (g→2, l/I→1, O→0, s→5, q→9, b→6, B→8)
+         ─ 行をまたいだ無関係な数字による誤マッチを防ぐため行ごとに処理 ─ */
+      const OCR_DIG = { g:2, G:2, z:2, Z:2, l:1, I:1, s:5, S:5, O:0, o:0, q:9, b:6, B:8 };
+      for (const line of stripped.split('\n')) {
+        const pkIdx = line.toLowerCase().indexOf('pk');
+        if (pkIdx < 0) continue;
+        const beforePK  = line.substring(0, pkIdx).trimEnd();
+        const afterPK   = line.substring(pkIdx + 2);
+        const rightMatch = afterPK.match(/^\s*(\d)/);
+        if (!rightMatch) continue;
+        const rightVal  = parseInt(rightMatch[1], 10);
+        const lastCh    = beforePK.slice(-1);
+        if (/\d/.test(lastCh))              return [parseInt(lastCh, 10), rightVal];
+        if (OCR_DIG[lastCh] !== undefined)  return [OCR_DIG[lastCh],     rightVal];
+      }
+      return null;
     };
     await worker.setParameters({
       tessedit_pageseg_mode: '11',
