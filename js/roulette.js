@@ -2,7 +2,7 @@
    WINNING ROULETTE — Full Circle Wheel Engine v4
    ・タイミングゲージ（強さ制御）
    ・物理ベース減速（指数減衰 + スプリング整定）
-   ・アウトライン文字で高視認性
+   ・番号表示 + 外部凡例で高視認性
    ═══════════════════════════════════════════════════ */
 'use strict';
 
@@ -113,46 +113,40 @@ const ROULETTE = (() => {
       ctx.strokeStyle = 'rgba(212,175,55,0.25)'; ctx.lineWidth = 0.8; ctx.stroke();
     }
 
-    /* ── ラベル（高視認性：背景ピル + アウトライン）── */
+    /* ── 番号バッジ（長い文字は外部凡例で表示）── */
     for (let i = 0; i < n; i++) {
       const a0   = rotation + i * seg - Math.PI / 2;
       const midA = a0 + seg / 2;
       const isH  = (i === hilite);
-      const lx   = cx + Math.cos(midA) * outerR * 0.63;
-      const ly   = cy + Math.sin(midA) * outerR * 0.63;
+      const lx   = cx + Math.cos(midA) * outerR * 0.68;
+      const ly   = cy + Math.sin(midA) * outerR * 0.68;
+      const badge = String(i + 1);
 
       ctx.save();
       ctx.translate(lx, ly);
-      ctx.rotate(midA + Math.PI / 2);
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 
-      const fs = n > 8 ? (outerR > 100 ? 11 : 9) : 14;
-      ctx.font = `700 ${fs}px 'Noto Sans JP',sans-serif`;
+      const fs = n > 8 ? 12 : 16;
+      const r  = n > 8 ? 12 : 16;
+      ctx.font = `900 ${fs}px 'Orbitron','Noto Sans JP',sans-serif`;
 
-      const maxW = outerR * 0.46;
-      let label = items[i];
-      while (ctx.measureText(label).width > maxW && label.length > 1)
-        label = label.slice(0, -1);
-      if (label !== items[i]) label = label.slice(0, -1) + '…';
-
-      /* 背景ピル */
-      const tw = Math.min(ctx.measureText(label).width + 8, maxW + 8);
-      const th = fs + 6;
-      ctx.fillStyle = isH ? 'rgba(255,240,80,0.3)' : 'rgba(0,0,0,0.5)';
+      ctx.shadowColor = isH ? '#fff06a' : 'rgba(0,0,0,0.75)';
+      ctx.shadowBlur = isH ? 16 : 6;
       ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(-tw/2, -th/2, tw, th, 3);
-      else ctx.rect(-tw/2, -th/2, tw, th);
+      if (ctx.roundRect) ctx.roundRect(-r, -r, r * 2, r * 2, 3);
+      else ctx.rect(-r, -r, r * 2, r * 2);
+      ctx.fillStyle = isH ? '#fff06a' : 'rgba(7,9,26,0.82)';
       ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = isH ? '#ff1744' : 'rgba(212,175,55,0.75)';
+      ctx.lineWidth = isH ? 3 : 1.5;
+      ctx.stroke();
 
-      /* アウトライン */
-      ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
       ctx.lineJoin = 'round'; ctx.lineWidth = 3;
-      ctx.strokeStyle = isH ? 'rgba(120,70,0,0.95)' : 'rgba(0,0,0,0.95)';
-      ctx.strokeText(label, 0, 0);
-
-      /* 本文 */
-      ctx.fillStyle = isH ? '#1a0800' : '#ffffff';
-      ctx.fillText(label, 0, 0);
+      ctx.strokeStyle = isH ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)';
+      ctx.strokeText(badge, 0, 1);
+      ctx.fillStyle = isH ? '#1a0800' : '#fff7bd';
+      ctx.fillText(badge, 0, 1);
       ctx.restore();
     }
 
