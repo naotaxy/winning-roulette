@@ -133,18 +133,12 @@ function renderGame() {
   const spinN   = isP1 ? STATE.round1.length + 1 : 1;
 
   panel.innerHTML = `
-    <div class="phase-strip">
-      <div class="phase-node ${STATE.phase > 1 ? 'done' : 'active'}">1st: 12択×2</div>
-      <div class="phase-node ${STATE.phase === 2 ? 'active' : STATE.phase > 2 ? 'done' : ''}">2nd: 6択×1</div>
-    </div>
-
     <div class="roulette-stage" id="roulette-stage">
       <div class="kakuhen-banner" id="kakuhen-banner" hidden></div>
       <div class="roulette-label">${isP1 ? `ROUND&nbsp;1 &mdash; SPIN&nbsp;${spinN}/2` : 'ROUND&nbsp;2 &mdash; FINAL&nbsp;SPIN'}</div>
       <div class="wheel-wrap" id="wheel-wrap">
         <div class="wheel-pointer"></div>
       </div>
-      <div class="wheel-legend" id="wheel-legend"></div>
       <div class="spin-status" id="spin-status">ゲージを合わせてSPINを押してください</div>
     </div>
 
@@ -160,6 +154,13 @@ function renderGame() {
     <div style="display:flex;justify-content:center;margin-bottom:14px;">
       <button class="btn-spin" id="btn-spin">${ICON.spin}SPIN</button>
     </div>
+
+    <div class="phase-strip phase-strip-compact">
+      <div class="phase-node ${STATE.phase > 1 ? 'done' : 'active'}">1st: 12択×2</div>
+      <div class="phase-node ${STATE.phase === 2 ? 'active' : STATE.phase > 2 ? 'done' : ''}">2nd: 6択×1</div>
+    </div>
+
+    <div class="wheel-legend" id="wheel-legend"></div>
 
     <div id="partial-wrap"></div>
 
