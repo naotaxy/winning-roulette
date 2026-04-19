@@ -28,7 +28,7 @@ const {
 } = require('./standings');
 const { formatRuleReply } = require('./rule-message');
 const { formatSecretaryHelp } = require('./help-message');
-const { getSecretaryMentionInfo, getCasualReply } = require('./secretary-chat');
+const { getSecretaryMentionInfo, getCasualReply, getTiredReply } = require('./secretary-chat');
 const { detectSystemStatusKind, formatSystemStatusReply } = require('./system-status');
 const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-risk');
 const {
@@ -160,13 +160,19 @@ async function handleText(event, client) {
   }
 
   if (intent === 'casual') {
-    const aiReply = shouldUseAiChat()
+    const aiEnabled = shouldUseAiChat();
+    const aiReply = aiEnabled
       ? await formatAiChatReply(event.message.text || '', await buildAiConversationContext(year, month, senderName))
       : null;
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: aiReply || getCasualReply(event.message.text || ''),
-    });
+    let replyText;
+    if (aiReply) {
+      replyText = aiReply;
+    } else if (aiEnabled) {
+      replyText = getTiredReply();
+    } else {
+      replyText = getCasualReply(event.message.text || '');
+    }
+    return client.replyMessage(event.replyToken, { type: 'text', text: replyText });
   }
 
   if (intent.startsWith('system:')) {
