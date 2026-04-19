@@ -52,7 +52,7 @@
 3. LIFFタブでLIFFアプリを追加
 4. サイズは `Full`、スコープは `profile` を有効化
 5. エンドポイントURLにGitHub PagesのURLを設定
-6. 発行されたLIFF IDを [js/liff.js](/Users/naotay/soccer-roulette/js/liff.js) の `LIFF_ID` に設定
+6. 発行されたLIFF IDを `js/liff.js` の `LIFF_ID` に設定
 
 ```js
 const LIFF_ID = 'xxxxxxxxxx-xxxxxxxx';
