@@ -252,20 +252,21 @@ const ROULETTE = (() => {
     const tgtNorm  = ((tgtAngle  % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
     const diff     = (tgtNorm - curNorm + 2*Math.PI) % (2*Math.PI);
 
-    /* 1 回転 + 差分 */
-    const totalDelta = 2 * Math.PI + diff;
+    /* パワーに応じた回転数: 4〜12周 + 差分 */
+    const rotations  = 4 + (pw / 100) * 8;
+    const totalDelta = rotations * 2 * Math.PI + diff;
     const finalRot   = state.rot + totalDelta;
 
-    /* 2.5〜4 秒 */
-    const totalMs  = 2500 + (pw / 100) * 1500;
+    /* 4.2〜9.5 秒 */
+    const totalMs  = 4200 + (pw / 100) * 5300;
     const startRot = state.rot;
     const t0       = performance.now();
 
     function frame(now) {
       const elapsed = now - t0;
       const prog    = Math.min(elapsed / totalMs, 1);
-      /* 正弦イーズアウト: sin(prog * π/2) → 最初はゆっくり、終わりに向かってなめらかに停止 */
-      const ease    = Math.sin(prog * Math.PI / 2);
+      /* cubic ease-out: 最初は速く → 終盤に急激に減速してドラマを演出 */
+      const ease    = 1 - Math.pow(1 - prog, 3);
       state.rot     = startRot + totalDelta * ease;
 
       const done = prog >= 1;

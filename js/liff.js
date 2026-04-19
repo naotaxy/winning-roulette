@@ -121,7 +121,7 @@ const LIFF_WRAPPER = (() => {
             alignItems: 'center',
             spacing: 'sm',
             contents: [
-              { type: 'text', text: '⚽', size: 'xl', flex: 0 },
+              { type: 'text', text: 'WR', size: 'sm', weight: 'bold', color: '#d4af37', flex: 0 },
               {
                 type: 'box',
                 layout: 'vertical',
@@ -151,7 +151,7 @@ const LIFF_WRAPPER = (() => {
             contents: [
               pictureUrl
                 ? { type: 'image', url: pictureUrl, size: '40px', aspectRatio: '1:1', aspectMode: 'cover', cornerRadius: '20px', flex: 0 }
-                : { type: 'text', text: '👤', size: 'xxl', flex: 0 },
+                : { type: 'text', text: 'P1', size: 'sm', weight: 'bold', color: '#d4af37', flex: 0 },
               {
                 type: 'box',
                 layout: 'vertical',
@@ -215,7 +215,7 @@ const LIFF_WRAPPER = (() => {
                 spacing: 'sm',
                 alignItems: 'center',
                 contents: [
-                  { type: 'text', text: '🎲', size: 'lg', flex: 0 },
+                  { type: 'text', text: '2', size: 'sm', weight: 'bold', color: '#00d9ff', flex: 0 },
                   { type: 'text', text: round2, size: 'md', weight: 'bold', color: '#00d9ff', flex: 1, wrap: true }
                 ]
               }
@@ -236,7 +236,7 @@ const LIFF_WRAPPER = (() => {
             style: 'primary',
             color: '#d4af37',
             height: 'sm',
-            action: { type: 'uri', label: '⚽ 自分もやってみる', uri: appUrl }
+            action: { type: 'uri', label: '自分もやってみる', uri: appUrl }
           },
           {
             type: 'text',
@@ -257,7 +257,7 @@ const LIFF_WRAPPER = (() => {
 
     const msg = {
       type: 'flex',
-      altText: `⚽ ${entry.name}さんのルール: ${entry.round1.join('・')} / ${entry.round2}`,
+      altText: `${entry.name}さんのルール: ${entry.round1.join('・')} / ${entry.round2}`,
       contents: buildFlexMessage(entry)
     };
 
@@ -279,9 +279,9 @@ const LIFF_WRAPPER = (() => {
     if (!_inLine) return false;
 
     const text =
-      `⚽ ウイコレ ルール決め\n👤 ${entry.name}\n\n` +
-      `【第1回】\n${entry.round1.map(r => `⚡ ${r}`).join('\n')}\n\n` +
-      `【第2回】\n🎲 ${entry.round2}`;
+      `ウイコレ ルール決め\n${entry.name}\n\n` +
+      `【第1回】\n${entry.round1.map(r => `- ${r}`).join('\n')}\n\n` +
+      `【第2回】\n- ${entry.round2}`;
 
     try {
       await liff.sendMessages([{ type: 'text', text }]);
@@ -295,10 +295,10 @@ const LIFF_WRAPPER = (() => {
   /* ── Build plain text for clipboard ── */
   function buildText(entry) {
     return (
-      `⚽ ウイコレ ルール決め\n` +
-      `👤 ${entry.name}\n\n` +
-      `【第1回 12択】\n${entry.round1.map(r => `⚡ ${r}`).join('\n')}\n\n` +
-      `【第2回 6択】\n🎲 ${entry.round2}`
+      `ウイコレ ルール決め\n` +
+      `${entry.name}\n\n` +
+      `【第1回 12択】\n${entry.round1.map(r => `- ${r}`).join('\n')}\n\n` +
+      `【第2回 6択】\n- ${entry.round2}`
     );
   }
 
