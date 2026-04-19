@@ -76,6 +76,21 @@ const ICON = Object.freeze({
   eye:      '<span class="pxi pxi-eye" aria-hidden="true"></span>',
 });
 
+const KAKUHEN_MODES = [
+  {
+    id: 'denture',
+    name: '入れ歯確変',
+    label: 'DENTURE RUSH',
+    palette: ['#ff2e93', '#fff06a', '#ff7a00', '#f4d560'],
+  },
+  {
+    id: 'g',
+    name: 'G確変',
+    label: 'G RUSH',
+    palette: ['#7dff00', '#00f5ff', '#ffd400', '#9d4edd'],
+  },
+];
+
 /* ── Toast ── */
 let _toastTimer;
 function toast(msg, dur = 2600) {
@@ -124,10 +139,12 @@ function renderGame() {
     </div>
 
     <div class="roulette-stage" id="roulette-stage">
+      <div class="kakuhen-banner" id="kakuhen-banner" hidden></div>
       <div class="roulette-label">${isP1 ? `ROUND&nbsp;1 &mdash; SPIN&nbsp;${spinN}/2` : 'ROUND&nbsp;2 &mdash; FINAL&nbsp;SPIN'}</div>
       <div class="wheel-wrap" id="wheel-wrap">
         <div class="wheel-pointer"></div>
       </div>
+      <div class="wheel-legend" id="wheel-legend"></div>
       <div class="spin-status" id="spin-status">ゲージを合わせてSPINを押してください</div>
     </div>
 
@@ -152,6 +169,7 @@ function renderGame() {
 
   const wrap = document.getElementById('wheel-wrap');
   STATE.wheel = ROULETTE.create(wrap, items, colors);
+  renderWheelLegend(items, colors);
 
   /* ゲージ開始 */
   if (STATE.isSpinner) {
@@ -172,6 +190,70 @@ function renderGame() {
     if (!STATE.isSpinner) { btn.disabled = true; }
     else btn.addEventListener('click', onSpin);
   }
+}
+
+function renderWheelLegend(items, colors) {
+  const el = document.getElementById('wheel-legend');
+  if (!el) return;
+  el.innerHTML = items.map((item, i) => `
+    <div class="wheel-legend-item">
+      <span class="wheel-legend-num" style="--swatch:${colors[i % colors.length]}">${i + 1}</span>
+      <span class="wheel-legend-text">${item}</span>
+    </div>
+  `).join('');
+}
+
+function shuffledCopy(arr) {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function buildKakuhenPlan(phase, available, baseItems) {
+  const targetCount = phase === 1 ? 4 : 2;
+  if (available.length <= targetCount || Math.random() >= 0.5) return null;
+
+  const mode = KAKUHEN_MODES[Math.floor(Math.random() * KAKUHEN_MODES.length)];
+  const indices = shuffledCopy(available).slice(0, targetCount);
+  const targetLocal = Math.floor(Math.random() * indices.length);
+  const colors = indices.map((_, i) => mode.palette[i % mode.palette.length]);
+
+  return {
+    mode,
+    beforeCount: available.length,
+    indices,
+    targetLocal,
+    targetOriginal: indices[targetLocal],
+    items: indices.map(i => baseItems[i]),
+    colors,
+  };
+}
+
+function activateKakuhenWheel(plan) {
+  const stage = document.getElementById('roulette-stage');
+  const gauge = document.getElementById('gauge-wrap');
+  const banner = document.getElementById('kakuhen-banner');
+  const wrap = document.getElementById('wheel-wrap');
+  if (!stage || !wrap) return;
+
+  stage.classList.add('kakuhen', `kakuhen-${plan.mode.id}`);
+  gauge?.classList.add('kakuhen', `kakuhen-${plan.mode.id}`);
+
+  if (banner) {
+    banner.hidden = false;
+    banner.innerHTML = `
+      <span>${plan.mode.label}</span>
+      <b>${plan.mode.name}</b>
+      <em>${plan.beforeCount}択 → ${plan.items.length}択</em>
+    `;
+  }
+
+  wrap.querySelectorAll('canvas').forEach(canvas => canvas.remove());
+  STATE.wheel = ROULETTE.create(wrap, plan.items, plan.colors);
+  renderWheelLegend(plan.items, plan.colors);
 }
 
 function renderPartial() {
@@ -199,21 +281,42 @@ async function onSpin() {
   if (status) { status.className = 'spin-status'; status.textContent = `POWER ${power}% でスピン中…`; }
 
   /* ─ 不正防止: 結果を先にFirebaseにコミット ─ */
-  const n      = (STATE.phase === 1 ? STATE.items12 : STATE.items6).length;
+  const baseItems  = STATE.phase === 1 ? STATE.items12 : STATE.items6;
+  const baseColors = STATE.phase === 1 ? ROULETTE.PALETTE_12 : ROULETTE.PALETTE_6;
+  const n      = baseItems.length;
   const exclude = STATE.phase === 1 ? STATE.round1 : [];
+  const available = Array.from({ length: n }, (_, i) => i).filter(i => !exclude.includes(i));
+  const kakuhen = buildKakuhenPlan(STATE.phase, available, baseItems);
   let tgtIdx;
-  do { tgtIdx = Math.floor(Math.random() * n); }
-  while (exclude.includes(tgtIdx));
+  let spinExclude = exclude;
+  let wheelTargetIdx;
+
+  if (kakuhen) {
+    activateKakuhenWheel(kakuhen);
+    tgtIdx = kakuhen.targetOriginal;
+    spinExclude = [];
+    wheelTargetIdx = kakuhen.targetLocal;
+    if (status) {
+      status.className = 'spin-status kakuhen-hit';
+      status.textContent = `${kakuhen.mode.name}突入！ ${kakuhen.beforeCount}択から${kakuhen.items.length}択へ圧縮`;
+    }
+  } else {
+    do { tgtIdx = Math.floor(Math.random() * n); }
+    while (exclude.includes(tgtIdx));
+    wheelTargetIdx = tgtIdx;
+    renderWheelLegend(baseItems, baseColors);
+  }
 
   if (SYNC) await SYNC.commitSpin(STATE.phase, tgtIdx);
 
   /* アニメーション（既に結果はロック済み） */
-  STATE.wheel.spin(exclude, async idx => {
-    const item = STATE.phase === 1 ? STATE.items12[idx] : STATE.items6[idx];
+  STATE.wheel.spin(spinExclude, async idx => {
+    const originalIdx = kakuhen ? kakuhen.indices[idx] : idx;
+    const item = baseItems[originalIdx];
     if (status) { status.className = 'spin-status hit'; status.textContent = `「${item}」が選ばれました！`; }
 
     if (STATE.phase === 1) {
-      STATE.round1.push(idx);
+      STATE.round1.push(originalIdx);
       renderPartial();
       setTimeout(() => {
         STATE.phase = STATE.round1.length < 2 ? 1 : 2;
@@ -221,7 +324,7 @@ async function onSpin() {
         renderGame();
       }, 2000);
     } else {
-      STATE.round2 = idx;
+      STATE.round2 = originalIdx;
       const entry  = buildEntry();
       if (SYNC) SYNC.saveSpinHistory(entry);
       else addLegacyHistory(entry);
@@ -231,7 +334,7 @@ async function onSpin() {
         renderGame();
       }, 2000);
     }
-  }, power, tgtIdx);
+  }, power, wheelTargetIdx);
 }
 
 function buildEntry() {
