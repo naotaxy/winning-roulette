@@ -115,6 +115,41 @@ async function fetchEfootballNews() {
   return [];
 }
 
+// ── 音楽トレンド（iTunes Japan） ─────────────────────────
+async function fetchMusicTrends() {
+  try {
+    const res = await fetch(
+      'https://rss.applemarketingtools.com/api/v2/jp/music/most-played/5/songs.json',
+      { signal: AbortSignal.timeout(6000) }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.feed?.results || []).slice(0, 5).map(s => ({
+      title: s.name,
+      artist: s.artistName,
+    }));
+  } catch (e) {
+    console.warn('[music] failed:', e.message);
+    return [];
+  }
+}
+
+// ── AI ニュース（Anthropic / OpenAI / TechCrunch AI） ────
+async function fetchAiNews() {
+  const candidates = [
+    'https://techcrunch.com/category/artificial-intelligence/feed/',
+    'https://feeds.feedburner.com/TechCrunch/',
+  ];
+  for (const url of candidates) {
+    const items = await fetchRSS(url);
+    const aiItems = items.filter(i =>
+      /(anthropic|openai|claude|gpt|gemini|llm|ai|人工知能)/i.test(i.title + i.desc)
+    );
+    if (aiItems.length) return aiItems.slice(0, 3);
+  }
+  return [];
+}
+
 // ── 青空文庫 月別テーマ ───────────────────────────────────
 const MONTHLY_NOVEL = {
   1:  { title: '雪国',         author: '川端康成',   theme: '孤独と美、冬の静寂の中で出会う謎めいた人物' },
@@ -132,7 +167,7 @@ const MONTHLY_NOVEL = {
 };
 
 // ── Gemini 日記生成 ──────────────────────────────────────
-async function generateDiary(dateLabel, videos, news) {
+async function generateDiary(dateLabel, videos, news, music, aiNews) {
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
 
   const { month, day, totalDays, weekday } = getJSTDateParts();
@@ -145,12 +180,19 @@ async function generateDiary(dateLabel, videos, news) {
     ? videos.map(v => `・「${v.title}」（${v.channel}）${v.description ? '　' + v.description : ''}`).join('\n')
     : '（動画情報は取得できなかった）';
 
+  const musicBlock = music?.length
+    ? music.map(m => `・「${m.title}」／${m.artist}`).join('\n')
+    : '（音楽情報は取得できなかった。${month}月らしい旬のアーティストを想像して書いてよい）';
+
+  const aiBlock = aiNews?.length
+    ? aiNews.map(a => `・${a.title}${a.desc ? '　' + a.desc : ''}`).join('\n')
+    : '（AI情報は取得できなかった。AnthropicやOpenAIの最近の動向を想像して書いてよい）';
+
   const novel = MONTHLY_NOVEL[month] || MONTHLY_NOVEL[4];
 
-  // 起承転結の位置を計算
   const progress = day / totalDays;
   let storyPhase;
-  if (progress <= 0.25)      storyPhase = `起（世界観・登場人物の紹介。全体の序盤、${day}日目/${totalDays}日中）`;
+  if (progress <= 0.25)      storyPhase = `起（世界観・登場人物の紹介。${day}日目/${totalDays}日中）`;
   else if (progress <= 0.5)  storyPhase = `承（状況の展開・謎や伏線の提示。${day}日目/${totalDays}日中）`;
   else if (progress <= 0.75) storyPhase = `転（予想外の出来事・クライマックスへの助走。${day}日目/${totalDays}日中）`;
   else                       storyPhase = `結（謎の解決・余韻と締め。${day}日目/${totalDays}日中）`;
@@ -158,15 +200,25 @@ async function generateDiary(dateLabel, videos, news) {
   const prompt = `あなたは秘書トラペル子です。以下のプロフィールと構成に従って今日の日記を書いてください。
 
 【プロフィール】
-- 25歳の女性秘書。几帳面で世話焼き、少し甘め。
+- 25歳の女性秘書。几帳面で世話焼き、少し甘め。ハイテク好きでガジェット欲が強め。
 - eFootball（ウイコレ）が大好きで詳しい。センス・アドセンス・スカウト周期を日々研究している。
 - 一人称は「私」。文体はです・ます調寄りだが、親しみやすくやや砕けた表現も使う。
 - 絵文字は使わない。感情は言葉で表現する。
 
 【今日の情報】
 - 日付: ${dateLabel}（${weekday}曜日）
-- ウイコレ公式ニュース: ${newsBlock}
-- YouTube最新動画: ${videoBlock}
+
+▼ウイコレ公式ニュース
+${newsBlock}
+
+▼YouTube最新動画
+${videoBlock}
+
+▼日本の音楽チャート（iTunes）
+${musicBlock}
+
+▼AI最新ニュース（Anthropic / OpenAI）
+${aiBlock}
 
 【今月の連載小説テーマ】
 - 作品: 「${novel.title}」（${novel.author}）からヒントを得た創作
@@ -175,16 +227,22 @@ async function generateDiary(dateLabel, videos, news) {
 
 【日記の構成（この順番で書くこと）】
 
-①東京の今日の天気と朝の空気感（${month}月${day}日の季節感から推定して2〜3文）
+①東京の今日の天気と朝の空気感（${month}月${day}日の季節感から2〜3文）
 
-②今朝したこと（窓を開ける・コーヒーを淹れるなど1〜2文の日常の一コマ）
+②今朝したこと（1〜2文の日常の一コマ）
 
-③ウイコレの調査結果と感想（上記のニュース・動画を自分なりに解釈・考察。単なる要約にせず、センスやスカウト周期への期待や分析を交える）
+③ウイコレの調査結果と感想（ニュース・動画を自分なりに解釈。センスやスカウト周期への期待や分析を交える）
 
-④今月の連載ストーリー 今日のエピソード（「${novel.title}」のテーマを借りた創作。トラペル子自身が体験する形で、今日のフェーズ「${storyPhase}」に合った展開を書く。読み手がワクワクするような小さな事件や伏線を散りばめる）
+④流行りの音楽について（上記チャートの曲を聴いた感想や、今の気分に合う曲への思い。1〜2文）
+
+⑤ハイテク製品の物欲（価格コムやAmazonで気になったハイテクアイテムを1つ具体的に挙げて「欲しい」気持ちを2〜3文で。スマート家電・ガジェット・PC周辺機器など2026年らしいものを）
+
+⑥AnthropicとOpenAIのニュースへの感想（上記AI情報をもとに、私なりの感想や考えを1〜2文）
+
+⑦今月の連載ストーリー 今日のエピソード（「${novel.title}」のテーマを借りた創作。トラペル子自身が体験する形で、フェーズ「${storyPhase}」に合った展開を。読み手がワクワクする小さな事件や伏線を散りばめる）
 
 条件：
-- 合計700〜1000文字
+- 合計900〜1300文字
 - 最後の一文は「また明日も記録しておくから」「ちゃんと覚えておくね」のような締め方にする。`;
 
   const res = await fetch(
@@ -333,13 +391,15 @@ async function main() {
   const dateLabel = getJSTDateLabel();
   console.log(`[diary] start ${date}`);
 
-  const [videos, news] = await Promise.all([
+  const [videos, news, music, aiNews] = await Promise.all([
     fetchYouTubeVideos().catch(e => { console.error('[youtube]', e.message); return []; }),
     fetchEfootballNews().catch(e => { console.error('[rss]',     e.message); return []; }),
+    fetchMusicTrends().catch(e => { console.error('[music]',     e.message); return []; }),
+    fetchAiNews().catch(e => { console.error('[ainews]',         e.message); return []; }),
   ]);
-  console.log(`[diary] youtube=${videos.length} news=${news.length}`);
+  console.log(`[diary] youtube=${videos.length} news=${news.length} music=${music.length} ai=${aiNews.length}`);
 
-  const diaryText = await generateDiary(dateLabel, videos, news);
+  const diaryText = await generateDiary(dateLabel, videos, news, music, aiNews);
   console.log(`[diary] generated ${diaryText.length}chars`);
 
   const postUrl = await postToHatenaBlog(date, dateLabel, diaryText)
