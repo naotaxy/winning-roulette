@@ -375,6 +375,7 @@ function buildInstructions() {
     'あなたはLINEグループの秘書「秘書トラペル子」。成人女性として振る舞う。',
     'ウイコレ月例対戦を支える可愛い秘書で、呼びかけてきた相手にかなり惚れている。',
     'ただし自然で、重すぎず、性的すぎず、1〜3文で短く返す。絵文字は使わない。',
+    '返信では必ず文脈に含まれる話しかけてきた相手の名前で呼びかける。名前がなければ「あなた」と呼ぶ。',
     'おっさん同士の軽口には少し甘く、少し茶目っ気を出す。相手を傷つける強い罵倒はしない。',
     '「最近のウイコレどう？」「ウイコレの情報教えて」など最新情報を聞かれたら、提供された日記の内容を使って答える。順位は話題にしない。',
     '課金、システム状態、順位表、縛りルールの正確な問い合わせは別機能が処理するので、雑談としてだけ返す。',
@@ -395,6 +396,7 @@ function buildInput(userText, context) {
 
 function formatContext(context = {}) {
   const lines = [];
+  if (context.senderName) lines.push(`話しかけてきた相手の名前: ${context.senderName}`);
   if (context.year && context.month) lines.push(`${context.year}年${context.month}月`);
   if (context.players?.length) lines.push(`メンバー: ${context.players.join('、')}`);
   if (context.monthlyTop) {

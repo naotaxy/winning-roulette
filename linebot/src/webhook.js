@@ -146,6 +146,12 @@ async function handleText(event, client) {
 
   const { year, month } = getTokyoDateParts();
 
+  let senderName = null;
+  try {
+    const profile = await client.getProfile(event.source.userId);
+    senderName = profile.displayName || null;
+  } catch (_) {}
+
   if (intent === 'help') {
     return client.replyMessage(event.replyToken, {
       type: 'text',
@@ -155,7 +161,7 @@ async function handleText(event, client) {
 
   if (intent === 'casual') {
     const aiReply = shouldUseAiChat()
-      ? await formatAiChatReply(event.message.text || '', await buildAiConversationContext(year, month))
+      ? await formatAiChatReply(event.message.text || '', await buildAiConversationContext(year, month, senderName))
       : null;
     return client.replyMessage(event.replyToken, {
       type: 'text',
@@ -278,7 +284,7 @@ async function handleText(event, client) {
   });
 }
 
-async function buildAiConversationContext(year, month) {
+async function buildAiConversationContext(year, month, senderName = null) {
   try {
     const players = await getPlayers();
     const [monthResults, yearResults, diaries] = await Promise.all([
@@ -294,6 +300,7 @@ async function buildAiConversationContext(year, month) {
     return {
       year,
       month,
+      senderName,
       players: playerNames,
       monthlyTop: monthlyRows[0] || null,
       annualTop: annualRows[0] || null,
@@ -304,7 +311,7 @@ async function buildAiConversationContext(year, month) {
     };
   } catch (err) {
     console.error('[ai-chat] context failed', err?.message || err);
-    return { year, month };
+    return { year, month, senderName };
   }
 }
 
