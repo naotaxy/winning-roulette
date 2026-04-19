@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: winning-roulette-linebot
+    runtime: node
+    rootDir: linebot
+    buildCommand: npm install
+    startCommand: node server.js
+    plan: free
+    envVars:
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+      - key: FIREBASE_DATABASE_URL
+        value: https://winning-roulette-c6de7-default-rtdb.asia-southeast1.firebasedatabase.app
+      - key: PORT
+        value: "3000"
