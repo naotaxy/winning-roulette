@@ -292,9 +292,9 @@ async function buildAiConversationContext(year, month) {
       players: playerNames,
       monthlyTop: monthlyRows[0] || null,
       annualTop: annualRows[0] || null,
-      recentDiaries: diaries.slice(0, 3).map(d => ({
+      recentDiaries: diaries.slice(0, 3).map((d, i) => ({
         date: d.date,
-        text: d.text?.slice(0, 600) || '',
+        text: d.text?.slice(0, i === 0 ? 1500 : 300) || '',
       })),
     };
   } catch (err) {
