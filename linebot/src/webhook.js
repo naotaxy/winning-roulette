@@ -55,6 +55,8 @@ async function handleImage(event, client) {
   const now = new Date();
   const pending = {
     ...ocrResult,
+    away:     ocrResult.awayChar?.playerName || null,
+    home:     ocrResult.homeChar?.playerName || null,
     addedBy:  senderName,
     year:     now.getFullYear(),
     month:    now.getMonth() + 1,
