@@ -55,7 +55,8 @@ async function fetchYouTubeVideos() {
 
   const res = await fetch(url);
   const data = await res.json();
-  if (!data.items) { console.warn('[youtube] empty response', data.error?.message); return []; }
+  if (!data.items) { console.warn('[youtube] empty response', JSON.stringify(data.error || data).slice(0, 200)); return []; }
+  console.log(`[youtube] got ${data.items.length} items, totalResults=${data.pageInfo?.totalResults}`);
 
   return data.items.map(item => ({
     title:       item.snippet.title,
