@@ -45,20 +45,35 @@ const OCR = (() => {
     return m ? parseInt(m[0], 10) : null;
   }
 
-  function pickVotedDigit(values) {
+  function pickVotedDigitInfo(values) {
     const counts = new Map();
     for (const value of values) {
       if (value === null || value === undefined) continue;
       counts.set(value, (counts.get(value) || 0) + 1);
     }
     let best = null, bestCount = 0;
+    let secondCount = 0;
     for (const [value, count] of counts.entries()) {
       if (count > bestCount) {
+        secondCount = bestCount;
         best = value;
         bestCount = count;
+      } else if (count > secondCount) {
+        secondCount = count;
       }
     }
-    return bestCount >= 2 ? best : null;
+    const margin = bestCount - secondCount;
+    return {
+      digit: bestCount >= 3 && margin >= 2 ? best : null,
+      best,
+      count: bestCount,
+      margin,
+      total: values.filter(v => v !== null && v !== undefined).length,
+    };
+  }
+
+  function sameScore(a, b) {
+    return !!a && !!b && a[0] === b[0] && a[1] === b[1];
   }
 
   /* ── 反転前処理（BgDiff失敗時のフォールバック） ── */
@@ -322,32 +337,54 @@ const OCR = (() => {
   async function readDigitSide(worker, imgEl, boxes, sideLabel) {
     const values = [];
     const raw = [];
-    for (const box of boxes) {
-      for (const psm of ['10', '13']) {
-        await worker.setParameters({
-          tessedit_pageseg_mode: psm,
-          tessedit_char_whitelist: '0123456789',
-        });
-        const canvas = cropImage(imgEl, box[0], box[1], box[2], box[3], 4);
-        preprocessBgDiff(canvas, 40, 40);
-        const result = await worker.recognize(canvas);
-        const text = result.data.text.trim();
-        const digit = firstDigit(text);
-        values.push(digit);
-        raw.push(`${sideLabel}${psm}:${text || '-'}`);
+    const readWithPsm = async psm => {
+      for (const box of boxes) {
+        for (const prep of ['BgD', 'Inv']) {
+          await worker.setParameters({
+            tessedit_pageseg_mode: psm,
+            tessedit_char_whitelist: '0123456789',
+          });
+          const canvas = cropImage(imgEl, box[0], box[1], box[2], box[3], 4);
+          if (prep === 'BgD') preprocessBgDiff(canvas, 40, 40);
+          else preprocessInvert(canvas);
+          const result = await worker.recognize(canvas);
+          const text = result.data.text.trim();
+          const digit = firstDigit(text);
+          values.push(digit);
+          raw.push(`${sideLabel}${prep}${psm}:${text || '-'}`);
+        }
       }
+    };
+
+    await readWithPsm('10');
+    let info = pickVotedDigitInfo(values);
+    if (info.digit === null) {
+      await readWithPsm('13');
+      info = pickVotedDigitInfo(values);
     }
-    return { digit: pickVotedDigit(values), raw: raw.join(' ') };
+    return {
+      digit: info.digit,
+      confidence: info.count,
+      raw: `${sideLabel}=${info.best ?? '-'}(${info.count}/${info.total},m${info.margin}) ${raw.join(' ')}`,
+    };
   }
 
   async function readScoreDigitsFallback(worker, imgEl) {
     const leftBoxes = [
       [0.365, 0.235, 0.105, 0.095],
       [0.375, 0.235, 0.090, 0.095],
+      [0.355, 0.225, 0.120, 0.110],
+      [0.350, 0.230, 0.130, 0.105],
+      [0.340, 0.225, 0.140, 0.110],
+      [0.360, 0.220, 0.110, 0.130],
     ];
     const rightBoxes = [
       [0.535, 0.235, 0.090, 0.095],
       [0.525, 0.235, 0.105, 0.095],
+      [0.515, 0.225, 0.120, 0.110],
+      [0.510, 0.230, 0.130, 0.105],
+      [0.505, 0.225, 0.140, 0.110],
+      [0.520, 0.220, 0.110, 0.130],
     ];
     const left = await readDigitSide(worker, imgEl, leftBoxes, 'L');
     const right = await readDigitSide(worker, imgEl, rightBoxes, 'R');
@@ -358,7 +395,11 @@ const OCR = (() => {
     if (left.digit === null || right.digit === null) {
       return { score: null, raw: `${left.raw} ${right.raw}` };
     }
-    return { score: [left.digit, right.digit], raw: `${left.raw} ${right.raw}` };
+    return {
+      score: [left.digit, right.digit],
+      confidence: Math.min(left.confidence, right.confidence),
+      raw: `${left.raw} ${right.raw}`,
+    };
   }
 
   async function retryTeamName(worker, imgEl, relX, relY, relW, relH, playerMap) {
@@ -383,32 +424,46 @@ const OCR = (() => {
       tessedit_pageseg_mode: '11',
       tessedit_char_whitelist: '',
     });
-    const scoreCanvas = cropImage(imgEl, 0.30, 0.23, 0.40, 0.11, 3);
-    preprocessBgDiff(scoreCanvas, 40, 40);
-    const scoreResult = await worker.recognize(scoreCanvas);
-    let scoreText     = scoreResult.data.text;
-    let scoreMethod   = 'BgDiff';
-    let scoreArr = extractScore(scoreText);
+    const scoreCanvasBg = cropImage(imgEl, 0.30, 0.23, 0.40, 0.11, 3);
+    preprocessBgDiff(scoreCanvasBg, 40, 40);
+    const scoreResultBg = await worker.recognize(scoreCanvasBg);
+    const scoreTextBg   = scoreResultBg.data.text;
+    const scoreBg       = extractScore(scoreTextBg);
 
-    /* BgDiff で検出できない画像はシンプル反転でフォールバック */
-    if (!scoreArr) {
-      const scoreCanvas2 = cropImage(imgEl, 0.30, 0.23, 0.40, 0.11, 3);
-      preprocessInvert(scoreCanvas2);
-      const scoreResult2 = await worker.recognize(scoreCanvas2);
-      scoreText = scoreResult2.data.text;
-      scoreMethod = 'Invert';
-      scoreArr = extractScore(scoreText);
-    }
+    const scoreCanvasInv = cropImage(imgEl, 0.30, 0.23, 0.40, 0.11, 3);
+    preprocessInvert(scoreCanvasInv);
+    const scoreResultInv = await worker.recognize(scoreCanvasInv);
+    const scoreTextInv   = scoreResultInv.data.text;
+    const scoreInv       = extractScore(scoreTextInv);
 
-    /* 全体OCRが失敗した場合のみ、左右の数字を1桁ずつ読む */
-    if (!scoreArr) {
+    let scoreArr = null;
+    let scoreMethod = 'Fail';
+    let scoreText = `[BgDiff] ${scoreTextBg.trim()}\n[Invert] ${scoreTextInv.trim()}`;
+
+    const shouldCheckDigits = (!scoreBg && !scoreInv) ||
+      (scoreBg && scoreInv && !sameScore(scoreBg, scoreInv)) ||
+      (scoreBg && scoreBg[0] === scoreBg[1]);
+    if (shouldCheckDigits) {
       const digitFallback = await readScoreDigitsFallback(worker, imgEl);
       if (digitFallback.score) {
         scoreArr = digitFallback.score;
         scoreMethod = 'DigitFallback';
+      } else if (scoreBg) {
+        scoreArr = scoreBg;
+        scoreMethod = 'BgDiff';
+      } else if (scoreInv) {
+        scoreArr = scoreInv;
+        scoreMethod = 'Invert';
       }
-      scoreText = `${scoreText.trim()}\n[${scoreMethod}] ${digitFallback.raw}`.trim();
+      scoreText = `${scoreText}\n[DigitFallback] ${digitFallback.raw}`;
+    } else if (scoreBg) {
+      scoreArr = scoreBg;
+      scoreMethod = 'BgDiff';
+    } else if (scoreInv) {
+      scoreArr = scoreInv;
+      scoreMethod = 'Invert';
     }
+    scoreText = `${scoreText}\n[Chosen] ${scoreMethod}`.trim();
     const leftScore  = scoreArr ? scoreArr[0] : null;
     const rightScore = scoreArr ? scoreArr[1] : null;
 
@@ -515,6 +570,7 @@ const OCR = (() => {
       awayRaw, homeRaw,
       scoreRaw: scoreText.trim(),
       _debug: {
+        scoreMethod,
         pkRaw:        pkText.trim(),
         badgeRaw:     leftBadgeText,
         leftIsHome,
