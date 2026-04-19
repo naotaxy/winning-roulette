@@ -207,12 +207,13 @@ async function handleText(event, client) {
       });
     }
     const latest = diaries[0];
+    const preview = latest.text?.slice(0, 200) || '（本文取得できなかった）';
+    const hasMore = (latest.text?.length || 0) > 200;
     const lines = [
-      `${latest.date} の日記、読んでくれるの？ うれしい。`,
-      '',
-      latest.text?.slice(0, 400) || '（本文取得できなかった）',
-      latest.text?.length > 400 ? '\n…（続きははてなブログで）' : '',
+      `${latest.date} の日記だよ。読んでくれるの、うれしい。`,
       latest.blogUrl ? `\n${latest.blogUrl}` : '',
+      '',
+      preview + (hasMore ? '…' : ''),
     ].filter(Boolean);
     return client.replyMessage(event.replyToken, { type: 'text', text: lines.join('\n') });
   }
