@@ -229,7 +229,7 @@ async function readDigitSide(worker, imgEl, boxes, sideLabel) {
         await worker.setParameters({tessedit_pageseg_mode:psm,tessedit_char_whitelist:'0123456789'});
         const canvas=cropImage(imgEl,box[0],box[1],box[2],box[3],4);
         if(prep==='BgD')preprocessBgDiff(canvas,40,40); else preprocessInvert(canvas);
-        const result=await worker.recognize(canvas);
+        const result=await worker.recognize(canvas.toBuffer('image/png'));
         const digit=firstDigit(result.data.text.trim());
         values.push(digit); raw.push(`${sideLabel}${prep}${psm}:${result.data.text.trim()||'-'}`);
       }
@@ -254,7 +254,7 @@ async function readScoreDigitsFallback(worker, imgEl) {
 async function retryTeamName(worker, imgEl, relX, relY, relW, relH, playerMap) {
   await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
   const canvas=cropImage(imgEl,relX,relY,relW,relH,3);
-  const result=await worker.recognize(canvas);
+  const result=await worker.recognize(canvas.toBuffer('image/png'));
   const raw=result.data.text.trim().replace(/\n/g,' ');
   return{raw,match:matchTeamName(raw,playerMap)};
 }
@@ -266,9 +266,9 @@ async function parseMatchResult(imageBuffer, playerMap) {
 
   await worker.setParameters({tessedit_pageseg_mode:'11',tessedit_char_whitelist:''});
   const scoreCanvasBg=cropImage(imgEl,0.30,0.23,0.40,0.11,3); preprocessBgDiff(scoreCanvasBg,40,40);
-  const scoreBg=extractScore((await worker.recognize(scoreCanvasBg)).data.text);
+  const scoreBg=extractScore((await worker.recognize(scoreCanvasBg.toBuffer('image/png'))).data.text);
   const scoreCanvasInv=cropImage(imgEl,0.30,0.23,0.40,0.11,3); preprocessInvert(scoreCanvasInv);
-  const scoreResultInv=await worker.recognize(scoreCanvasInv);
+  const scoreResultInv=await worker.recognize(scoreCanvasInv.toBuffer('image/png'));
   const scoreInv=extractScore(scoreResultInv.data.text);
 
   let scoreArr=null,scoreMethod='Fail';
@@ -306,11 +306,11 @@ async function parseMatchResult(imageBuffer, playerMap) {
   };
   await worker.setParameters({tessedit_pageseg_mode:'11',tessedit_char_whitelist:''});
   const pkCanvas=cropImage(imgEl,0.24,0.24,0.52,0.11,3); preprocessBgDiff(pkCanvas,40,40);
-  const pkText=(await worker.recognize(pkCanvas)).data.text;
+  const pkText=(await worker.recognize(pkCanvas.toBuffer('image/png'))).data.text;
   let pkArr=_findPK(pkText);
   if(!pkArr){
     const pkCanvas2=cropImage(imgEl,0.24,0.24,0.52,0.11,3); preprocessInvert(pkCanvas2);
-    pkArr=_findPK((await worker.recognize(pkCanvas2)).data.text);
+    pkArr=_findPK((await worker.recognize(pkCanvas2.toBuffer('image/png'))).data.text);
   }
   let leftPK=pkArr?pkArr[0]:null,rightPK=pkArr?pkArr[1]:null;
   if(leftScore!==null&&rightScore!==null&&leftScore!==rightScore){leftPK=null;rightPK=null;}
@@ -322,9 +322,9 @@ async function parseMatchResult(imageBuffer, playerMap) {
   /* チーム名 */
   await worker.setParameters({tessedit_pageseg_mode:'11',tessedit_char_whitelist:''});
   const leftNameCanvas=cropImage(imgEl,0.02,0.34,0.44,0.10,2);
-  let leftTeamRaw=(await worker.recognize(leftNameCanvas)).data.text.trim().replace(/\n/g,' ');
+  let leftTeamRaw=(await worker.recognize(leftNameCanvas.toBuffer('image/png'))).data.text.trim().replace(/\n/g,' ');
   const rightNameCanvas=cropImage(imgEl,0.54,0.34,0.43,0.10,2);
-  let rightTeamRaw=(await worker.recognize(rightNameCanvas)).data.text.trim().replace(/\n/g,' ');
+  let rightTeamRaw=(await worker.recognize(rightNameCanvas.toBuffer('image/png'))).data.text.trim().replace(/\n/g,' ');
   let leftTeamMatch=matchTeamName(leftTeamRaw,playerMap);
   let rightTeamMatch=matchTeamName(rightTeamRaw,playerMap);
   if(!leftTeamMatch){const retry=await retryTeamName(worker,imgEl,0.02,0.34,0.44,0.10,playerMap);if(retry.raw)leftTeamRaw=leftTeamRaw?`${leftTeamRaw} / ${retry.raw}`:retry.raw;if(retry.match)leftTeamMatch=retry.match;}
