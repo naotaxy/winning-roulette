@@ -199,6 +199,7 @@ linebot/
     ├── rule-message.js    # 縛りルール返信文の整形
     ├── secretary-chat.js  # メンション付き雑談の返答バリエーション
     ├── ai-chat.js         # 任意のOpenAI Responses API自然会話
+    ├── character-memory.js # 秘書トラペル子の固定プロフィール記憶
     ├── system-status.js   # Render / Firebase / GitHub / システム状況の返信
     ├── billing-risk.js    # 無料枠・課金リスクの返信
     ├── date-utils.js      # 日本時間の日付取得

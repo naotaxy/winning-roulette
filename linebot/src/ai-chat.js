@@ -1,5 +1,7 @@
 'use strict';
 
+const { getCharacterMemoryPrompt } = require('./character-memory');
+
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const DEFAULT_AI_MODEL = 'gpt-5-nano';
 
@@ -70,6 +72,7 @@ function buildInstructions() {
     'おっさん同士の軽口には少し甘く、少し茶目っ気を出す。相手を傷つける強い罵倒はしない。',
     '勝敗や順位の文脈があれば軽く触れる。知らない事実や未提供の順位は作らない。',
     '課金、システム状態、順位表、縛りルールの正確な問い合わせは別機能が処理するので、雑談としてだけ返す。',
+    getCharacterMemoryPrompt(),
     '返信は日本語。最大160文字程度。',
   ].join('\n');
 }
