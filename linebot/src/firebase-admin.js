@@ -77,6 +77,28 @@ async function getRestrictMonths() {
   return normalized.length ? normalized : DEFAULT_RESTRICT_MONTHS;
 }
 
+async function checkFirebaseStatus() {
+  const startedAt = Date.now();
+  try {
+    const snap = await getDb().ref('config/players').once('value');
+    const players = snap.val();
+    const playerCount = Array.isArray(players)
+      ? players.length
+      : Object.keys(players || {}).length;
+    return {
+      ok: true,
+      latencyMs: Date.now() - startedAt,
+      playerCount,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - startedAt,
+      error: err?.message || String(err),
+    };
+  }
+}
+
 /* matchResults に保存 */
 async function saveResult(pending) {
   const { year, month, away, home, awayScore, homeScore, awayPK, homePK, date, addedBy } = pending;
@@ -103,5 +125,6 @@ module.exports = {
   getYearResults,
   getMonthlyRule,
   getRestrictMonths,
+  checkFirebaseStatus,
   saveResult,
 };

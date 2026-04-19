@@ -25,6 +25,7 @@ const {
 const { formatRuleReply } = require('./rule-message');
 const { formatSecretaryHelp } = require('./help-message');
 const { getSecretaryMentionInfo, getCasualReply } = require('./secretary-chat');
+const { detectSystemStatusKind, formatSystemStatusReply } = require('./system-status');
 
 async function handle(event, client) {
   /* ── 画像メッセージ → OCR → 確認FlexMessage ── */
@@ -142,6 +143,13 @@ async function handleText(event, client) {
     });
   }
 
+  if (intent.startsWith('system:')) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: await formatSystemStatusReply(intent.replace('system:', '')),
+    });
+  }
+
   if (intent === 'nextRule' || intent === 'currentRule') {
     const target = intent === 'nextRule' ? shiftMonth(year, month, 1) : { year, month };
     const [rule, restrictMonths] = await Promise.all([
@@ -196,6 +204,9 @@ function detectTextIntent(text) {
   if (mentioned && (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention))) return 'help';
 
   const targetText = mentioned ? withoutMention : compact;
+
+  const systemStatusKind = detectSystemStatusKind(targetText);
+  if (systemStatusKind) return `system:${systemStatusKind}`;
 
   const wantsRule = /(縛り|しばり|ルール|rule|制限|条件)/.test(targetText);
   if (wantsRule && /(来月|次月|翌月)/.test(targetText)) return 'nextRule';
