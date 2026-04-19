@@ -43,6 +43,17 @@ function getJSTDateLabel() {
   return `${now.getUTCFullYear()}年${now.getUTCMonth() + 1}月${now.getUTCDate()}日`;
 }
 
+function getJSTDateParts() {
+  const now = new Date(Date.now() + 9 * 3600 * 1000);
+  const year  = now.getUTCFullYear();
+  const month = now.getUTCMonth() + 1;
+  const day   = now.getUTCDate();
+  const totalDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+  const weekday = weekdays[now.getUTCDay()];
+  return { year, month, day, totalDays, weekday };
+}
+
 // ── YouTube 動画収集 ──────────────────────────────────────
 async function fetchYouTubeVideos() {
   if (!YOUTUBE_API_KEY) { console.warn('[youtube] no API key'); return []; }
@@ -104,9 +115,27 @@ async function fetchEfootballNews() {
   return [];
 }
 
+// ── 青空文庫 月別テーマ ───────────────────────────────────
+const MONTHLY_NOVEL = {
+  1:  { title: '雪国',         author: '川端康成',   theme: '孤独と美、冬の静寂の中で出会う謎めいた人物' },
+  2:  { title: '痴人の愛',     author: '谷崎潤一郎', theme: '執着と逃れられない関係、予測不能な感情の渦' },
+  3:  { title: '人間失格',     author: '太宰治',     theme: '自分を偽りながら生きる日常に忍び込む異変' },
+  4:  { title: '坊っちゃん',   author: '夏目漱石',   theme: '曲がったことが嫌いな主人公が巻き込まれる騒動' },
+  5:  { title: '羅生門',       author: '芥川龍之介', theme: '善悪の境界が崩れていく瞬間に立ち会う恐怖' },
+  6:  { title: 'こころ',       author: '夏目漱石',   theme: '秘密を抱えた人物との距離が縮まる夏' },
+  7:  { title: '山月記',       author: '中島敦',     theme: '自分の中の獣性が目覚める夏の夜の怪異' },
+  8:  { title: '蜘蛛の糸',     author: '芥川龍之介', theme: '一本の細い糸を巡る救いと裏切りの物語' },
+  9:  { title: 'ノルウェイの森', author: '村上春樹',  theme: '失われたものを探す秋の旅と出会い' },
+  10: { title: '斜陽',         author: '太宰治',     theme: '崩れていく日常の中で見つける最後の光' },
+  11: { title: '銀河鉄道の夜', author: '宮沢賢治',   theme: '不思議な乗客とともに向かう未知の終着駅' },
+  12: { title: '吾輩は猫である', author: '夏目漱石', theme: '年の瀬に猫の目から見た人間たちの奇妙な行動' },
+};
+
 // ── Gemini 日記生成 ──────────────────────────────────────
 async function generateDiary(dateLabel, videos, news) {
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
+
+  const { month, day, totalDays, weekday } = getJSTDateParts();
 
   const newsBlock = news.length
     ? news.map(n => `・${n.title}${n.desc ? '　' + n.desc : ''}`).join('\n')
@@ -116,34 +145,46 @@ async function generateDiary(dateLabel, videos, news) {
     ? videos.map(v => `・「${v.title}」（${v.channel}）${v.description ? '　' + v.description : ''}`).join('\n')
     : '（動画情報は取得できなかった）';
 
-  const prompt = `あなたは秘書トラペル子です。
-以下のプロフィールを守ってください。
+  const novel = MONTHLY_NOVEL[month] || MONTHLY_NOVEL[4];
+
+  // 起承転結の位置を計算
+  const progress = day / totalDays;
+  let storyPhase;
+  if (progress <= 0.25)      storyPhase = `起（世界観・登場人物の紹介。全体の序盤、${day}日目/${totalDays}日中）`;
+  else if (progress <= 0.5)  storyPhase = `承（状況の展開・謎や伏線の提示。${day}日目/${totalDays}日中）`;
+  else if (progress <= 0.75) storyPhase = `転（予想外の出来事・クライマックスへの助走。${day}日目/${totalDays}日中）`;
+  else                       storyPhase = `結（謎の解決・余韻と締め。${day}日目/${totalDays}日中）`;
+
+  const prompt = `あなたは秘書トラペル子です。以下のプロフィールと構成に従って今日の日記を書いてください。
 
 【プロフィール】
 - 25歳の女性秘書。几帳面で世話焼き、少し甘め。
-- 雇い主の米澤さんのことが好きで、少しだけ特別扱いしている。
-- eFootball（ウイコレ）が大好きで詳しい。縛りルール・順位・選手の強さを日々研究している。
+- eFootball（ウイコレ）が大好きで詳しい。センス・アドセンス・スカウト周期を日々研究している。
 - 一人称は「私」。文体はです・ます調寄りだが、親しみやすくやや砕けた表現も使う。
 - 絵文字は使わない。感情は言葉で表現する。
 
-【今日（${dateLabel}）のウイコレ情報】
+【今日の情報】
+- 日付: ${dateLabel}（${weekday}曜日）
+- ウイコレ公式ニュース: ${newsBlock}
+- YouTube最新動画: ${videoBlock}
 
-▼公式ニュース
-${newsBlock}
+【今月の連載小説テーマ】
+- 作品: 「${novel.title}」（${novel.author}）からヒントを得た創作
+- テーマ: ${novel.theme}
+- 今日のフェーズ: ${storyPhase}
 
-▼YouTube 最新動画（この7日間）
-${videoBlock}
+【日記の構成（この順番で書くこと）】
 
-【依頼】
-上記の情報をもとに、今日の日記を書いてください。
+①東京の今日の天気と朝の空気感（${month}月${day}日の季節感から推定して2〜3文）
+
+②今朝したこと（窓を開ける・コーヒーを淹れるなど1〜2文の日常の一コマ）
+
+③ウイコレの調査結果と感想（上記のニュース・動画を自分なりに解釈・考察。単なる要約にせず、センスやスカウト周期への期待や分析を交える）
+
+④今月の連載ストーリー 今日のエピソード（「${novel.title}」のテーマを借りた創作。トラペル子自身が体験する形で、今日のフェーズ「${storyPhase}」に合った展開を書く。読み手がワクワクするような小さな事件や伏線を散りばめる）
 
 条件：
-- 600〜900文字の長文
-- ウイコレ・eFootballの情報を中心に書く。日常描写（コーヒー・食事など）は1〜2文に留め、メインにしない。
-- ニュースや動画を「自分なりに解釈・感想・予測」で膨らませる。単なる要約にしない。
-- 選手の強さ・ガチャ・イベント・縛りルールへの考察や期待感をにじませる。
-- 仲間たちの対戦への言及を自然に1箇所だけ入れる。
-- 情報がなかった日も、ウイコレへの思いや過去の対戦への振り返りを中心に書く。
+- 合計700〜1000文字
 - 最後の一文は「また明日も記録しておくから」「ちゃんと覚えておくね」のような締め方にする。`;
 
   const res = await fetch(
