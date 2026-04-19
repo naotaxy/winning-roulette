@@ -50,6 +50,32 @@ const STATE = {
   statsMonth:     new Date().getMonth() + 1,
 };
 
+const ICON = Object.freeze({
+  game:     '<span class="pxi pxi-game" aria-hidden="true"></span>',
+  calendar: '<span class="pxi pxi-calendar" aria-hidden="true"></span>',
+  stats:    '<span class="pxi pxi-stats" aria-hidden="true"></span>',
+  history:  '<span class="pxi pxi-history" aria-hidden="true"></span>',
+  settings: '<span class="pxi pxi-settings" aria-hidden="true"></span>',
+  spin:     '<span class="pxi pxi-spin" aria-hidden="true"></span>',
+  check:    '<span class="pxi pxi-check" aria-hidden="true"></span>',
+  rule:     '<span class="pxi pxi-rule" aria-hidden="true"></span>',
+  bolt:     '<span class="pxi pxi-bolt" aria-hidden="true"></span>',
+  dice:     '<span class="pxi pxi-dice" aria-hidden="true"></span>',
+  copy:     '<span class="pxi pxi-copy" aria-hidden="true"></span>',
+  reset:    '<span class="pxi pxi-reset" aria-hidden="true"></span>',
+  edit:     '<span class="pxi pxi-edit" aria-hidden="true"></span>',
+  delete:   '<span class="pxi pxi-delete" aria-hidden="true"></span>',
+  image:    '<span class="pxi pxi-image" aria-hidden="true"></span>',
+  upload:   '<span class="pxi pxi-upload" aria-hidden="true"></span>',
+  swap:     '<span class="pxi pxi-swap" aria-hidden="true"></span>',
+  save:     '<span class="pxi pxi-save" aria-hidden="true"></span>',
+  player:   '<span class="pxi pxi-player" aria-hidden="true"></span>',
+  group:    '<span class="pxi pxi-group" aria-hidden="true"></span>',
+  lock:     '<span class="pxi pxi-lock" aria-hidden="true"></span>',
+  free:     '<span class="pxi pxi-free" aria-hidden="true"></span>',
+  eye:      '<span class="pxi pxi-eye" aria-hidden="true"></span>',
+});
+
 /* ── Toast ── */
 let _toastTimer;
 function toast(msg, dur = 2600) {
@@ -115,13 +141,13 @@ function renderGame() {
     </div>
 
     <div style="display:flex;justify-content:center;margin-bottom:14px;">
-      <button class="btn-spin" id="btn-spin">🎯&nbsp;SPIN</button>
+      <button class="btn-spin" id="btn-spin">${ICON.spin}SPIN</button>
     </div>
 
     <div id="partial-wrap"></div>
 
     <!-- 観戦モード時の注意 -->
-    ${!STATE.isSpinner ? '<div class="watch-notice">👀 観戦中 — 敗者がスピンします</div>' : ''}
+    ${!STATE.isSpinner ? `<div class="watch-notice">${ICON.eye}観戦中 — 敗者がスピンします</div>` : ''}
   `;
 
   const wrap = document.getElementById('wheel-wrap');
@@ -154,7 +180,7 @@ function renderPartial() {
   el.innerHTML = `
     <div class="partial-box">
       <div class="lbl">第1回 選択済み</div>
-      ${STATE.round1.map(i => `<span class="chip">✅ ${STATE.items12[i]}</span>`).join('')}
+      ${STATE.round1.map(i => `<span class="chip">${ICON.check}${STATE.items12[i]}</span>`).join('')}
     </div>`;
 }
 
@@ -254,21 +280,21 @@ function renderFinal(panel) {
       <div class="phase-node done">2nd：6択×1</div>
     </div>
     <div class="final-card">
-      <h2>🏆 RULE DECIDED</h2>
+      <h2>${ICON.rule}RULE DECIDED</h2>
       <div class="final-section">
         <div class="lbl">【第1回】12択から2個</div>
         ${STATE.round1.map((i,d) =>
-          `<span class="big-chip" style="animation-delay:${d*0.2}s">⚡ ${STATE.items12[i]}</span>`
+          `<span class="big-chip" style="animation-delay:${d*0.2}s">${ICON.bolt}${STATE.items12[i]}</span>`
         ).join('')}
       </div>
       <div class="final-section">
         <div class="lbl">【第2回】6択から1個</div>
-        <span class="big-chip" style="animation-delay:0.4s">🎲 ${STATE.items6[STATE.round2]}</span>
+        <span class="big-chip" style="animation-delay:0.4s">${ICON.dice}${STATE.items6[STATE.round2]}</span>
       </div>
 
       <!-- 月選択 & カレンダー保存 -->
       <div class="save-month-row">
-        <label class="save-month-label">📅 何月のルールとして保存？</label>
+        <label class="save-month-label">${ICON.calendar}何月のルールとして保存？</label>
         <select class="save-month-select" id="sel-month">${optHtml}</select>
         <button class="btn-save-month" id="btn-save-month">カレンダーに保存</button>
         <div class="save-month-status" id="save-month-status"></div>
@@ -279,8 +305,8 @@ function renderFinal(panel) {
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 0C3.6 0 0 3.1 0 6.9c0 2.4 1.4 4.5 3.5 5.8L3 15l3.2-1.7c.6.2 1.2.2 1.8.2 4.4 0 8-3.1 8-6.9S12.4 0 8 0z" fill="#fff"/></svg>
           LINEで送る
         </button>
-        <button class="btn-copy" id="btn-copy">📋 コピー</button>
-        <button class="btn-reset" id="btn-reset">🔄 もう一度</button>
+        <button class="btn-copy" id="btn-copy">${ICON.copy}コピー</button>
+        <button class="btn-reset" id="btn-reset">${ICON.reset}もう一度</button>
       </div>
     </div>`;
 
@@ -291,11 +317,11 @@ function renderFinal(panel) {
     const rule = `${entry.round1.join(' / ')} ／ ${entry.round2}`;
     try {
       if (SYNC) await SYNC.saveMonthlyRule(y, m, rule, STATE.userName || '不明');
-      statusEl.textContent = `✅ ${y}年${m}月のルールとして保存しました`;
+      statusEl.textContent = `${y}年${m}月のルールとして保存しました`;
       statusEl.style.color = '#4caf50';
       document.getElementById('btn-save-month').disabled = true;
     } catch(e) {
-      statusEl.textContent = '❌ 保存に失敗しました';
+      statusEl.textContent = '保存に失敗しました';
       statusEl.style.color = '#f44';
     }
   };
@@ -304,12 +330,12 @@ function renderFinal(panel) {
     const result = await LIFF_WRAPPER.shareResult(entry);
     if (result === 'fallback') {
       await copyToClipboard(LIFF_WRAPPER.buildText(entry));
-      toast('📋 コピーしました。LINEに貼り付けてください。', 3000);
-    } else if (result === 'shared') toast('✅ シェアしました！');
+      toast('コピーしました。LINEに貼り付けてください。', 3000);
+    } else if (result === 'shared') toast('シェアしました');
   };
   document.getElementById('btn-copy').onclick = async () => {
     await copyToClipboard(LIFF_WRAPPER.buildText(entry));
-    toast('📋 コピーしました！');
+    toast('コピーしました');
   };
   document.getElementById('btn-reset').onclick = resetGame;
 }
@@ -340,8 +366,8 @@ function renderCalendar() {
 
   panel.innerHTML = `
     <div class="cal-header">
-      <h2 class="cal-title">📅 ${year}年 縛りカレンダー</h2>
-      <p class="cal-note">縛り月: 5・6・8・9・11月 ／ ✏️で全月編集可</p>
+      <h2 class="cal-title">${ICON.calendar}${year}年 縛りカレンダー</h2>
+      <p class="cal-note">縛り月: 5・6・8・9・11月 ／ 編集ボタンで全月編集可</p>
     </div>
     <div class="cal-grid" id="cal-grid">
       ${MONTH_NAMES.map((mn, i) => {
@@ -349,18 +375,18 @@ function renderCalendar() {
         const cls = isRestrict(m) ? 'cal-cell restrict' : 'cal-cell free';
         return `<div class="${cls}${m === month ? ' current' : ''}" id="cal-cell-${m}" data-month="${m}">
           <div class="cal-month-num">${m}月</div>
-          <button class="btn-cal-toggle ${isRestrict(m) ? 'restrict' : 'free'}" id="cal-toggle-${m}">${isRestrict(m) ? '🔒 縛り' : '🆓 フリー'}</button>
+          <button class="btn-cal-toggle ${isRestrict(m) ? 'restrict' : 'free'}" id="cal-toggle-${m}">${isRestrict(m) ? ICON.lock + '縛り' : ICON.free + 'フリー'}</button>
           <div class="cal-rule-text" id="cal-rule-${m}">読み込み中…</div>
           <div class="cal-rule-meta" id="cal-meta-${m}"></div>
           <div class="cal-btn-row">
-            <button class="btn-cal-edit" id="cal-edit-${m}">✏️ 編集</button>
-            <button class="btn-cal-del"  id="cal-del-${m}"  style="display:none">🗑️</button>
+            <button class="btn-cal-edit" id="cal-edit-${m}">${ICON.edit}編集</button>
+            <button class="btn-cal-del"  id="cal-del-${m}"  style="display:none">${ICON.delete}</button>
           </div>
           <div class="cal-edit-form" id="cal-form-${m}" style="display:none">
             <input class="cal-edit-input" id="cal-input-${m}" type="text" placeholder="ルールを入力" maxlength="40">
             <div class="cal-edit-actions">
               <button class="cal-edit-save" id="cal-save-${m}">保存</button>
-              <button class="cal-edit-cancel" id="cal-cancel-${m}">✕</button>
+              <button class="cal-edit-cancel" id="cal-cancel-${m}">×</button>
             </div>
           </div>
         </div>`;
@@ -402,13 +428,13 @@ function renderCalendar() {
       const who = STATE.userName || '不明';
       await SYNC.saveMonthlyRule(year, m, val, who);
       document.getElementById(`cal-form-${m}`).style.display = 'none';
-      toast(`✅ ${m}月のルールを保存しました（by ${who}）`);
+      toast(`${m}月のルールを保存しました（by ${who}）`);
     });
     document.getElementById(`cal-del-${m}`)?.addEventListener('click', async () => {
       if (!confirm(`${m}月のルールを削除しますか？`)) return;
       const who = STATE.userName || '不明';
       await SYNC.deleteMonthlyRule(year, m, who);
-      toast(`🗑️ ${m}月のルールを削除しました（by ${who}）`);
+      toast(`${m}月のルールを削除しました（by ${who}）`);
     });
   });
 
@@ -453,17 +479,17 @@ function renderStats() {
   panel.innerHTML = `
     <!-- 月ナビ -->
     <div class="stats-month-nav">
-      <button class="stats-nav-btn" id="stats-prev">◀</button>
+      <button class="stats-nav-btn" id="stats-prev">&lt;</button>
       <span class="stats-nav-label" id="stats-month-label">${STATE.statsYear}年${STATE.statsMonth}月</span>
-      <button class="stats-nav-btn" id="stats-next">▶</button>
+      <button class="stats-nav-btn" id="stats-next">&gt;</button>
     </div>
 
     <!-- OCR アップロード -->
     <div class="ocr-card">
-      <div class="ocr-card-title">🖼️ 試合結果を取り込む</div>
+      <div class="ocr-card-title">${ICON.image}試合結果を取り込む</div>
       <p class="ocr-desc">ウイコレの試合終了画面のスクリーンショットをアップロードしてください</p>
       <label class="btn-upload" for="ocr-input">
-        📁 スクリーンショット選択
+        ${ICON.upload}スクリーンショット選択
         <input type="file" id="ocr-input" accept="image/*" style="display:none">
       </label>
       <div id="ocr-preview-wrap" style="display:none">
@@ -478,7 +504,7 @@ function renderStats() {
             <select id="ocr-away" class="ocr-select"></select>
             <input type="number" id="ocr-away-score" class="ocr-score-input" min="0" max="99" placeholder="点">
           </div>
-          <div class="ocr-vs">VS<button class="btn-swap-sides" id="btn-swap-sides" title="左右を画像に合わせて入れ替え">🔄</button></div>
+          <div class="ocr-vs">VS<button class="btn-swap-sides" id="btn-swap-sides" title="左右を画像に合わせて入れ替え">${ICON.swap}</button></div>
           <div class="ocr-team-col">
             <div class="ocr-label">HOME</div>
             <select id="ocr-home" class="ocr-select"></select>
@@ -510,7 +536,7 @@ function renderStats() {
           </div>
         </div>
         <div class="action-row">
-          <button class="btn-save" id="ocr-save-btn" style="flex:1">✅ 登録</button>
+          <button class="btn-save" id="ocr-save-btn" style="flex:1">${ICON.save}登録</button>
           <button class="btn-reset" id="ocr-cancel-btn">キャンセル</button>
         </div>
       </div>
@@ -530,7 +556,7 @@ function renderStats() {
 
     <!-- 年間総合順位表 -->
     <div class="standings-wrap">
-      <div class="stats-section-title">📆 ${STATE.statsYear}年 年間総合順位</div>
+      <div class="stats-section-title">${ICON.calendar}${STATE.statsYear}年 年間総合順位</div>
       <div id="annual-standings">読み込み中…</div>
     </div>
   `;
@@ -633,7 +659,7 @@ function renderStats() {
         document.getElementById('pk-inputs').classList.add('reversed');
       }
     } catch (err) {
-      status.textContent = `❌ 解析失敗: ${err.message}`;
+      status.textContent = `解析失敗: ${err.message}`;
     }
   });
 
@@ -647,13 +673,13 @@ function renderStats() {
     const regYear   = parseInt(document.getElementById('ocr-reg-year')?.value, 10) || STATE.statsYear;
     const regMonth  = parseInt(document.getElementById('ocr-reg-month')?.value, 10) || STATE.statsMonth;
     if (!away || !home || away === home || isNaN(awayScore) || isNaN(homeScore)) {
-      toast('⚠️ 入力を確認してください'); return;
+      toast('入力を確認してください'); return;
     }
     const hasPK  = document.getElementById('pk-check')?.checked;
     const awayPK = hasPK ? parseInt(document.getElementById('ocr-away-pk')?.value, 10) : null;
     const homePK = hasPK ? parseInt(document.getElementById('ocr-home-pk')?.value, 10) : null;
     await SYNC.saveResult(regYear, regMonth, { date, away, home, awayScore, homeScore, awayPK, homePK, addedBy: STATE.userName || '不明' });
-    toast(`✅ ${regYear}年${regMonth}月に登録しました！`);
+    toast(`${regYear}年${regMonth}月に登録しました`);
     document.getElementById('ocr-result-form').style.display = 'none';
     document.getElementById('ocr-preview-wrap').style.display = 'none';
   });
@@ -723,7 +749,7 @@ function _renderResultsList(results) {
           <span class="result-team">${r.home}</span>
         </div>
       </div>
-      <button class="btn-del-result" data-id="${id}">🗑️</button>
+      <button class="btn-del-result" data-id="${id}" title="削除">${ICON.delete}</button>
     </div>`;
   }).join('');
 
@@ -731,7 +757,7 @@ function _renderResultsList(results) {
     btn.addEventListener('click', async () => {
       if (!confirm('この結果を削除しますか？')) return;
       await SYNC.deleteResult(year, month, btn.dataset.id);
-      toast('🗑️ 削除しました');
+      toast('削除しました');
     });
   });
 }
@@ -783,7 +809,7 @@ function _renderStandings(results) {
     const url = STATE.playerAvatars[name];
     return url
       ? `<img src="${url}" class="standings-avatar" alt="">`
-      : `<span class="standings-avatar-ph">👤</span>`;
+      : `<span class="standings-avatar-ph pxi pxi-player" aria-hidden="true"></span>`;
   };
 
   el.innerHTML = `
@@ -857,7 +883,7 @@ function _renderAnnualStandings(allMonths) {
 
   const avatarCell = name => {
     const url = STATE.playerAvatars[name];
-    return url ? `<img src="${url}" class="standings-avatar" alt="">` : `<span class="standings-avatar-ph">👤</span>`;
+    return url ? `<img src="${url}" class="standings-avatar" alt="">` : `<span class="standings-avatar-ph pxi pxi-player" aria-hidden="true"></span>`;
   };
 
   el.innerHTML = `
@@ -888,7 +914,7 @@ function renderHistory() {
 
   panel.innerHTML = `
     <div class="history-toolbar">
-      <h2>📜 スピン履歴</h2>
+      <h2>${ICON.history}スピン履歴</h2>
     </div>
     <div id="hist-list"><div class="history-empty">読み込み中…</div></div>`;
 
@@ -901,17 +927,17 @@ function renderHistory() {
       const ts = `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
       const av = h.avatarUrl
         ? `<img class="hist-avatar" src="${h.avatarUrl}" alt="">`
-        : `<div class="hist-avatar" style="display:flex;align-items:center;justify-content:center;font-size:0.8em;">👤</div>`;
+        : `<div class="hist-avatar" style="display:flex;align-items:center;justify-content:center;">${ICON.player}</div>`;
       return `<div class="hist-item">
         <div class="hist-meta">
           <div class="hist-who">${av}<span class="hist-name">${h.name}</span></div>
           <span class="hist-time">${ts}</span>
         </div>
         <div class="hist-results">
-          <span class="hchip r1">⚡ ${Array.isArray(h.round1) ? h.round1[0] : ''}</span>
-          <span class="hchip r1">⚡ ${Array.isArray(h.round1) ? h.round1[1] : ''}</span>
+          <span class="hchip r1">${ICON.bolt}${Array.isArray(h.round1) ? h.round1[0] : ''}</span>
+          <span class="hchip r1">${ICON.bolt}${Array.isArray(h.round1) ? h.round1[1] : ''}</span>
           <span class="hdiv">｜</span>
-          <span class="hchip r2">🎲 ${h.round2 || ''}</span>
+          <span class="hchip r2">${ICON.dice}${h.round2 || ''}</span>
         </div>
       </div>`;
     }).join('');
@@ -949,7 +975,7 @@ function renderSettings() {
 
   panel.innerHTML = `
     <div class="settings-section">
-      <h3 class="settings-section-title">👥 プレイヤー設定</h3>
+      <h3 class="settings-section-title">${ICON.group}プレイヤー設定</h3>
       <div class="player-header">
         <span style="flex:0 0 24px"></span>
         <span class="player-col-label">名前</span>
@@ -961,19 +987,19 @@ function renderSettings() {
 
     <div class="settings-grid">
       <div class="settings-card">
-        <h3>🎯 12択リスト</h3>
+        <h3>${ICON.spin}12択リスト</h3>
         ${rows(STATE.items12,'a',12)}
         <button class="btn-save" id="sv12">保存</button>
       </div>
       <div class="settings-card">
-        <h3>🎲 6択リスト</h3>
+        <h3>${ICON.dice}6択リスト</h3>
         ${rows(STATE.items6,'b',6)}
         <button class="btn-save" id="sv6">保存</button>
       </div>
     </div>
 
     <div class="settings-card" style="margin-top:10px">
-      <h3>📅 縛り月設定</h3>
+      <h3>${ICON.calendar}縛り月設定</h3>
       <p style="font-size:0.78em;color:var(--text-sub);margin-bottom:10px">現在の縛り月: ${RESTRICT_MONTHS.join('・')}月</p>
       <p style="font-size:0.75em;color:var(--text-sub)">縛り月の変更は管理者へご連絡ください</p>
     </div>
@@ -986,21 +1012,21 @@ function renderSettings() {
       charName: document.getElementById(`pchar${i}`)?.value.trim() || p.charName,
     }));
     if (SYNC) await SYNC.saveConfig({ players: STATE.players });
-    toast('✅ プレイヤー情報を保存しました');
+    toast('プレイヤー情報を保存しました');
   });
 
   document.getElementById('sv12')?.addEventListener('click', async () => {
     STATE.items12 = Array.from({length:12}, (_,i) =>
       document.getElementById(`a${i}`)?.value.trim() || DEFAULT_12[i]);
     if (SYNC) await SYNC.saveConfig({ items12: STATE.items12 });
-    toast('✅ 12択リストを保存しました');
+    toast('12択リストを保存しました');
   });
 
   document.getElementById('sv6')?.addEventListener('click', async () => {
     STATE.items6 = Array.from({length:6}, (_,i) =>
       document.getElementById(`b${i}`)?.value.trim() || DEFAULT_6[i]);
     if (SYNC) await SYNC.saveConfig({ items6: STATE.items6 });
-    toast('✅ 6択リストを保存しました');
+    toast('6択リストを保存しました');
   });
 }
 
@@ -1024,7 +1050,7 @@ function initHelp() {
       </p>
     </div>
     <div class="help-section">
-      <h3>🎰 ゲーム（ルーレット）</h3>
+      <h3>${ICON.game}ゲーム（ルーレット）</h3>
       <div class="help-item"><div class="help-item-name">第1ルーレット（12択）</div>
         <div class="help-item-desc">12種類のルールから2回スピンして2つを抽選します。敗者が好きな方を選べます。</div></div>
       <div class="help-item"><div class="help-item-name">第2ルーレット（6択）</div>
@@ -1033,7 +1059,7 @@ function initHelp() {
         <div class="help-item-desc">「LINEで送る」ボタンでグループに結果を投稿できます。</div></div>
     </div>
     <div class="help-section">
-      <h3>📅 カレンダー</h3>
+      <h3>${ICON.calendar}カレンダー</h3>
       <div class="help-item"><div class="help-item-name">縛り月・フリー月の表示</div>
         <div class="help-item-desc">月ごとに「縛り」「フリー」をカレンダー上でワンタッチで切り替えられます。</div></div>
       <div class="help-item"><div class="help-item-name">ルール記録</div>
@@ -1042,23 +1068,23 @@ function initHelp() {
         <div class="help-item-desc">登録済みルールを削除できます。誰が削除したかが記録されます。</div></div>
     </div>
     <div class="help-section">
-      <h3>📊 集計</h3>
+      <h3>${ICON.stats}集計</h3>
       <div class="help-item"><div class="help-item-name">試合結果の登録</div>
         <div class="help-item-desc">ウイコレのスクリーンショットをアップロードするとOCRでスコア・プレイヤー名を自動読み取りして登録できます。登録する月を選んで保存します。</div></div>
       <div class="help-item"><div class="help-item-name">月次順位表</div>
-        <div class="help-item-desc">月ごとの勝敗・勝点（勝3pt、PK勝1pt）・順位ポイントを集計します。◀▶ボタンで月を切り替えて過去の結果も確認できます。</div></div>
+        <div class="help-item-desc">月ごとの勝敗・勝点（勝3pt、PK勝1pt）・順位ポイントを集計します。前後ボタンで月を切り替えて過去の結果も確認できます。</div></div>
       <div class="help-item"><div class="help-item-name">年間順位表</div>
         <div class="help-item-desc">各月の順位ポイント（1位5pt・2位3pt・3位2pt・4位1pt・5位0pt）の累計で年間ランキングを表示します。</div></div>
       <div class="help-item"><div class="help-item-name">結果の削除</div>
         <div class="help-item-desc">登録した試合結果を個別に削除できます。</div></div>
     </div>
     <div class="help-section">
-      <h3>📜 履歴</h3>
+      <h3>${ICON.history}履歴</h3>
       <div class="help-item"><div class="help-item-name">スピン履歴</div>
         <div class="help-item-desc">ルーレットを回した記録が新しい順に表示されます。誰がいつ何を引いたか確認できます。プロフィールアイコン付きで表示されます。</div></div>
     </div>
     <div class="help-section">
-      <h3>⚙️ 設定</h3>
+      <h3>${ICON.settings}設定</h3>
       <div class="help-item"><div class="help-item-name">プレイヤー設定</div>
         <div class="help-item-desc">プレイヤー名・キャラクター名（監督名）・LINE IDを登録・編集できます。</div></div>
       <div class="help-item"><div class="help-item-name">ルール項目編集</div>

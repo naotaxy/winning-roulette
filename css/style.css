@@ -154,6 +154,217 @@ body {
   flex-shrink: 0;
 }
 
+/* ── Generated 8-bit style icons ── */
+.pxi {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  position: relative;
+  vertical-align: -3px;
+  margin-right: 6px;
+  color: currentColor;
+  image-rendering: pixelated;
+  flex: 0 0 auto;
+}
+.pxi::before,
+.pxi::after {
+  content: '';
+  position: absolute;
+  box-sizing: border-box;
+}
+.pxi-game::before {
+  left: 2px; top: 2px; width: 12px; height: 12px;
+  border: 2px solid currentColor;
+  background: rgba(255,255,255,0.04);
+}
+.pxi-game::after {
+  left: 7px; top: 7px; width: 2px; height: 2px;
+  background: currentColor;
+  box-shadow: -4px 0 0 currentColor, 4px 0 0 currentColor, 0 -4px 0 currentColor, 0 4px 0 currentColor;
+}
+.pxi-calendar::before {
+  left: 2px; top: 4px; width: 12px; height: 10px;
+  border: 2px solid currentColor;
+  box-shadow: inset 0 3px 0 rgba(255,255,255,0.12);
+}
+.pxi-calendar::after {
+  left: 4px; top: 1px; width: 2px; height: 5px;
+  background: currentColor;
+  box-shadow: 6px 0 0 currentColor, 0 8px 0 currentColor, 3px 8px 0 currentColor, 6px 8px 0 currentColor;
+}
+.pxi-stats::before {
+  left: 3px; bottom: 2px; width: 2px; height: 6px;
+  background: currentColor;
+  box-shadow: 4px -4px 0 0 currentColor, 8px -8px 0 0 currentColor;
+}
+.pxi-stats::after {
+  left: 2px; bottom: 1px; width: 12px; height: 2px;
+  background: currentColor;
+}
+.pxi-history::before {
+  left: 3px; top: 3px; width: 10px; height: 2px;
+  background: currentColor;
+  box-shadow: 0 5px 0 currentColor, 0 10px 0 currentColor;
+}
+.pxi-history::after {
+  left: 1px; top: 3px; width: 1px; height: 2px;
+  background: currentColor;
+  box-shadow: 0 5px 0 currentColor, 0 10px 0 currentColor;
+}
+.pxi-settings::before {
+  left: 6px; top: 1px; width: 4px; height: 14px;
+  background: currentColor;
+}
+.pxi-settings::after {
+  left: 1px; top: 6px; width: 14px; height: 4px;
+  background: currentColor;
+  box-shadow: inset 5px 0 0 rgba(7,9,26,0.65), inset -5px 0 0 rgba(7,9,26,0.65);
+}
+.pxi-spin::before,
+.pxi-dice::before,
+.pxi-copy::before,
+.pxi-save::before,
+.pxi-player::before,
+.pxi-group::before,
+.pxi-lock::before,
+.pxi-free::before {
+  left: 2px; top: 2px; width: 12px; height: 12px;
+  border: 2px solid currentColor;
+}
+.pxi-spin::after {
+  left: 7px; top: 2px; width: 2px; height: 12px;
+  background: currentColor;
+  box-shadow: -5px 5px 0 0 currentColor, 5px 5px 0 0 currentColor;
+}
+.pxi-check::before {
+  left: 3px; top: 8px; width: 4px; height: 2px;
+  background: currentColor;
+  box-shadow: 3px 3px 0 currentColor, 6px 0 0 currentColor, 9px -3px 0 currentColor;
+}
+.pxi-rule::before {
+  left: 2px; top: 5px; width: 12px; height: 7px;
+  background: currentColor;
+  clip-path: polygon(0 100%, 0 35%, 20% 35%, 20% 0, 40% 0, 40% 35%, 60% 35%, 60% 0, 80% 0, 80% 35%, 100% 35%, 100% 100%);
+}
+.pxi-bolt::before {
+  left: 6px; top: 1px; width: 4px; height: 14px;
+  background: currentColor;
+  transform: skew(-18deg);
+  box-shadow: -3px 6px 0 0 currentColor;
+}
+.pxi-dice::after {
+  left: 5px; top: 5px; width: 2px; height: 2px;
+  background: currentColor;
+  box-shadow: 4px 0 0 currentColor, 2px 2px 0 currentColor, 0 4px 0 currentColor, 4px 4px 0 currentColor;
+}
+.pxi-copy::before {
+  left: 5px; top: 3px; width: 9px; height: 10px;
+  background: rgba(255,255,255,0.03);
+}
+.pxi-copy::after {
+  left: 2px; top: 6px; width: 9px; height: 8px;
+  border: 2px solid currentColor;
+  background: rgba(7,9,26,0.78);
+}
+.pxi-reset::before {
+  left: 2px; top: 3px; width: 12px; height: 10px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+}
+.pxi-reset::after {
+  right: 1px; top: 1px; width: 5px; height: 5px;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+}
+.pxi-edit::before {
+  left: 3px; top: 9px; width: 10px; height: 3px;
+  background: currentColor;
+  transform: rotate(-35deg);
+}
+.pxi-edit::after {
+  left: 2px; bottom: 2px; width: 12px; height: 2px;
+  background: currentColor;
+  opacity: 0.55;
+}
+.pxi-delete::before {
+  left: 4px; top: 5px; width: 8px; height: 9px;
+  border: 2px solid currentColor;
+  border-top: none;
+}
+.pxi-delete::after {
+  left: 3px; top: 2px; width: 10px; height: 2px;
+  background: currentColor;
+  box-shadow: 3px -1px 0 0 currentColor;
+}
+.pxi-image::before {
+  left: 2px; top: 3px; width: 12px; height: 10px;
+  border: 2px solid currentColor;
+}
+.pxi-image::after {
+  left: 4px; bottom: 4px; width: 3px; height: 3px;
+  background: currentColor;
+  box-shadow: 5px -3px 0 1px currentColor;
+}
+.pxi-upload::before {
+  left: 7px; top: 2px; width: 2px; height: 9px;
+  background: currentColor;
+  box-shadow: -3px 3px 0 0 currentColor, 3px 3px 0 0 currentColor;
+}
+.pxi-upload::after {
+  left: 3px; bottom: 2px; width: 10px; height: 2px;
+  background: currentColor;
+}
+.pxi-swap::before {
+  left: 2px; top: 4px; width: 10px; height: 2px;
+  background: currentColor;
+  box-shadow: 2px 6px 0 0 currentColor;
+}
+.pxi-swap::after {
+  right: 2px; top: 2px; width: 4px; height: 4px;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  box-shadow: -8px 6px 0 -1px currentColor;
+}
+.pxi-save::after {
+  left: 5px; top: 4px; width: 6px; height: 3px;
+  background: currentColor;
+  box-shadow: 0 6px 0 1px currentColor;
+}
+.pxi-player::before {
+  left: 5px; top: 3px; width: 6px; height: 6px;
+  border: 2px solid currentColor;
+}
+.pxi-player::after {
+  left: 3px; bottom: 2px; width: 10px; height: 5px;
+  background: currentColor;
+}
+.pxi-group::after {
+  left: 1px; bottom: 3px; width: 14px; height: 4px;
+  background: currentColor;
+}
+.pxi-lock::before {
+  top: 7px; height: 7px;
+  background: rgba(255,255,255,0.03);
+}
+.pxi-lock::after {
+  left: 5px; top: 2px; width: 6px; height: 7px;
+  border: 2px solid currentColor;
+  border-bottom: none;
+}
+.pxi-free::after {
+  left: 5px; top: 5px; width: 2px; height: 2px;
+  background: currentColor;
+  box-shadow: 4px 0 0 currentColor, 0 4px 0 currentColor, 4px 4px 0 currentColor;
+}
+.pxi-eye::before {
+  left: 2px; top: 5px; width: 12px; height: 6px;
+  border: 2px solid currentColor;
+}
+.pxi-eye::after {
+  left: 7px; top: 7px; width: 2px; height: 2px;
+  background: currentColor;
+}
+
 .profile-name {
   font-size: 0.78em;
   font-weight: 700;
@@ -216,7 +427,12 @@ body {
   position: relative;
 }
 
-.nav-btn .nav-icon { font-size: 1.4em; transition: all 0.2s; }
+.nav-btn .nav-icon {
+  width: 18px;
+  height: 18px;
+  margin-right: 0;
+  transition: all 0.2s;
+}
 
 .nav-btn.active {
   color: var(--gold);
@@ -445,6 +661,9 @@ body {
   transition: all 0.15s;
   margin-top: 10px;
   min-width: 180px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn-spin::before {
@@ -623,6 +842,9 @@ body {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .btn-copy:hover { background: rgba(255,255,255,0.12); }
 
@@ -637,6 +859,9 @@ body {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .btn-reset:hover { background: rgba(255,23,68,0.2); }
 
@@ -882,6 +1107,9 @@ body {
   cursor: pointer;
   font-family: 'Noto Sans JP', sans-serif;
   transition: background 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .btn-save:hover { background: rgba(6,199,85,0.28); }
 
@@ -1214,6 +1442,9 @@ body {
   font-size: 0.65em;
   padding: 3px 0;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .btn-cal-edit:hover { background: rgba(212,175,55,0.22); }
 .btn-cal-del {
@@ -1225,6 +1456,9 @@ body {
   font-size: 0.65em;
   padding: 3px 0;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .btn-cal-del:hover { background: rgba(255,23,68,0.12); }
 .cal-edit-form { margin-top: 6px; }
@@ -1259,7 +1493,13 @@ body {
   object-fit: cover;
   vertical-align: middle;
 }
-.standings-avatar-ph { font-size: 18px; vertical-align: middle; }
+.standings-avatar-ph {
+  width: 22px;
+  height: 22px;
+  margin-right: 0;
+  color: var(--gold);
+  vertical-align: middle;
+}
 
 /* ══════════════════════════════
    STATS / OCR
@@ -1296,7 +1536,9 @@ body {
 
 /* カレンダー縛り/フリートグル */
 .btn-cal-toggle {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   border: none;
   border-radius: 6px;
@@ -1497,12 +1739,16 @@ body {
 }
 .btn-del-result {
   background: none;
-  border: none;
-  font-size: 1.1em;
+  border: 1px solid rgba(255,23,68,0.35);
+  border-radius: 6px;
+  color: var(--red);
   cursor: pointer;
-  padding: 4px;
+  padding: 4px 6px;
   opacity: 0.6;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .btn-del-result:hover { opacity: 1; }
 
@@ -1517,9 +1763,11 @@ body {
 #pk-inputs.reversed { flex-direction: row-reverse; }
 .btn-swap-sides {
   background: none; border: 1px solid var(--gold); border-radius: 4px;
-  color: var(--gold); font-size: 0.75em; padding: 2px 5px; cursor: pointer;
-  margin-top: 4px; display: block; width: 100%;
+  color: var(--gold); font-size: 0.75em; padding: 3px 5px; cursor: pointer;
+  margin-top: 4px; display: inline-flex; width: 100%;
+  align-items: center; justify-content: center;
 }
+.btn-swap-sides .pxi { margin-right: 0; }
 .btn-swap-sides:active { opacity: 0.6; }
 
 /* 順位表 */
@@ -1597,4 +1845,3 @@ body {
   text-overflow: ellipsis;
 }
 .player-input:focus { outline: none; border-color: var(--gold); }
-

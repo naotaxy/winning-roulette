@@ -22,7 +22,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;500;700&display=swap">
 
   <!-- App styles -->
-  <link rel="stylesheet" href="css/style.css?v=40">
+  <link rel="stylesheet" href="css/style.css?v=41">
 </head>
 <body>
 
@@ -44,7 +44,7 @@
 
     <div class="header-profile" id="profile-bar">
       <img class="profile-avatar" id="profile-avatar"
-           src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Crect width='28' height='28' rx='14' fill='%23d4af3740'/%3E%3Ctext x='14' y='19' text-anchor='middle' font-size='14' fill='%23d4af37'%3E👤%3C/text%3E%3C/svg%3E"
+           src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Crect width='28' height='28' rx='4' fill='%23131736'/%3E%3Crect x='10' y='6' width='8' height='8' fill='%23d4af37'/%3E%3Crect x='7' y='16' width='14' height='7' fill='%23d4af37'/%3E%3Crect x='12' y='8' width='2' height='2' fill='%2307091a'/%3E%3Crect x='16' y='8' width='2' height='2' fill='%2307091a'/%3E%3C/svg%3E"
            alt="avatar">
       <input type="text" id="name-input" placeholder="表示名" maxlength="20">
     </div>
@@ -64,19 +64,19 @@
 <!-- ── Bottom navigation (5 tabs) ── -->
 <nav class="bottom-nav">
   <button class="nav-btn active" data-tab="game">
-    <span class="nav-icon">⚽</span>ゲーム
+    <span class="nav-icon pxi pxi-game" aria-hidden="true"></span><span>ゲーム</span>
   </button>
   <button class="nav-btn" data-tab="calendar">
-    <span class="nav-icon">📅</span>カレンダー
+    <span class="nav-icon pxi pxi-calendar" aria-hidden="true"></span><span>カレンダー</span>
   </button>
   <button class="nav-btn" data-tab="stats">
-    <span class="nav-icon">📊</span>集計
+    <span class="nav-icon pxi pxi-stats" aria-hidden="true"></span><span>集計</span>
   </button>
   <button class="nav-btn" data-tab="history">
-    <span class="nav-icon">📜</span>履歴
+    <span class="nav-icon pxi pxi-history" aria-hidden="true"></span><span>履歴</span>
   </button>
   <button class="nav-btn" data-tab="settings">
-    <span class="nav-icon">⚙️</span>設定
+    <span class="nav-icon pxi pxi-settings" aria-hidden="true"></span><span>設定</span>
   </button>
 </nav>
 
@@ -85,8 +85,8 @@
   <div class="modal-sheet">
     <div class="modal-handle"></div>
     <div class="modal-header">
-      <h2>❓ ヘルプ &amp; 使い方</h2>
-      <button class="btn-modal-close" id="btn-modal-close">✕</button>
+      <h2>ヘルプ &amp; 使い方</h2>
+      <button class="btn-modal-close" id="btn-modal-close">×</button>
     </div>
     <div id="help-body"></div>
   </div>
@@ -96,12 +96,12 @@
 <div class="toast" id="toast"></div>
 
 <!-- ── Scripts ── -->
-<script src="js/firebase-config.js?v=40"></script>
-<script src="js/sync.js?v=40"></script>
-<script src="js/ocr.js?v=40"></script>
-<script src="js/roulette.js?v=40"></script>
-<script src="js/liff.js?v=40"></script>
-<script src="js/app.js?v=40"></script>
+<script src="js/firebase-config.js?v=41"></script>
+<script src="js/sync.js?v=41"></script>
+<script src="js/ocr.js?v=41"></script>
+<script src="js/roulette.js?v=41"></script>
+<script src="js/liff.js?v=41"></script>
+<script src="js/app.js?v=41"></script>
 
 </body>
 </html>
