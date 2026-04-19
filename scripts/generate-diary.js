@@ -47,11 +47,10 @@ function getJSTDateLabel() {
 async function fetchYouTubeVideos() {
   if (!YOUTUBE_API_KEY) { console.warn('[youtube] no API key'); return []; }
 
-  const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
-  const q = encodeURIComponent('eFootball ウイコレ 最新');
+  const q = encodeURIComponent('eFootball ウイコレ');
   const url = `https://www.googleapis.com/youtube/v3/search`
     + `?part=snippet&q=${q}&type=video&order=date`
-    + `&publishedAfter=${since}&maxResults=8&key=${YOUTUBE_API_KEY}`;
+    + `&maxResults=8&key=${YOUTUBE_API_KEY}`;
 
   const res = await fetch(url);
   const data = await res.json();
