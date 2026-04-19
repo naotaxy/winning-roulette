@@ -25,7 +25,9 @@ const CACHE_TTL = 5 * 60 * 1000;
 async function getPlayers() {
   if (_playersCache && Date.now() - _playersCacheTs < CACHE_TTL) return _playersCache;
   const snap = await getDb().ref('config/players').once('value');
-  _playersCache = snap.val() || [];
+  const raw = snap.val();
+  console.log('[firebase] config/players raw:', JSON.stringify(raw)?.slice(0, 200));
+  _playersCache = raw || [];
   _playersCacheTs = Date.now();
   return _playersCache;
 }

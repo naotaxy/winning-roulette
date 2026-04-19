@@ -10,6 +10,9 @@ const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
 };
 
+process.on('uncaughtException',    err => console.error('[uncaught]', err));
+process.on('unhandledRejection',   err => console.error('[unhandledRejection]', err));
+
 const app  = express();
 const port = process.env.PORT || 3000;
 
@@ -18,13 +21,11 @@ app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOStrin
 
 /* ── LINE Webhook ── */
 app.post('/webhook', middleware(config), (req, res) => {
+  res.json({ ok: true });  // LINEには必ず200を即返す（再試行ループ防止）
   const client = new Client(config);
-  Promise.all(req.body.events.map(event => webhook.handle(event, client)))
-    .then(() => res.json({ ok: true }))
-    .catch(err => {
-      console.error('[webhook error]', err);
-      res.status(500).json({ error: err.message });
-    });
+  req.body.events.forEach(event => {
+    webhook.handle(event, client).catch(err => console.error('[webhook error]', err));
+  });
 });
 
 app.listen(port, () => console.log(`[server] listening on port ${port}`));
