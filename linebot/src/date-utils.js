@@ -21,4 +21,12 @@ function getTokyoDateParts(date = new Date()) {
   };
 }
 
-module.exports = { TOKYO_TIME_ZONE, getTokyoDateParts };
+function shiftMonth(year, month, delta) {
+  const zeroBased = (year * 12) + (month - 1) + delta;
+  return {
+    year: Math.floor(zeroBased / 12),
+    month: (zeroBased % 12) + 1,
+  };
+}
+
+module.exports = { TOKYO_TIME_ZONE, getTokyoDateParts, shiftMonth };

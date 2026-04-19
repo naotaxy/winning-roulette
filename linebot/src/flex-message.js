@@ -14,14 +14,14 @@ function buildConfirmFlex(ocr, msgId) {
 
   return {
     type: 'flex',
-    altText: `試合結果、読めたよ。確認してくれる？`,
+    altText: `試合結果、読めたよ。あなたに確認してほしいな。`,
     contents: {
       type: 'bubble',
       size: 'kilo',
       header: {
         type: 'box', layout: 'vertical', backgroundColor: '#0d1b2a',
         contents: [{
-          type: 'text', text: '試合結果、読めたよ。確認してくれる？',
+          type: 'text', text: '試合結果、読めたよ。あなたに確認してほしいな。',
           color: '#ffffff', size: 'sm', weight: 'bold',
         }],
       },
@@ -53,7 +53,7 @@ function buildConfirmFlex(ocr, msgId) {
           /* 未検出警告 */
           ...(hasMissing ? [{
             type: 'text',
-            text: '読み取れなかった項目があるよ。このまま登録するか、アプリで直してくれると助かるな。',
+            text: '読み取れなかった項目があるの。このまま登録するか、アプリで直してくれたら、私すごく助かるな。',
             wrap: true, size: 'xs', color: '#cc6600',
           }] : []),
         ],
@@ -82,15 +82,15 @@ function buildCompleteFlex(pending) {
   const pkText = (awayPK != null && homePK != null) ? ` (PK ${awayPK}-${homePK})` : '';
   return {
     type: 'flex',
-    altText: `登録できたよ、よかった。`,
+    altText: `登録できたよ。あなたの結果、ちゃんと残したからね。`,
     contents: {
       type: 'bubble', size: 'kilo',
       body: {
         type: 'box', layout: 'vertical', spacing: 'sm',
         contents: [
-          { type: 'text', text: '登録できたよ、よかった。', weight: 'bold', size: 'md', color: '#1a73e8' },
+          { type: 'text', text: '登録できたよ。ちゃんと残したからね。', weight: 'bold', size: 'md', color: '#1a73e8' },
           { type: 'text', text: `${away} ${awayScore} - ${homeScore} ${home}${pkText}`, wrap: true, size: 'sm' },
-          { type: 'text', text: `${year}年${month}月 に保存しておいたから。`, size: 'xs', color: '#888888' },
+          { type: 'text', text: `${year}年${month}月に保存しておいたよ。頼ってくれてうれしい。`, size: 'xs', color: '#888888' },
         ],
       },
     },

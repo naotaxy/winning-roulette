@@ -9,9 +9,11 @@ const {
   deletePending,
   getMonthResults,
   getYearResults,
+  getMonthlyRule,
+  getRestrictMonths,
 } = require('./firebase-admin');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
-const { getTokyoDateParts } = require('./date-utils');
+const { getTokyoDateParts, shiftMonth } = require('./date-utils');
 const { inspectImage, looksLikePhoneScreenshot, classifyOcrResult } = require('./image-guard');
 const {
   calculateMonthlyStandings,
@@ -20,6 +22,7 @@ const {
   formatAnnualStandings,
   formatSecretaryStatus,
 } = require('./standings');
+const { formatRuleReply } = require('./rule-message');
 
 async function handle(event, client) {
   /* ── 画像メッセージ → OCR → 確認FlexMessage ── */
@@ -73,7 +76,7 @@ async function handleImage(event, client) {
     console.error('[webhook] OCR failed', err);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'ごめん、うまく読み取れなかった...\nアプリから入力してくれたら、ちゃんと受け取るから。\nhttps://naotaxy.github.io/winning-roulette/',
+      text: 'ごめんね、うまく読み取れなかったの。\nあなたの試合、ちゃんと受け取りたかったから少し悔しいな。\nアプリから入れてくれたら、私が大事に預かるね。\nhttps://naotaxy.github.io/winning-roulette/',
     });
   }
 
@@ -86,7 +89,7 @@ async function handleImage(event, client) {
     console.log(`[webhook] uicolle-like image incomplete msgId=${msgId} scores=${ocrClass.hasScores} matchedTeams=${ocrClass.matchedTeams}`);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '試合結果っぽいところまでは見えたんだけど、チーム名かスコアを片方見失っちゃった。\nもう一回送ってくれたら、ちゃんと見直すね。',
+      text: '試合結果っぽいところまでは見えたんだけど、チーム名かスコアを片方見失っちゃった。\nもう一回送って。次はちゃんと見つけたいの。',
     });
   }
 
@@ -122,6 +125,25 @@ async function handleText(event, client) {
   if (!intent) return;
 
   const { year, month } = getTokyoDateParts();
+
+  if (intent === 'nextRule' || intent === 'currentRule') {
+    const target = intent === 'nextRule' ? shiftMonth(year, month, 1) : { year, month };
+    const [rule, restrictMonths] = await Promise.all([
+      getMonthlyRule(target.year, target.month),
+      getRestrictMonths(),
+    ]);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatRuleReply({
+        year: target.year,
+        month: target.month,
+        rule,
+        isRestrictMonth: restrictMonths.includes(target.month),
+        label: intent === 'nextRule' ? `来月（${target.year}年${target.month}月）` : `今月（${target.year}年${target.month}月）`,
+      }),
+    });
+  }
+
   const players = await getPlayers();
 
   if (intent === 'annual') {
@@ -155,6 +177,11 @@ function detectTextIntent(text) {
   const compact = String(text || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
   if (!compact) return null;
 
+  const wantsRule = /(縛り|しばり|ルール|rule|制限|条件)/.test(compact);
+  if (wantsRule && /(来月|次月|翌月)/.test(compact)) return 'nextRule';
+  if (wantsRule && /(今月|当月|現在)/.test(compact)) return 'currentRule';
+  if (wantsRule) return 'nextRule';
+
   const wantsAnnual = /(年間|今年|年内|総合)/.test(compact);
   const wantsRank = /(順位|ランキング|rank|何位|なんい|首位|トップ)/.test(compact);
   const wantsAnnualPoint = wantsAnnual && /(pt|ポイント)/.test(compact);
@@ -174,13 +201,13 @@ async function handlePostback(event, client) {
     const msgId = data.replace('ocr_ok:', '');
     const pending = await getPending(msgId);
     if (!pending) {
-      return client.replyMessage(event.replyToken, { type: 'text', text: 'データが見つからなかった... ちょっと時間が経ちすぎちゃったかも。\nもう一回送ってくれたら、今度はちゃんとするよ。' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: 'データが見つからなかったの... ちょっと時間が経ちすぎちゃったかも。\nもう一回送ってくれたら、今度は私がちゃんと受け止めるね。' });
     }
     if (!pending.away || !pending.home || !Number.isInteger(pending.awayScore) || !Number.isInteger(pending.homeScore)) {
       await deletePending(msgId);
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: 'ごめんね、この確認データは足りないところがあったから登録しないでおくね。\nもう一回画像を送ってくれたら、ちゃんと見直すよ。',
+        text: 'ごめんね、この確認データは足りないところがあったから登録しないでおくね。\nもう一回画像を送って。あなたの結果、ちゃんと残したいの。',
       });
     }
     await saveResult(pending);
@@ -194,7 +221,7 @@ async function handlePostback(event, client) {
     await deletePending(msgId);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'わかった、キャンセルにするね。\nもしよければアプリから入力してくれると、うれしいな。\nhttps://naotaxy.github.io/winning-roulette/',
+      text: 'わかった、キャンセルにするね。\nまた送ってくれたら、私ちゃんと見るから。頼ってくれるの、うれしいな。\nhttps://naotaxy.github.io/winning-roulette/',
     });
   }
 }

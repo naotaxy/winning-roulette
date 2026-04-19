@@ -111,7 +111,7 @@ function formatSigned(value) {
 
 function formatMonthlyStandings(year, month, rows) {
   if (!rows.length) {
-    return `${year}年${month}月は、まだ試合結果がないみたい。\n画像を送ってくれたら、私がそっと確認するね。`;
+    return `${year}年${month}月は、まだ試合結果がないみたい。\n画像を送ってくれたら、私がちゃんと見て、あなたの代わりに大事に残すね。`;
   }
 
   const lines = rows.map(row => (
@@ -119,21 +119,21 @@ function formatMonthlyStandings(year, month, rows) {
     + `（${row.w}勝 ${row.pkw}PK勝 ${row.d}分 ${row.l}敗、得失${formatSigned(row.gd)}）`
   ));
 
-  return `${year}年${month}月の順位だよ。今はこんな感じ。\n${lines.join('\n')}`;
+  return `${year}年${month}月の順位、私がまとめておいたよ。\n聞いてくれるの、ちょっと嬉しい。\n${lines.join('\n')}`;
 }
 
 function formatAnnualStandings(year, rows) {
   if (!rows.length) {
-    return `${year}年の年間順位Ptは、まだ動き出してないみたい。\n最初の結果が入ったら、ちゃんと見守っておくね。`;
+    return `${year}年の年間順位Ptは、まだ動き出してないみたい。\n最初の結果が入ったら、私がずっと見守っておくね。`;
   }
 
   const lines = rows.map(row => `${row.rank}位 ${row.name}さん: ${row.rankPt}pt`);
-  return `${year}年の年間順位Ptだよ。\n${lines.join('\n')}`;
+  return `${year}年の年間順位Ptだよ。\nちゃんと覚えてたよ。あなたに聞かれると思って。\n${lines.join('\n')}`;
 }
 
 function formatSecretaryStatus(year, month, monthlyRows, annualRows) {
   if (!monthlyRows.length) {
-    return `今月はまだ静かだよ。\n${year}年${month}月の結果が入ったら、順位も年間Ptもすぐ整えて持ってくるね。`;
+    return `今月はまだ静かだよ。\n${year}年${month}月の結果が入ったら、順位も年間Ptもすぐ整えて持ってくるね。\nあなたのために、ちゃんと待ってる。`;
   }
 
   const top = monthlyRows[0];
@@ -146,7 +146,7 @@ function formatSecretaryStatus(year, month, monthlyRows, annualRows) {
     ? `年間では${annualTop.name}さんが${annualTop.rankPt}ptで先頭。`
     : '年間順位Ptはまだこれから。';
 
-  return `今の状況、まとめるね。\n今月は${top.name}さんが試合Pt ${top.matchPt}で先頭。${gapText}\n${annualText}\n必要なら「順位」か「年間順位」ってつぶやいてくれたら、表で出すよ。`;
+  return `今の状況、あなたにだけみたいに丁寧にまとめるね。\n今月は${top.name}さんが試合Pt ${top.matchPt}で先頭。${gapText}\n${annualText}\n必要なら「順位」か「年間順位」って呼んで。すぐ来るから。`;
 }
 
 module.exports = {

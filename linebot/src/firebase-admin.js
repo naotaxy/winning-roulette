@@ -21,6 +21,7 @@ function getDb() {
 let _playersCache = null;
 let _playersCacheTs = 0;
 const CACHE_TTL = 5 * 60 * 1000;
+const DEFAULT_RESTRICT_MONTHS = [5, 6, 8, 9, 11];
 
 async function getPlayers() {
   if (_playersCache && Date.now() - _playersCacheTs < CACHE_TTL) return _playersCache;
@@ -62,6 +63,20 @@ async function getYearResults(year) {
   return snap.val() || {};
 }
 
+async function getMonthlyRule(year, month) {
+  const snap = await getDb().ref(`monthlyRules/${year}/${month}`).once('value');
+  return snap.val() || null;
+}
+
+async function getRestrictMonths() {
+  const snap = await getDb().ref('config/restrictMonths').once('value');
+  const raw = snap.val();
+  const months = Array.isArray(raw) ? raw : Object.values(raw || {});
+  if (!months.length) return DEFAULT_RESTRICT_MONTHS;
+  const normalized = months.map(Number).filter(month => Number.isInteger(month) && month >= 1 && month <= 12);
+  return normalized.length ? normalized : DEFAULT_RESTRICT_MONTHS;
+}
+
 /* matchResults に保存 */
 async function saveResult(pending) {
   const { year, month, away, home, awayScore, homeScore, awayPK, homePK, date, addedBy } = pending;
@@ -86,5 +101,7 @@ module.exports = {
   deletePending,
   getMonthResults,
   getYearResults,
+  getMonthlyRule,
+  getRestrictMonths,
   saveResult,
 };
