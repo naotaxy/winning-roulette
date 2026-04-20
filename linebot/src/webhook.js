@@ -28,12 +28,14 @@ const {
   formatAnnualStandings,
   formatSecretaryStatus,
   formatProgress,
+  formatMissingMatchups,
 } = require('./standings');
 const { formatRuleReply } = require('./rule-message');
 const { formatSecretaryHelp } = require('./help-message');
 const { getSecretaryMentionInfo, getCasualReply, getCasualReplyWithContext, getTiredReply } = require('./secretary-chat');
 const { detectSystemStatusKind, formatSystemStatusReply } = require('./system-status');
 const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-risk');
+const { formatMemberFlavorReply, formatAnonymousDiaryHighlights } = require('./group-insights');
 const {
   formatAttributeGuide,
   formatRarityGuide,
@@ -298,6 +300,28 @@ async function handleText(event, client) {
 
   const players = await getPlayers();
 
+  if (intent === 'memberFlavor') {
+    const [monthResults, recentConversation] = await Promise.all([
+      getMonthResults(year, month),
+      sourceId ? getRecentConversation(sourceId, 200) : Promise.resolve([]),
+    ]);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatMemberFlavorReply({ year, month, players, results: monthResults, recentConversation }),
+    });
+  }
+
+  if (intent === 'monthlyHighlights') {
+    const [monthResults, diaries] = await Promise.all([
+      getMonthResults(year, month),
+      getRecentDiaries(35),
+    ]);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatAnonymousDiaryHighlights({ year, month, players, results: monthResults, diaries }),
+    });
+  }
+
   if (intent === 'annual') {
     const yearResults = await getYearResults(year);
     const rows = calculateAnnualStandings(players, yearResults);
@@ -315,6 +339,14 @@ async function handleText(event, client) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: formatProgress(year, month, progress),
+    });
+  }
+
+  if (intent === 'missingMatchups') {
+    const progress = calculateMonthProgress(players, monthResults);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatMissingMatchups(year, month, progress),
     });
   }
 
@@ -381,6 +413,9 @@ function detectTextIntent(text) {
   const uicolleKind = detectUicolleIntent(targetText);
   if (uicolleKind) return `uicolle:${uicolleKind}`;
   if (/(今のイベント|開催中のイベント|今のガチャ|開催中.*ガチャ|ガチャ.*今|最新情報|ウイコレ.*情報)/.test(targetText)) return 'uicolle:news';
+  if (/(名場面|名シーン|ハイライト|月間まとめ|今月まとめ|日記連動|日記.*名場面|日記.*ハイライト)/.test(targetText)) return 'monthlyHighlights';
+  if (/(口癖|因縁|相性|ライバル|メンバー.*煽|みんな.*煽|各メンバー|人物メモ|メンバー分析|キャラ分析)/.test(targetText)) return 'memberFlavor';
+  if (/(未対戦|未消化ペア|あと誰.*誰|誰と誰|対戦.*残|残り.*対戦|対戦残り|やってない.*ペア)/.test(targetText)) return 'missingMatchups';
   if (/(日記|読んで|ブログ|最近書いた|最新の日記|何書いた)/.test(targetText)) return 'diary';
 
   const systemStatusKind = detectSystemStatusKind(targetText);

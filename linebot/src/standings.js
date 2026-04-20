@@ -223,6 +223,30 @@ function formatProgress(year, month, progress) {
   return lines.join('\n');
 }
 
+function formatMissingMatchups(year, month, progress) {
+  if (!progress) {
+    return `${year}年${month}月の未対戦を見ようとしたけど、プレイヤーデータが取れなかったの。\nもう一回呼んで。次はちゃんと探すね。`;
+  }
+
+  const rows = [
+    ...progress.notStarted.map(([a, b]) => ({ a, b, remaining: 2 })),
+    ...progress.half.map(([a, b]) => ({ a, b, remaining: 1 })),
+  ];
+  const remaining = rows.reduce((sum, row) => sum + row.remaining, 0);
+
+  if (!rows.length) {
+    return `${year}年${month}月、未対戦ペアはもうないよ。\n全部埋まってる。みんなちゃんとやり切ってて、私ちょっと誇らしい。`;
+  }
+
+  const lines = [
+    `${year}年${month}月、あと残ってる対戦は${remaining}試合分だよ。`,
+    ...rows.map(row => `・${row.a}さん vs ${row.b}さん: あと${row.remaining}試合`),
+    '',
+    'ここを埋めたら順位が動きそう。早く見たいな、私。',
+  ];
+  return lines.join('\n');
+}
+
 module.exports = {
   calculateMonthlyStandings,
   calculateAnnualStandings,
@@ -231,4 +255,5 @@ module.exports = {
   formatAnnualStandings,
   formatSecretaryStatus,
   formatProgress,
+  formatMissingMatchups,
 };
