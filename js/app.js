@@ -21,6 +21,13 @@ const DEFAULT_6 = [
 /* 縛り月（5,6,8,9,11月） */
 const RESTRICT_MONTHS = [5, 6, 8, 9, 11];
 
+/* 対戦スケジュール: 各ペア 月2回（第2・第4週） */
+const DEFAULT_MATCH_SCHEDULE = {
+  matchesPerPair: 2,
+  weeks: [2, 4],
+};
+const MATCH_WEEK_OPTIONS = [1, 2, 3, 4, 5];
+
 /* デフォルトプレイヤー */
 const DEFAULT_PLAYERS = [
   { name: '児玉',   lineId: 'DKJPN',    charName: 'D XIII'          },
@@ -36,6 +43,7 @@ const STATE = {
   items6:         [...DEFAULT_6],
   players:        DEFAULT_PLAYERS.map(p => ({ ...p })),
   restrictMonths: [...RESTRICT_MONTHS],
+  matchSchedule:  { ...DEFAULT_MATCH_SCHEDULE },
   phase:          1,
   round1:         [],
   round2:         null,
@@ -90,6 +98,64 @@ const KAKUHEN_MODES = [
     palette: ['#7dff00', '#00f5ff', '#ffd400', '#9d4edd'],
   },
 ];
+
+function normalizeRestrictMonths(months) {
+  const source = Array.isArray(months) ? months : RESTRICT_MONTHS;
+  const normalized = [...new Set(source
+    .map(Number)
+    .filter(m => Number.isInteger(m) && m >= 1 && m <= 12))]
+    .sort((a, b) => a - b);
+  return normalized.length ? normalized : [];
+}
+
+function normalizeMatchSchedule(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  let weeks = Array.isArray(source.weeks)
+    ? source.weeks.map(Number).filter(w => MATCH_WEEK_OPTIONS.includes(w))
+    : [...DEFAULT_MATCH_SCHEDULE.weeks];
+  weeks = [...new Set(weeks)].sort((a, b) => a - b);
+
+  let matchesPerPair = Number(source.matchesPerPair ?? source.matchesPerMonth);
+  if (!Number.isInteger(matchesPerPair) || matchesPerPair < 1 || matchesPerPair > MATCH_WEEK_OPTIONS.length) {
+    matchesPerPair = weeks.length || DEFAULT_MATCH_SCHEDULE.matchesPerPair;
+  }
+  if (!weeks.length || weeks.length !== matchesPerPair) {
+    weeks = defaultWeeksForMatchCount(matchesPerPair);
+  }
+  return { matchesPerPair, weeks };
+}
+
+function defaultWeeksForMatchCount(count) {
+  const patterns = {
+    1: [2],
+    2: [2, 4],
+    3: [1, 3, 5],
+    4: [1, 2, 3, 4],
+    5: [1, 2, 3, 4, 5],
+  };
+  return [...(patterns[count] || DEFAULT_MATCH_SCHEDULE.weeks)];
+}
+
+function formatRestrictMonths(months = STATE.restrictMonths) {
+  const list = normalizeRestrictMonths(months);
+  return list.length ? `${list.join('・')}月` : 'なし';
+}
+
+function formatWeekList(weeks) {
+  return (weeks || []).map(w => `第${w}`).join('・') + '週';
+}
+
+function formatMatchSchedule(schedule = STATE.matchSchedule) {
+  const s = normalizeMatchSchedule(schedule);
+  return `各ペア月${s.matchesPerPair}回（${formatWeekList(s.weeks)}）`;
+}
+
+function refreshConfigDependentPanel() {
+  const activeId = document.querySelector('.tab-panel.active')?.id;
+  if (activeId === 'panel-calendar') renderCalendar();
+  if (activeId === 'panel-settings') renderSettings();
+  if (activeId === 'panel-stats') renderStats();
+}
 
 /* ── Toast ── */
 let _toastTimer;
@@ -471,7 +537,7 @@ function renderCalendar() {
   panel.innerHTML = `
     <div class="cal-header">
       <h2 class="cal-title">${ICON.calendar}${year}年 縛りカレンダー</h2>
-      <p class="cal-note">縛り月: 5・6・8・9・11月 ／ 編集ボタンで全月編集可</p>
+      <p class="cal-note">縛り月: ${formatRestrictMonths()} ／ 対戦: ${formatMatchSchedule()} ／ 編集ボタンで全月編集可</p>
     </div>
     <div class="cal-grid" id="cal-grid">
       ${MONTH_NAMES.map((mn, i) => {
@@ -1082,6 +1148,15 @@ function renderSettings() {
       <input class="player-input" id="pname${i}" value="${p.name}" placeholder="名前" maxlength="8">
       <input class="player-input" id="pchar${i}" value="${p.charName}" placeholder="キャラクター名" maxlength="20">
     </div>`).join('');
+  const schedule = normalizeMatchSchedule(STATE.matchSchedule);
+  const matchCountOptions = MATCH_WEEK_OPTIONS.map(n =>
+    `<option value="${n}" ${n === schedule.matchesPerPair ? 'selected' : ''}>月${n}回</option>`
+  ).join('');
+  const weekChecks = MATCH_WEEK_OPTIONS.map(w => `
+    <label class="match-week-option">
+      <input type="checkbox" id="match-week-${w}" value="${w}" ${schedule.weeks.includes(w) ? 'checked' : ''}>
+      <span>第${w}週</span>
+    </label>`).join('');
 
   panel.innerHTML = `
     <div class="settings-section">
@@ -1109,9 +1184,20 @@ function renderSettings() {
     </div>
 
     <div class="settings-card" style="margin-top:10px">
+      <h3>${ICON.calendar}対戦スケジュール設定</h3>
+      <p class="settings-note">現在の予定: ${formatMatchSchedule(schedule)}</p>
+      <div class="match-schedule-row">
+        <label for="match-count">各ペアの月対戦回数</label>
+        <select id="match-count" class="save-month-select">${matchCountOptions}</select>
+      </div>
+      <div class="match-week-grid">${weekChecks}</div>
+      <button class="btn-save" id="sv-match-schedule">保存</button>
+    </div>
+
+    <div class="settings-card" style="margin-top:10px">
       <h3>${ICON.calendar}縛り月設定</h3>
-      <p style="font-size:0.78em;color:var(--text-sub);margin-bottom:10px">現在の縛り月: ${RESTRICT_MONTHS.join('・')}月</p>
-      <p style="font-size:0.75em;color:var(--text-sub)">縛り月の変更は管理者へご連絡ください</p>
+      <p class="settings-note">現在の縛り月: ${formatRestrictMonths()}</p>
+      <p class="settings-note">変更はカレンダーの各月にある「縛り / フリー」ボタンから切り替えられます</p>
     </div>
   `;
 
@@ -1137,6 +1223,28 @@ function renderSettings() {
       document.getElementById(`b${i}`)?.value.trim() || DEFAULT_6[i]);
     if (SYNC) await SYNC.saveConfig({ items6: STATE.items6 });
     toast('6択リストを保存しました');
+  });
+
+  document.getElementById('match-count')?.addEventListener('change', e => {
+    const weeks = defaultWeeksForMatchCount(parseInt(e.target.value, 10));
+    MATCH_WEEK_OPTIONS.forEach(w => {
+      const checked = weeks.includes(w);
+      const input = document.getElementById(`match-week-${w}`);
+      if (input) input.checked = checked;
+    });
+  });
+
+  document.getElementById('sv-match-schedule')?.addEventListener('click', async () => {
+    const matchesPerPair = parseInt(document.getElementById('match-count')?.value, 10);
+    const weeks = MATCH_WEEK_OPTIONS.filter(w => document.getElementById(`match-week-${w}`)?.checked);
+    if (weeks.length !== matchesPerPair) {
+      toast(`月${matchesPerPair}回なら実施週も${matchesPerPair}つ選んでください`);
+      return;
+    }
+    STATE.matchSchedule = normalizeMatchSchedule({ matchesPerPair, weeks });
+    if (SYNC) await SYNC.saveConfig({ matchSchedule: STATE.matchSchedule });
+    toast(`対戦スケジュールを保存しました: ${formatMatchSchedule()}`);
+    renderSettings();
   });
 }
 
@@ -1172,6 +1280,8 @@ function initHelp() {
       <h3>${ICON.calendar}カレンダー</h3>
       <div class="help-item"><div class="help-item-name">縛り月・フリー月の表示</div>
         <div class="help-item-desc">月ごとに「縛り」「フリー」をカレンダー上でワンタッチで切り替えられます。</div></div>
+      <div class="help-item"><div class="help-item-name">対戦スケジュール</div>
+        <div class="help-item-desc">カレンダー上部に、縛り月と各ペアの月対戦回数・実施週が表示されます。初期設定は各ペア月2回、第2週・第4週です。</div></div>
       <div class="help-item"><div class="help-item-name">ルール記録</div>
         <div class="help-item-desc">各月に決まったルールをテキストで登録・編集できます。編集者名が履歴に残ります。</div></div>
       <div class="help-item"><div class="help-item-name">削除</div>
@@ -1199,6 +1309,8 @@ function initHelp() {
         <div class="help-item-desc">プレイヤー名・キャラクター名（監督名）・LINE IDを登録・編集できます。</div></div>
       <div class="help-item"><div class="help-item-name">ルール項目編集</div>
         <div class="help-item-desc">12択・6択のルール内容を自由に変更できます。</div></div>
+      <div class="help-item"><div class="help-item-name">対戦スケジュール設定</div>
+        <div class="help-item-desc">各ペアが月に何回対戦するか、どの週に実施するかを変更できます。設定はカレンダー表示やBotの未対戦確認に使われます。</div></div>
       <div class="help-item"><div class="help-item-name">縛り月設定</div>
         <div class="help-item-desc">縛りルールを適用する月をON/OFFで切り替えられます。</div></div>
     </div>`;
@@ -1264,7 +1376,9 @@ async function boot() {
       if (cfg.items12?.length === 12)  STATE.items12        = cfg.items12;
       if (cfg.items6?.length  === 6)   STATE.items6         = cfg.items6;
       if (cfg.players?.length)         STATE.players        = cfg.players;
-      if (cfg.restrictMonths?.length)  STATE.restrictMonths = cfg.restrictMonths;
+      if (Array.isArray(cfg.restrictMonths)) STATE.restrictMonths = normalizeRestrictMonths(cfg.restrictMonths);
+      if (cfg.matchSchedule)           STATE.matchSchedule  = normalizeMatchSchedule(cfg.matchSchedule);
+      refreshConfigDependentPanel();
     });
 
     /* アバターURL監視・自分のアバターを保存 */
