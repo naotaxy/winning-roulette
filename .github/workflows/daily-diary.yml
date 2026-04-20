@@ -35,6 +35,8 @@ jobs:
           HATENA_API_KEY:           ${{ secrets.HATENA_API_KEY }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           FIREBASE_DATABASE_URL:    ${{ secrets.FIREBASE_DATABASE_URL }}
+          DIARY_PHOTO_URL:          ${{ secrets.DIARY_PHOTO_URL }}
+          DIARY_PHOTO_CAPTION:      ${{ secrets.DIARY_PHOTO_CAPTION }}
         run: node scripts/generate-diary.js
 
       - name: Commit blog archive
