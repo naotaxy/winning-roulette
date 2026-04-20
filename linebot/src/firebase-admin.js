@@ -131,8 +131,9 @@ async function getAiChatGuardState(limits) {
     getDb().ref(AI_CHAT_GUARD_PATH).once('value'),
     getDb().ref(getAiUsagePath(period)).once('value'),
   ]);
+  const autoDisabled = await recoverAiAutoDisabledIfExpired(guardSnap.val(), usageSnap.val(), limits, period);
   return buildAiGuardState({
-    autoDisabled: normalizeAutoDisabled(guardSnap.val()),
+    autoDisabled,
     usage: usageSnap.val(),
     limits,
     period,
@@ -142,7 +143,7 @@ async function getAiChatGuardState(limits) {
 async function reserveAiChatRequest(limits, metadata = {}) {
   const period = getAiUsagePeriod();
   const meta = normalizeAiMetadata(metadata);
-  const autoDisabled = await getAiAutoDisabled();
+  const autoDisabled = await getAiAutoDisabled(limits);
   if (autoDisabled.disabled) {
     return {
       allowed: false,
@@ -278,9 +279,102 @@ async function disableAiChatForBillingRisk(reason, details = {}) {
   return payload;
 }
 
-async function getAiAutoDisabled() {
+async function getAiAutoDisabled(limits = null) {
   const snap = await getDb().ref(AI_CHAT_GUARD_PATH).once('value');
-  return normalizeAutoDisabled(snap.val());
+  const raw = snap.val();
+  if (!limits) return normalizeAutoDisabled(raw);
+  const period = getAiUsagePeriod();
+  const usageSnap = await getDb().ref(getAiUsagePath(period)).once('value');
+  return recoverAiAutoDisabledIfExpired(raw, usageSnap.val(), limits, period);
+}
+
+async function recoverAiAutoDisabledIfExpired(rawAutoDisabled, currentUsage, limits, period) {
+  const autoDisabled = normalizeAutoDisabled(rawAutoDisabled);
+  if (!autoDisabled.disabled) return autoDisabled;
+
+  const code = getAutoDisabledCode(rawAutoDisabled);
+  if (!isAutoRecoverableGuardCode(code)) return autoDisabled;
+  if (!isAutoDisabledPeriodExpired(code, rawAutoDisabled, period)) return autoDisabled;
+
+  const monthUsage = normalizeAiMonthUsage(currentUsage, period);
+  const dayUsage = normalizeAiDayUsage(monthUsage.days[period.dayKey]);
+  const currentReason = findAiLimitReason(monthUsage, dayUsage, limits, true);
+  if (currentReason) return autoDisabled;
+
+  const recoveredAt = Date.now();
+  const payload = {
+    disabled: false,
+    reason: '',
+    recoveredAt,
+    recoveredAtIso: new Date(recoveredAt).toISOString(),
+    source: 'linebot-ai-cost-guard-auto-recovery',
+    recoveredFrom: {
+      code,
+      reason: autoDisabled.reason,
+      disabledAt: autoDisabled.disabledAt,
+      disabledAtIso: autoDisabled.disabledAtIso,
+      period: getAutoDisabledPeriod(rawAutoDisabled),
+      currentPeriod: {
+        date: period.date,
+        monthKey: period.monthKey,
+        dayKey: period.dayKey,
+      },
+    },
+  };
+  await getDb().ref(AI_CHAT_GUARD_PATH).set(payload);
+  console.log(`[ai-guard] auto recovered code=${code} period=${period.date}`);
+  return normalizeAutoDisabled(payload);
+}
+
+function getAutoDisabledCode(rawAutoDisabled) {
+  const source = rawAutoDisabled && typeof rawAutoDisabled === 'object' ? rawAutoDisabled : {};
+  const code = trimGuardText(source.details?.code || source.code || '');
+  if (code) return code;
+
+  const reason = String(source.reason || '');
+  if (/日次.*トークン/.test(reason)) return 'daily_token_limit';
+  if (/月次.*トークン/.test(reason)) return 'monthly_token_limit';
+  if (/日次上限|日次.*回/.test(reason)) return 'daily_request_limit';
+  if (/月次上限|月次.*回/.test(reason)) return 'monthly_request_limit';
+  return '';
+}
+
+function isAutoRecoverableGuardCode(code) {
+  return [
+    'daily_request_limit',
+    'daily_token_limit',
+    'monthly_request_limit',
+    'monthly_token_limit',
+  ].includes(code);
+}
+
+function isAutoDisabledPeriodExpired(code, rawAutoDisabled, currentPeriod) {
+  const disabledPeriod = getAutoDisabledPeriod(rawAutoDisabled);
+  if (code.startsWith('daily_')) {
+    const disabledDate = disabledPeriod.date || getDisabledPeriodFromTimestamp(rawAutoDisabled).date;
+    return !!disabledDate && disabledDate !== currentPeriod.date;
+  }
+  if (code.startsWith('monthly_')) {
+    const disabledMonth = disabledPeriod.monthKey || getDisabledPeriodFromTimestamp(rawAutoDisabled).monthKey;
+    return !!disabledMonth && disabledMonth !== currentPeriod.monthKey;
+  }
+  return false;
+}
+
+function getAutoDisabledPeriod(rawAutoDisabled) {
+  const period = rawAutoDisabled?.details?.period;
+  if (!period || typeof period !== 'object') return {};
+  return {
+    date: trimGuardText(period.date || ''),
+    monthKey: trimGuardText(period.monthKey || ''),
+    dayKey: trimGuardText(period.dayKey || ''),
+  };
+}
+
+function getDisabledPeriodFromTimestamp(rawAutoDisabled) {
+  const disabledAt = toNonNegativeInteger(rawAutoDisabled?.disabledAt);
+  if (!disabledAt) return {};
+  return getAiUsagePeriod(new Date(disabledAt));
 }
 
 function getAiUsagePeriod(date = new Date()) {

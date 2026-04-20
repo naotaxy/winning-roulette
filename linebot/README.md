@@ -194,7 +194,7 @@ OK押下:
 | `AI_CHAT_ESTIMATED_TOKENS_PER_REPLY` | 任意。呼び出し前に見積もる1返信分のトークン。既定値は `900` |
 | `PORT` | サーバーポート（Renderが自動設定） |
 
-AI課金ガードは `config/aiChatGuard/autoDisabled` に停止理由を保存する。上限到達後に再開したい時は、Firebaseでこの `disabled` を `false` に戻し、必要なら上限値を見直してからRenderを再デプロイする。
+AI課金ガードは `config/aiChatGuard/autoDisabled` に停止理由を保存する。日次・月次のリクエスト上限やトークン上限で止まった場合は、日付または月が切り替わって枠が復活した時に自動で `disabled=false` に戻る。APIキー認証、請求、外部サービス側quotaなど課金リスク系エラーで止まった場合は安全のため自動復帰しないので、Firebaseで `disabled` を `false` に戻し、必要なら上限値を見直してからRenderを再デプロイする。
 
 Gemini無料枠で自然会話を使う場合は、Renderに `AI_CHAT_ENABLED=true`、`AI_PROVIDER=gemini`、`GEMINI_API_KEY=...` を設定する。Google AI StudioでAPIキーを作る時にCloud Billingは有効化しない。BotからGoogle側の請求先状態までは直接読めないので、無料運用では管理画面の「Billing未設定」を必ず確認する。
 
