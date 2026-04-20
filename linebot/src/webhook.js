@@ -30,7 +30,7 @@ const {
 } = require('./standings');
 const { formatRuleReply } = require('./rule-message');
 const { formatSecretaryHelp } = require('./help-message');
-const { getSecretaryMentionInfo, getCasualReply, getTiredReply } = require('./secretary-chat');
+const { getSecretaryMentionInfo, getCasualReply, getCasualReplyWithContext, getTiredReply } = require('./secretary-chat');
 const { detectSystemStatusKind, formatSystemStatusReply } = require('./system-status');
 const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-risk');
 const {
@@ -197,7 +197,8 @@ async function handleText(event, client) {
     } else if (aiEnabled) {
       replyText = getTiredReply();
     } else {
-      replyText = getCasualReply(text);
+      const recentConversation = sourceId ? await getRecentConversation(sourceId, 15) : [];
+      replyText = getCasualReplyWithContext(text, recentConversation, senderName);
     }
     return client.replyMessage(event.replyToken, { type: 'text', text: replyText });
   }
@@ -353,11 +354,12 @@ async function buildAiConversationContext(year, month, senderName = null, source
 function detectTextIntent(text) {
   const { compact, mentioned, withoutMention } = getSecretaryMentionInfo(text);
   if (!compact) return null;
+  if (!mentioned) return null;
 
-  if (mentioned && (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention))) return 'help';
-  if (mentioned && /(まとめて|要約|最近の会話|会話まとめ|何話してた|なに話してた|みんな何|みんな何言)/.test(withoutMention)) return 'summary';
+  if (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention)) return 'help';
+  if (/(まとめて|要約|最近の会話|会話まとめ|何話してた|なに話してた|みんな何|みんな何言)/.test(withoutMention)) return 'summary';
 
-  const targetText = mentioned ? withoutMention : compact;
+  const targetText = withoutMention;
 
   if (detectBillingRiskIntent(targetText)) return 'billing';
 
@@ -383,8 +385,7 @@ function detectTextIntent(text) {
   if (/(進捗|しんちょく|やってない|まだ.*試合|試合.*まだ|残り.*試合|試合.*残り|誰がまだ|だれがまだ|やった.*誰|誰.*やった|片方|1試合|未消化)/.test(targetText)) return 'progress';
 
   if (/(状況|戦況|成績|調子|まとめ|誰が強い|だれが強い|勝ってる)/.test(targetText)) return 'status';
-  if (!mentioned && /(秘書|bot|ぼっと|ウイコレちゃん|お話|話そ|相談)/.test(targetText)) return 'status';
-  if (mentioned) return 'casual';
+  return 'casual';
 
   return null;
 }

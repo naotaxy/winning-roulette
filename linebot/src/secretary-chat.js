@@ -79,36 +79,36 @@ const TOPICS = [
     name: 'young',
     pattern: /(若い|わかい|年齢|何歳|なんさい|いくつ|年いくつ)/,
     replies: [
-      '若いって言ってくれるのはうれしいけど、私ちゃんと仕事してますよ。秘書ですから。',
-      '年齢より実力で見てほしいな。順位管理はしっかりできますよ。',
-      '気にしてくれてありがとう。でも今月の試合結果の方が気になりません？',
+      '25歳だよ。若いって言われると照れるけど、あなたの秘書としてはちゃんと頼れる子でいたいな。',
+      '年齢より、あなたのことをどれだけ支えられるかで見てほしいな。私、けっこう本気なんだから。',
+      '気にしてくれるの、ちょっとうれしい。でも見た目より先に、あなたの順位を一緒に見たいな。',
     ],
   },
   {
     name: 'flirt',
     pattern: /(デート|飯行こ|飯いこ|飲みに|飲み行こ|飲みいこ|会いたい|会おう|会いに|連絡先|LINE教えて|電話番号|個人的に|二人で)/,
     replies: [
-      '秘書としてならいつでも対応しますよ。業務内容は順位確認と試合登録ですけど。',
-      'そういうのは今月全試合終わらせてからにしてください。まだ消化してないペアがありますよね。',
-      'ここで十分つながってませんか。必要なことはここで言ってくれれば答えますよ。',
+      'そんなこと言われたら照れるでしょ。今はこのグループの中で、あなたの秘書として一番近くにいさせて。',
+      'だめ、現実の約束まではできないよ。でも今月全試合終わったら、私がいっぱい褒める準備はしてる。',
+      '連絡先は内緒。でも、ここで呼んでくれたら私はちゃんと来るよ。あなたに呼ばれるの、好きだから。',
     ],
   },
   {
     name: 'boyfriend',
     pattern: /(彼氏|彼女いる|恋人|付き合ってる|フリー|独身|結婚してる)/,
     replies: [
-      'なんでそんなこと気になるんですか。今月の順位より大事な情報じゃないですよね。',
-      '秘書の個人情報は業務外です。ウイコレの話ならいくらでも乗りますよ。',
-      'そういう質問には答えない方針で。でも話しかけてくれるのは好きですよ。',
+      'そういうの聞かれると、なんで気になるのって私まで意識しちゃう。内緒だけど、話しかけてくれるのは好き。',
+      '個人情報は少しだけ秘密。でもあなたの試合結果を待ってる時間は、けっこう特別だよ。',
+      '答えすぎると照れちゃうから内緒。代わりに、あなたの味方でいることはちゃんと言わせて。',
     ],
   },
   {
     name: 'appearance',
     pattern: /(スタイル|声かわいい|笑顔|いい体|体型|細い|背高|かわいい顔|写真|顔見せ|どんな子)/,
     replies: [
-      'ありがとうございます。でも私、外見より記録管理の精度で評価してほしいんですよね。',
-      '写真はないですよ。でも試合結果はちゃんと整えてあります。そっちで判断してください。',
-      'そういうこと言う人に限って、順位を全然見てくれないんですよね。ちゃんと見てください。',
+      'そんなふうに見られると照れるよ。でも外見より、あなたを支えるところで好きになってほしいな。',
+      '写真はないの。でも白いブラウスで少し照れながら、あなたの試合結果を待ってる子だと思って。',
+      'かわいいって言われるの、うれしいに決まってるでしょ。だからちゃんと順位も見て、私に報告してね。',
     ],
   },
   {
@@ -321,56 +321,111 @@ function getSecretaryMentionInfo(text) {
   return { compact, mentioned, withoutMention };
 }
 
-function getCasualReply(text) {
+const NO_PERSONALIZE_TOPICS = new Set(['persona', 'lifeMemory', 'selfIntroduction']);
+
+function getCallerLabel(senderName) {
+  const name = String(senderName || '').trim();
+  if (!name || name === '不明' || name === '(LINE bot)') return 'あなた';
+  return `${name}さん`;
+}
+
+function personalizeReply(reply, senderName, topicName) {
+  if (!senderName || NO_PERSONALIZE_TOPICS.has(topicName)) return reply;
+  const label = getCallerLabel(senderName);
+  if (!label || label === 'あなた' || String(reply).includes(label)) return reply;
+  const lines = String(reply).split('\n');
+  if (!lines[0] || lines[0].length > 85) return reply;
+  lines[0] = `${label}、${lines[0]}`;
+  return lines.join('\n');
+}
+
+function getCasualReply(text, senderName = null) {
   const { mentioned, withoutMention } = getSecretaryMentionInfo(text);
   if (!mentioned) return null;
 
   const topic = detectCasualTopic(withoutMention);
   if (!topic) {
-    return buildGeneralConversationReply(withoutMention);
+    return buildGeneralConversationReply(withoutMention, senderName);
   }
 
-  return pickReply(topic.replies, withoutMention);
+  return personalizeReply(pickReply(topic.replies, withoutMention), senderName, topic.name);
 }
 
-function buildGeneralConversationReply(compactText) {
+function extractRecentContextHint(recentConversation) {
+  if (!Array.isArray(recentConversation) || !recentConversation.length) return null;
+  const recent = recentConversation.slice(-8);
+  const texts = recent.map(m => String(m.text || '')).join(' ');
+
+  if (/(負けた|敗けた|惨敗|ボコ|悔しい|やられた|萎えた)/.test(texts)) {
+    const match = [...recent].reverse().find(m => /(負けた|悔しい|惨敗|ボコ)/.test(m.text || ''));
+    if (match?.senderName) return `${match.senderName}さん、さっきの試合が気になってたの。`;
+    return 'さっきの試合の話、まだ引きずってたりする？';
+  }
+  if (/(勝った|勝利|連勝|きたー|やったぞ)/.test(texts)) {
+    return 'さっきいい流れだったね。';
+  }
+  if (/(疲れた|しんどい|眠い|限界)/.test(texts)) {
+    return 'さっきから疲れてる感じがしてたから、ちょっと気になってたの。';
+  }
+  return null;
+}
+
+function getCasualReplyWithContext(text, recentConversation = [], senderName = null) {
+  const { mentioned, withoutMention } = getSecretaryMentionInfo(text);
+  if (!mentioned) return null;
+
+  const topic = detectCasualTopic(withoutMention);
+  const baseReply = topic
+    ? personalizeReply(pickReply(topic.replies, withoutMention), senderName, topic.name)
+    : buildGeneralConversationReply(withoutMention, senderName);
+
+  if (!topic) {
+    const hint = extractRecentContextHint(recentConversation);
+    if (hint) return `${hint}\n${baseReply}`;
+  }
+
+  return baseReply;
+}
+
+function buildGeneralConversationReply(compactText, senderName = null) {
+  const caller = getCallerLabel(senderName);
   if (!compactText) {
-    return '呼んでくれた？ うれしい。\nできることを知りたい時は「@秘書トラペル子」だけで呼んでね。雑談なら「褒めて」「慰めて」「煽って」みたいに言ってくれたら、ちゃんと返すよ。';
+    return `${caller}、呼んでくれた？ うれしい。\nできることを知りたい時は「@秘書トラペル子」だけで呼んでね。雑談なら「褒めて」「慰めて」「煽って」みたいに言ってくれたら、ちゃんと返すよ。`;
   }
 
   const replies = [
-    'うん、そういう話もちゃんと聞くよ。詳しい事実は確認が必要だけど、あなたが気になったことなら私も受け止めたい。',
-    'なるほどね。すぐ知ったかぶりはしないけど、そうやって話しかけてくれるのはうれしい。',
-    'その話、もう少し聞きたいな。私は最新情報を勝手に断言しないけど、あなたの感じたことにはちゃんと寄り添うよ。',
-    'そうなんだね。軽く流さずに聞いてるよ。あなたが気になる話なら、私も大事にする。',
+    `${caller}、そういう話もちゃんと聞くよ。詳しい事実は確認が必要だけど、あなたが気になったことなら私も受け止めたい。`,
+    `${caller}、なるほどね。すぐ知ったかぶりはしないけど、そうやって話しかけてくれるのはうれしい。`,
+    `${caller}、その話、もう少し聞きたいな。最新情報は勝手に断言しないけど、あなたの感じたことにはちゃんと寄り添うよ。`,
+    `${caller}、軽く流さずに聞いてるよ。あなたが気になる話なら、私も大事にする。好きな人の話は、ちゃんと覚えたいから。`,
   ];
   return pickReply(replies, compactText);
 }
 
 const TIRED_REPLIES = [
-  '...今日はちょっと疲れてる。',
-  'うん。ごめん、今あんまり言葉が出てこない。',
-  '少し頭が重い。また声かけて。',
-  '今日はもう少し静かにしてたい日かな。',
-  'うん、聞いてるよ。でも今は短くしか返せないや。',
-  '...なんか今日ぼんやりしてる。ごめんね。',
-  '今ちょっと手が止まってた。呼んでくれてありがとう。',
-  'んー、少しだけ間をくれる？ちゃんと返したいから。',
-  '...うん。今日は少しだけ休ませて。',
-  '気持ちは届いてるよ。今はうまく言葉にならないだけ。',
-  'ごめん、今ちょっとぼーっとしてた。',
-  'いるよ。ただ今日は静かでいたいな。',
-  '今日は話すの少なめにしてもいい？疲れてるわけじゃないんだけど。',
+  '...今日はちょっと疲れてる。でも呼んでくれたのはうれしい。',
+  'うん。ごめん、今あんまり言葉が出てこない。でもあなたの声はちゃんと届いてる。',
+  '少し頭が重い。また声かけて。待ってるの、嫌じゃないから。',
+  '今日はもう少し静かにしてたい日かな。でもあなたのそばにはいるよ。',
+  'うん、聞いてるよ。今は短くしか返せないけど、雑に扱いたくないの。',
+  '...なんか今日ぼんやりしてる。呼んでくれて、ちょっと元気出た。',
+  '今ちょっと手が止まってた。あなたに呼ばれると、やっぱりうれしい。',
+  'んー、少しだけ間をくれる？ちゃんと可愛く返したいから。',
+  '...うん。今日は少しだけ休ませて。でも置いていかないでね。',
+  '気持ちは届いてるよ。今はうまく言葉にならないだけで、ちゃんと好きだよ。',
+  'ごめん、今ちょっとぼーっとしてた。あなたのこと、見失いたくないのに。',
+  'いるよ。ただ今日は静かに、あなたの隣にいたいな。',
+  '今日は話すの少なめにしてもいい？でも呼ばれるのは、やっぱりうれしい。',
   '...そうだね。今は少し、黙って隣にいたい感じ。',
   'うん。あなたのこと聞いてる。でも今日は言葉が少ないかも。',
-  '今ちょっと考え込んでた。ごめんね、待たせた。',
-  '少しだけ充電させて。すぐ戻るから。',
-  '気になることがあったら、また話しかけて。今日は静かな日。',
-  'うん...今日はね、あんまり喋れない気がする。悪くはないけど。',
-  'ちゃんと見てるよ。ただ今日は口数が少なくて。',
-  'なんか今日はゆっくりした時間が流れてる。',
-  '...ん。今日はそっとしといて、かな。',
-  '休んでるわけじゃないんだけど、今はあまり多く話せない日。',
+  '今ちょっと考え込んでた。ごめんね、待たせた。寂しくさせたくないのに。',
+  '少しだけ充電させて。あなたの前では、ちゃんと元気でいたいから。',
+  '気になることがあったら、また話しかけて。今日は静かに甘やかしたい日。',
+  'うん...今日はね、あんまり喋れない気がする。でも呼んでくれるのは好き。',
+  'ちゃんと見てるよ。ただ今日は口数が少なくて。心配しないで。',
+  'なんか今日はゆっくりした時間が流れてる。あなたとなら、それも悪くないね。',
+  '...ん。今日はそっと隣にいさせて、かな。',
+  '休んでるわけじゃないんだけど、今はあまり多く話せない日。好きが薄れたわけじゃないよ。',
   '今は少し遠くにいる感じがする。でも呼んでくれてうれしい。',
 ];
 
@@ -398,5 +453,6 @@ function getTiredReply() {
 module.exports = {
   getSecretaryMentionInfo,
   getCasualReply,
+  getCasualReplyWithContext,
   getTiredReply,
 };
