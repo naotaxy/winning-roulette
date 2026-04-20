@@ -1243,6 +1243,62 @@ body {
 }
 .btn-save:hover { background: rgba(6,199,85,0.28); }
 
+.settings-note {
+  font-size: 0.78em;
+  color: var(--text-sub);
+  line-height: 1.55;
+  margin-bottom: 10px;
+}
+
+.match-schedule-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.match-schedule-row label {
+  color: var(--text-sub);
+  font-size: 0.78em;
+  white-space: nowrap;
+}
+
+.match-week-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.match-week-option {
+  display: block;
+  cursor: pointer;
+}
+
+.match-week-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.match-week-option span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text-sub);
+  font-size: 0.76em;
+  font-weight: 700;
+}
+
+.match-week-option input:checked + span {
+  border-color: rgba(212,175,55,0.65);
+  background: rgba(212,175,55,0.16);
+  color: var(--gold);
+}
+
 /* ══════════════════════════════
    HELP MODAL
 ══════════════════════════════ */
