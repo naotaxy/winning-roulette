@@ -14,7 +14,8 @@
  *   FIREBASE_SERVICE_ACCOUNT, FIREBASE_DATABASE_URL
  *
  * 任意:
- *   DIARY_PHOTO_URL, DIARY_PHOTO_CAPTION
+ *   DIARY_PHOTO_URL, DIARY_PHOTO_CAPTION,
+ *   DIARY_GEMINI_MODEL, DIARY_GEMINI_FALLBACK_MODELS
  */
 
 const fs   = require('fs');
@@ -32,10 +33,16 @@ const {
   FIREBASE_DATABASE_URL,
   DIARY_PHOTO_URL,
   DIARY_PHOTO_CAPTION,
+  DIARY_GEMINI_MODEL,
+  DIARY_GEMINI_FALLBACK_MODELS,
 } = process.env;
 
 const BLOG_DIR = path.join(__dirname, '..', 'blog');
 const DIARY_STATE_FILE = path.join(BLOG_DIR, 'diary-state.json');
+const DEFAULT_DIARY_GEMINI_MODEL = 'gemini-2.5-flash';
+const DEFAULT_DIARY_GEMINI_FALLBACK_MODELS = ['gemini-2.5-flash-lite'];
+const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GEMINI_RETRY_DELAYS_MS = [5000, 15000, 30000];
 
 const WORLD_CUP_2026 = {
   startsAt: '2026-06-11',
@@ -519,25 +526,104 @@ ${lifestyleBlock}
 - 情報がなかった日は「静かな一日」として日常の観察を綴る。
 - 最後の一文は「また明日も記録しておくから」「ちゃんと覚えておくね」のような締め方にする。`;
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens: 2048,
-          temperature: 0.9,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
-    }
-  );
-  const data = await res.json();
+  const data = await generateGeminiContentWithRetry(prompt);
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error(`Gemini error: ${JSON.stringify(data.error || data)}`);
   return humanizeDiaryText(text);
+}
+
+async function generateGeminiContentWithRetry(prompt) {
+  const models = getDiaryGeminiModels();
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      maxOutputTokens: 2048,
+      temperature: 0.9,
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  };
+  const errors = [];
+
+  for (const model of models) {
+    for (let attempt = 0; attempt <= GEMINI_RETRY_DELAYS_MS.length; attempt++) {
+      try {
+        console.log(`[gemini] generate model=${model} attempt=${attempt + 1}`);
+        return await requestGeminiGenerateContent(model, requestBody);
+      } catch (err) {
+        errors.push(`${model}#${attempt + 1}: ${err.message}`);
+        if (!err.retryable || attempt >= GEMINI_RETRY_DELAYS_MS.length) {
+          console.warn(`[gemini] giving up model=${model}: ${err.message}`);
+          break;
+        }
+
+        const delayMs = GEMINI_RETRY_DELAYS_MS[attempt];
+        console.warn(`[gemini] retryable ${err.status || ''}: ${err.message}. wait ${Math.round(delayMs / 1000)}s`);
+        await sleep(delayMs);
+      }
+    }
+  }
+
+  throw new Error(`Gemini error after retries: ${errors.join(' | ')}`);
+}
+
+async function requestGeminiGenerateContent(model, requestBody) {
+  const cleanModel = String(model || DEFAULT_DIARY_GEMINI_MODEL).replace(/^models\//, '');
+  const url = `${GEMINI_GENERATE_CONTENT_BASE_URL}/${encodeURIComponent(cleanModel)}:generateContent?key=${GEMINI_API_KEY}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+  });
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok || data.error) {
+    const status = data.error?.code || res.status;
+    const error = new Error(formatGeminiError(status, data.error || data));
+    error.status = status;
+    error.retryable = isRetryableGeminiError(status, data.error || data);
+    throw error;
+  }
+
+  return data;
+}
+
+function getDiaryGeminiModels() {
+  const models = [
+    DIARY_GEMINI_MODEL || DEFAULT_DIARY_GEMINI_MODEL,
+    ...parseCommaList(DIARY_GEMINI_FALLBACK_MODELS),
+    ...DEFAULT_DIARY_GEMINI_FALLBACK_MODELS,
+  ];
+  const seen = new Set();
+  return models
+    .map(model => String(model || '').trim())
+    .filter(model => {
+      if (!model || seen.has(model)) return false;
+      seen.add(model);
+      return true;
+    });
+}
+
+function parseCommaList(value) {
+  return String(value || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function isRetryableGeminiError(status, errorPayload) {
+  const text = JSON.stringify(errorPayload || '').toLowerCase();
+  return [429, 500, 502, 503, 504].includes(Number(status)) ||
+    /unavailable|high demand|overloaded|timeout|temporar|rate limit|quota/.test(text);
+}
+
+function formatGeminiError(status, errorPayload) {
+  const message = errorPayload?.message || JSON.stringify(errorPayload || {});
+  const code = status || errorPayload?.code || 'unknown';
+  return `HTTP ${code} ${String(message).replace(/\s+/g, ' ').slice(0, 240)}`;
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function humanizeDiaryText(text) {
