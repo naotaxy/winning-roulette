@@ -14,9 +14,9 @@ async function inspectImage(imageBuffer) {
 
 function looksLikePhoneScreenshot(profile) {
   if (!profile) return false;
-  if (profile.width < 600 || profile.height < 900) return false;
+  if (profile.width < 320 || profile.height < 500) return false;
   if (profile.height <= profile.width) return false;
-  return profile.ratio >= 0.35 && profile.ratio <= 0.90;
+  return profile.ratio >= 0.25 && profile.ratio <= 1.05;
 }
 
 function classifyOcrResult(ocrResult) {

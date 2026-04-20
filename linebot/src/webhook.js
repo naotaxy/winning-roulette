@@ -96,7 +96,7 @@ async function handleImage(event, client) {
     ocrResult = await parseMatchResult(buffer, playerMap);
   } catch (err) {
     console.error('[webhook] OCR failed', err);
-    return client.replyMessage(event.replyToken, {
+    return sendImageResponse(event, client, {
       type: 'text',
       text: 'ごめんね、うまく読み取れなかったの。\nあなたの試合、ちゃんと受け取りたかったから少し悔しいな。\nアプリから入れてくれたら、私が大事に預かるね。\nhttps://naotaxy.github.io/winning-roulette/',
     });
@@ -109,7 +109,7 @@ async function handleImage(event, client) {
   }
   if (!ocrClass.isCompleteMatch) {
     console.log(`[webhook] uicolle-like image incomplete msgId=${msgId} scores=${ocrClass.hasScores} matchedTeams=${ocrClass.matchedTeams}`);
-    return client.replyMessage(event.replyToken, {
+    return sendImageResponse(event, client, {
       type: 'text',
       text: '試合結果っぽいところまでは見えたんだけど、チーム名かスコアを片方見失っちゃった。\nもう一回送って。次はちゃんと見つけたいの。',
     });
@@ -139,7 +139,19 @@ async function handleImage(event, client) {
 
   /* 確認FlexMessageを送信 */
   const flex = buildConfirmFlex(ocrResult, msgId);
-  return client.replyMessage(event.replyToken, flex);
+  return sendImageResponse(event, client, flex);
+}
+
+async function sendImageResponse(event, client, message) {
+  const to = event.source.groupId || event.source.roomId || event.source.userId;
+  if (to && typeof client.pushMessage === 'function') {
+    try {
+      return await client.pushMessage(to, message);
+    } catch (err) {
+      console.error('[webhook] image push failed', err);
+    }
+  }
+  return client.replyMessage(event.replyToken, message);
 }
 
 async function handleText(event, client) {
