@@ -437,6 +437,30 @@ function sanitizeGuardDetails(details) {
   return safe;
 }
 
+/* グループ会話メモリ */
+const CONVERSATION_ROOT = 'conversations';
+
+async function saveConversationMessage(sourceId, senderName, text) {
+  if (!sourceId || !text) return;
+  await getDb().ref(`${CONVERSATION_ROOT}/${sourceId}/messages`).push({
+    senderName: String(senderName || '不明').slice(0, 50),
+    text: String(text).slice(0, 500),
+    timestamp: Date.now(),
+  });
+}
+
+async function getRecentConversation(sourceId, limit = 100) {
+  if (!sourceId) return [];
+  const snap = await getDb()
+    .ref(`${CONVERSATION_ROOT}/${sourceId}/messages`)
+    .orderByChild('timestamp')
+    .limitToLast(limit)
+    .once('value');
+  const raw = snap.val();
+  if (!raw) return [];
+  return Object.values(raw).sort((a, b) => a.timestamp - b.timestamp);
+}
+
 /* matchResults に保存 */
 async function saveResult(pending) {
   const { year, month, away, home, awayScore, homeScore, awayPK, homePK, date, addedBy } = pending;
@@ -465,6 +489,8 @@ module.exports = {
   getRestrictMonths,
   getUicolleNews,
   getRecentDiaries,
+  saveConversationMessage,
+  getRecentConversation,
   checkFirebaseStatus,
   getAiChatGuardState,
   reserveAiChatRequest,

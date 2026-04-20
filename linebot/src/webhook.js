@@ -13,6 +13,8 @@ const {
   getRestrictMonths,
   getUicolleNews,
   getRecentDiaries,
+  saveConversationMessage,
+  getRecentConversation,
 } = require('./firebase-admin');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
 const { getTokyoDateParts, shiftMonth } = require('./date-utils');
@@ -141,16 +143,22 @@ async function handleImage(event, client) {
 }
 
 async function handleText(event, client) {
-  const intent = detectTextIntent(event.message.text || '');
-  if (!intent) return;
-
-  const { year, month } = getTokyoDateParts();
+  const text = event.message.text || '';
+  const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
 
   let senderName = null;
   try {
     const profile = await client.getProfile(event.source.userId);
     senderName = profile.displayName || null;
   } catch (_) {}
+
+  // 全メッセージを会話メモリに保存（話者名付き）
+  saveConversationMessage(sourceId, senderName, text).catch(() => {});
+
+  const intent = detectTextIntent(text);
+  if (!intent) return;
+
+  const { year, month } = getTokyoDateParts();
 
   if (intent === 'help') {
     return client.replyMessage(event.replyToken, {
@@ -159,10 +167,29 @@ async function handleText(event, client) {
     });
   }
 
+  if (intent === 'summary') {
+    const messages = await getRecentConversation(sourceId, 100);
+    if (!messages.length) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'まだ会話の記録がないみたい。これからしっかり覚えておくね。',
+      });
+    }
+    const conversationLog = messages.map(m => `${m.senderName}: ${m.text}`).join('\n');
+    const summaryPrompt = `このグループの直近${messages.length}件の会話を、秘書として自然に3〜5文でまとめてください:\n\n${conversationLog}`;
+    const aiReply = shouldUseAiChat()
+      ? await formatAiChatReply(summaryPrompt, { year, month, senderName })
+      : null;
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: aiReply || `直近${messages.length}件の会話はちゃんと覚えてるよ。要約にはAI機能が必要だけど、記録はしてある。`,
+    });
+  }
+
   if (intent === 'casual') {
     const aiEnabled = shouldUseAiChat();
     const aiReply = aiEnabled
-      ? await formatAiChatReply(event.message.text || '', await buildAiConversationContext(year, month, senderName))
+      ? await formatAiChatReply(text, await buildAiConversationContext(year, month, senderName, sourceId))
       : null;
     let replyText;
     if (aiReply) {
@@ -170,7 +197,7 @@ async function handleText(event, client) {
     } else if (aiEnabled) {
       replyText = getTiredReply();
     } else {
-      replyText = getCasualReply(event.message.text || '');
+      replyText = getCasualReply(text);
     }
     return client.replyMessage(event.replyToken, { type: 'text', text: replyText });
   }
@@ -290,13 +317,14 @@ async function handleText(event, client) {
   });
 }
 
-async function buildAiConversationContext(year, month, senderName = null) {
+async function buildAiConversationContext(year, month, senderName = null, sourceId = null) {
   try {
     const players = await getPlayers();
-    const [monthResults, yearResults, diaries] = await Promise.all([
+    const [monthResults, yearResults, diaries, recentConversation] = await Promise.all([
       getMonthResults(year, month),
       getYearResults(year),
       getRecentDiaries(3),
+      sourceId ? getRecentConversation(sourceId, 20) : Promise.resolve([]),
     ]);
     const monthlyRows = calculateMonthlyStandings(players, monthResults);
     const annualRows = calculateAnnualStandings(players, yearResults);
@@ -314,6 +342,7 @@ async function buildAiConversationContext(year, month, senderName = null) {
         date: d.date,
         text: d.text?.slice(0, i === 0 ? 1500 : 300) || '',
       })),
+      recentConversation,
     };
   } catch (err) {
     console.error('[ai-chat] context failed', err?.message || err);
@@ -326,6 +355,7 @@ function detectTextIntent(text) {
   if (!compact) return null;
 
   if (mentioned && (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention))) return 'help';
+  if (mentioned && /(まとめて|要約|最近の会話|会話まとめ|何話してた|なに話してた|みんな何|みんな何言)/.test(withoutMention)) return 'summary';
 
   const targetText = mentioned ? withoutMention : compact;
 

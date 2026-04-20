@@ -414,6 +414,13 @@ function formatContext(context = {}) {
       lines.push(`${d.date}: ${d.text}`);
     });
   }
+  if (context.recentConversation?.length) {
+    lines.push('');
+    lines.push('【このグループの最近の会話（話者名付き・参考）】');
+    context.recentConversation.forEach(m => {
+      lines.push(`${m.senderName}: ${m.text.slice(0, 100)}`);
+    });
+  }
   return lines.join('\n');
 }
 
