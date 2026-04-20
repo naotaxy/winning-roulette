@@ -37,6 +37,8 @@ jobs:
           FIREBASE_DATABASE_URL:    ${{ secrets.FIREBASE_DATABASE_URL }}
           DIARY_PHOTO_URL:          ${{ secrets.DIARY_PHOTO_URL }}
           DIARY_PHOTO_CAPTION:      ${{ secrets.DIARY_PHOTO_CAPTION }}
+          DIARY_GEMINI_MODEL:       ${{ vars.DIARY_GEMINI_MODEL }}
+          DIARY_GEMINI_FALLBACK_MODELS: ${{ vars.DIARY_GEMINI_FALLBACK_MODELS }}
         run: node scripts/generate-diary.js
 
       - name: Commit blog archive
