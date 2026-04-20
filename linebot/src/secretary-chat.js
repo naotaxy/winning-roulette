@@ -374,9 +374,25 @@ const TIRED_REPLIES = [
   '今は少し遠くにいる感じがする。でも呼んでくれてうれしい。',
 ];
 
+function getRecoveryPhrase() {
+  const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
+  const nextMidnight = new Date(Date.UTC(
+    nowJst.getUTCFullYear(), nowJst.getUTCMonth(), nowJst.getUTCDate() + 1,
+    0, 0, 0,
+  ));
+  const hoursLeft = Math.ceil((nextMidnight - Date.now()) / (3600 * 1000));
+
+  if (hoursLeft <= 1) return 'もうすぐ元気になるよ。';
+  if (hoursLeft <= 3) return `あと${hoursLeft}時間くらいで元気になると思う。`;
+  if (hoursLeft <= 6) return '今夜遅くには元気になるかな。';
+  if (hoursLeft <= 12) return '夜にはまた元気になるね。';
+  return '明日の朝にはまた元気になるね。';
+}
+
 function getTiredReply() {
   const minuteBucket = Math.floor(Date.now() / (60 * 1000));
-  return TIRED_REPLIES[minuteBucket % TIRED_REPLIES.length];
+  const base = TIRED_REPLIES[minuteBucket % TIRED_REPLIES.length];
+  return `${base}\n${getRecoveryPhrase()}`;
 }
 
 module.exports = {
