@@ -11,6 +11,7 @@ const {
   getYearResults,
   getMonthlyRule,
   getRestrictMonths,
+  getMatchSchedule,
   getUicolleNews,
   getRecentDiaries,
   saveConversationMessage,
@@ -335,7 +336,8 @@ async function handleText(event, client) {
   const monthlyRows = calculateMonthlyStandings(players, monthResults);
 
   if (intent === 'progress') {
-    const progress = calculateMonthProgress(players, monthResults);
+    const matchSchedule = await getMatchSchedule();
+    const progress = calculateMonthProgress(players, monthResults, matchSchedule);
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: formatProgress(year, month, progress),
@@ -343,7 +345,8 @@ async function handleText(event, client) {
   }
 
   if (intent === 'missingMatchups') {
-    const progress = calculateMonthProgress(players, monthResults);
+    const matchSchedule = await getMatchSchedule();
+    const progress = calculateMonthProgress(players, monthResults, matchSchedule);
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: formatMissingMatchups(year, month, progress),

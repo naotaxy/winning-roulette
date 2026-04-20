@@ -1,5 +1,7 @@
 'use strict';
 
+const { normalizeMatchSchedule, formatMatchSchedule } = require('./match-schedule');
+
 const RANK_BONUS = [5, 3, 2, 1, 0];
 
 function normalizePlayers(players) {
@@ -150,15 +152,17 @@ function formatSecretaryStatus(year, month, monthlyRows, annualRows) {
 }
 
 /* ── 月次進捗 ──
-   5人総当たり・各ペア2試合 = 10ペア×2 = 20試合/月
+   5人総当たり・各ペアの予定試合数で集計
    pairKey(A,B) は常に辞書順で正規化する */
 function pairKey(a, b) {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
-function calculateMonthProgress(players, results) {
+function calculateMonthProgress(players, results, matchSchedule) {
   const names = normalizePlayers(players).map(p => p.name);
   if (names.length < 2) return null;
+  const schedule = normalizeMatchSchedule(matchSchedule);
+  const targetMatchesPerPair = schedule.matchesPerPair;
 
   /* 各ペアの試合数を集計 */
   const pairCount = {};
@@ -173,15 +177,15 @@ function calculateMonthProgress(players, results) {
     if (key in pairCount) pairCount[key]++;
   });
 
-  const total = Object.keys(pairCount).length * 2; // 20試合
-  const done  = Object.values(pairCount).reduce((s, c) => s + Math.min(c, 2), 0);
+  const total = Object.keys(pairCount).length * targetMatchesPerPair;
+  const done  = Object.values(pairCount).reduce((s, c) => s + Math.min(c, targetMatchesPerPair), 0);
 
   /* 未着手・途中のペアを抽出 */
   const notStarted = [], half = [];
   Object.entries(pairCount).forEach(([key, count]) => {
     const [a, b] = key.split('|');
-    if (count === 0) notStarted.push([a, b]);
-    else if (count === 1) half.push([a, b]);
+    if (count === 0) notStarted.push([a, b, targetMatchesPerPair]);
+    else if (count < targetMatchesPerPair) half.push([a, b, count, targetMatchesPerPair]);
   });
 
   /* 一度も試合していないプレイヤー */
@@ -190,30 +194,30 @@ function calculateMonthProgress(players, results) {
   );
   const noGames = names.filter(n => !played.has(n));
 
-  return { names, total, done, notStarted, half, noGames };
+  return { names, total, done, notStarted, half, noGames, matchSchedule: schedule, targetMatchesPerPair };
 }
 
 function formatProgress(year, month, progress) {
   if (!progress) {
     return `${year}年${month}月の進捗を確認しようとしたけど、プレイヤーデータが取れなかったよ。\nもう一度呼んでくれたら、ちゃんと調べてみる。`;
   }
-  const { total, done, notStarted, half, noGames } = progress;
+  const { total, done, notStarted, half, noGames, matchSchedule } = progress;
   const remaining = total - done;
 
   const lines = [];
   lines.push(`${year}年${month}月の試合進捗、まとめたよ。`);
-  lines.push(`全${total}試合中 ${done}試合完了（残り${remaining}試合）`);
+  lines.push(`${formatMatchSchedule(matchSchedule)}の予定で、全${total}試合中 ${done}試合完了（残り${remaining}試合）`);
 
   if (noGames.length) {
     lines.push(`\nまだ1試合もしてない人: ${noGames.map(n => `${n}さん`).join('、')}`);
   }
   if (half.length) {
-    lines.push(`\n1試合だけ済んでるペア:`);
-    half.forEach(([a, b]) => lines.push(`  ${a} vs ${b}`));
+    lines.push(`\n途中まで済んでるペア:`);
+    half.forEach(([a, b, count, target]) => lines.push(`  ${a} vs ${b}: ${count}/${target}試合`));
   }
   if (notStarted.length) {
     lines.push(`\nまだ1試合もしてないペア:`);
-    notStarted.forEach(([a, b]) => lines.push(`  ${a} vs ${b}`));
+    notStarted.forEach(([a, b, target]) => lines.push(`  ${a} vs ${b}: あと${target}試合`));
   }
   if (remaining === 0) {
     lines.push(`\n全試合完了してる。みんな頑張ったね。`);
@@ -228,10 +232,15 @@ function formatMissingMatchups(year, month, progress) {
     return `${year}年${month}月の未対戦を見ようとしたけど、プレイヤーデータが取れなかったの。\nもう一回呼んで。次はちゃんと探すね。`;
   }
 
+  const targetMatchesPerPair = progress.targetMatchesPerPair || normalizeMatchSchedule(progress.matchSchedule).matchesPerPair;
   const rows = [
-    ...progress.notStarted.map(([a, b]) => ({ a, b, remaining: 2 })),
-    ...progress.half.map(([a, b]) => ({ a, b, remaining: 1 })),
-  ];
+    ...progress.notStarted.map(([a, b, target]) => ({ a, b, remaining: target || targetMatchesPerPair })),
+    ...progress.half.map(([a, b, count, target]) => ({
+      a,
+      b,
+      remaining: Math.max((target || targetMatchesPerPair) - (count || 0), 0),
+    })),
+  ].filter(row => row.remaining > 0);
   const remaining = rows.reduce((sum, row) => sum + row.remaining, 0);
 
   if (!rows.length) {
@@ -239,7 +248,7 @@ function formatMissingMatchups(year, month, progress) {
   }
 
   const lines = [
-    `${year}年${month}月、あと残ってる対戦は${remaining}試合分だよ。`,
+    `${year}年${month}月、${formatMatchSchedule(progress.matchSchedule)}の予定で、あと残ってる対戦は${remaining}試合分だよ。`,
     ...rows.map(row => `・${row.a}さん vs ${row.b}さん: あと${row.remaining}試合`),
     '',
     'ここを埋めたら順位が動きそう。早く見たいな、私。',

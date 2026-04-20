@@ -2,6 +2,7 @@
 
 const admin = require('firebase-admin');
 const { getTokyoDateParts } = require('./date-utils');
+const { normalizeMatchSchedule } = require('./match-schedule');
 
 let _db = null;
 
@@ -95,6 +96,11 @@ async function getRestrictMonths() {
   if (!months.length) return DEFAULT_RESTRICT_MONTHS;
   const normalized = months.map(Number).filter(month => Number.isInteger(month) && month >= 1 && month <= 12);
   return normalized.length ? normalized : DEFAULT_RESTRICT_MONTHS;
+}
+
+async function getMatchSchedule() {
+  const snap = await getDb().ref('config/matchSchedule').once('value');
+  return normalizeMatchSchedule(snap.val());
 }
 
 async function checkFirebaseStatus() {
@@ -487,6 +493,7 @@ module.exports = {
   getYearResults,
   getMonthlyRule,
   getRestrictMonths,
+  getMatchSchedule,
   getUicolleNews,
   getRecentDiaries,
   saveConversationMessage,
