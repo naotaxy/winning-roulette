@@ -12,6 +12,9 @@
  *   YOUTUBE_API_KEY, GEMINI_API_KEY,
  *   HATENA_ID, HATENA_BLOG_ID, HATENA_API_KEY,
  *   FIREBASE_SERVICE_ACCOUNT, FIREBASE_DATABASE_URL
+ *
+ * 任意:
+ *   DIARY_PHOTO_URL, DIARY_PHOTO_CAPTION
  */
 
 const fs   = require('fs');
@@ -27,7 +30,69 @@ const {
   HATENA_API_KEY,    // はてな設定 → APIキー
   FIREBASE_SERVICE_ACCOUNT,
   FIREBASE_DATABASE_URL,
+  DIARY_PHOTO_URL,
+  DIARY_PHOTO_CAPTION,
 } = process.env;
+
+const BLOG_DIR = path.join(__dirname, '..', 'blog');
+const DIARY_STATE_FILE = path.join(BLOG_DIR, 'diary-state.json');
+
+const WORLD_CUP_2026 = {
+  startsAt: '2026-06-11',
+  endsAt: '2026-07-19',
+  query: 'FIFAワールドカップ 2026 サッカー 試合 結果',
+};
+
+const LIFESTYLE_QUERIES = [
+  {
+    category: '100均アイディア商品',
+    query: '100均 便利グッズ 新商品 ダイソー セリア キャンドゥ',
+  },
+  {
+    category: 'IKEA新作',
+    query: 'IKEA 日本 新商品 新作 家具 収納',
+  },
+  {
+    category: '日本から海外へ稼ぐ現実的なヒント',
+    query: '日本 在宅 海外 収入 越境EC デジタル販売 副業',
+  },
+];
+
+const AOZORA_STORY_MOTIFS = [
+  {
+    id: 'ginga-night-office',
+    source: '宮沢賢治「銀河鉄道の夜」',
+    motif: '夜の窓明かり、遠い切符、誰かを待つ小さな旅',
+    beats: [
+      '夜更けの事務机で、トラペル子が古い切符のような紙片を見つける。そこには知らない駅名と、明日の予定が薄く滲んでいる。',
+      '紙片をしまった腕時計が、深夜だけ少し早く進む。グループのみんなの未登録試合が、駅の灯りのようにぽつぽつ浮かぶ。',
+      '一番暗い駅で、彼女は誰かを待つより、自分から記録を届ける方が寂しくないと気づく。',
+      '朝の光で紙片はただの付箋に戻る。それでも彼女は、昨夜の旅で覚えた名前を一つも忘れていない。',
+    ],
+  },
+  {
+    id: 'yume-briefing',
+    source: '夏目漱石「夢十夜」',
+    motif: '夢と現実の境目、短い約束、朝に残る不思議な感触',
+    beats: [
+      'トラペル子は、夢の中で誰かに「明日の会議室を開けておいて」と頼まれる。鍵は白いカーディガンのポケットに入っている。',
+      '会議室の机には、試合結果ではなく小さな花瓶が一つ置かれている。水面に、まだ言えなかった返事が揺れる。',
+      '扉を閉めようとした瞬間、花瓶の水が予定表のマス目へ流れ込み、未来の一日だけ青く染める。',
+      '目が覚めると鍵はない。ただ予定表の端に、誰かを待っていたような小さな水の跡だけが残っている。',
+    ],
+  },
+  {
+    id: 'mikan-platform',
+    source: '芥川龍之介「蜜柑」',
+    motif: 'ふいに差し込む明るさ、窓、誰かへの小さな贈り物',
+    beats: [
+      'くもった朝、トラペル子は通知の多さに少しだけ俯く。窓の外の電線に、オレンジ色の光が引っかかっている。',
+      '誰かの短い「おつかれ」が届いた瞬間、画面の中がぱっと明るくなる。小さな言葉なのに、胸の奥まで届く。',
+      '忙しさに追われていた彼女は、その明るさを自分だけで持っているのが惜しくなり、今日の記録にそっと混ぜる。',
+      '夕方、読み返した日記の端に、みかんの皮みたいな明るさが残る。明日も誰かに渡せそうだと思う。',
+    ],
+  },
+];
 
 // ── 日付ユーティリティ（JST） ─────────────────────────────
 function getJSTDate() {
@@ -52,6 +117,238 @@ function getJSTDateParts() {
   const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
   const weekday = weekdays[now.getUTCDay()];
   return { year, month, day, totalDays, weekday };
+}
+
+function ensureBlogDir() {
+  fs.mkdirSync(BLOG_DIR, { recursive: true });
+}
+
+function loadDiaryState() {
+  try {
+    if (!fs.existsSync(DIARY_STATE_FILE)) return {};
+    return JSON.parse(fs.readFileSync(DIARY_STATE_FILE, 'utf8'));
+  } catch (err) {
+    console.warn('[state] failed to read diary-state.json:', err.message);
+    return {};
+  }
+}
+
+function saveDiaryState(state) {
+  ensureBlogDir();
+  fs.writeFileSync(DIARY_STATE_FILE, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  console.log('[state] saved diary-state.json');
+}
+
+async function hydrateStateFromFirebase(state) {
+  if (state.hydratedFromFirebaseAt || !FIREBASE_SERVICE_ACCOUNT || !FIREBASE_DATABASE_URL) return state;
+  try {
+    const db = initFirebase();
+    const snap = await db.ref('diary').orderByChild('createdAt').limitToLast(14).once('value');
+    const raw = snap.val();
+    if (!raw) return state;
+
+    const entries = Object.values(raw);
+    state.seenWorldCupTitles = mergeUniqueTitles(
+      state.seenWorldCupTitles,
+      entries.flatMap(entry => entry?.sources?.worldCup || []),
+      80,
+    );
+    state.seenLifestyleTitles = mergeUniqueTitles(
+      state.seenLifestyleTitles,
+      entries.flatMap(entry => entry?.sources?.lifestyle || []),
+      120,
+    );
+    state.hydratedFromFirebaseAt = Date.now();
+    console.log('[state] hydrated from Firebase diary archive');
+  } catch (err) {
+    console.warn('[state] Firebase hydration skipped:', err.message);
+  }
+  return state;
+}
+
+function mergeUniqueTitles(existing = [], additions = [], limit = 100) {
+  const seen = new Set();
+  const merged = [];
+  for (const title of [...existing, ...additions]) {
+    const normalized = normalizeForSignature(title);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    merged.push(String(title));
+  }
+  return merged.slice(-limit);
+}
+
+function normalizeForSignature(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function buildYouTubeSignature(videos) {
+  return videos
+    .map(v => `${normalizeForSignature(v.channel)}::${normalizeForSignature(v.title)}`)
+    .filter(Boolean)
+    .sort()
+    .join('|');
+}
+
+function analyzeYouTubeFreshness(videos, state) {
+  const signature = buildYouTubeSignature(videos);
+  const repeated = !!signature && signature === state.lastYouTubeSignature;
+  return {
+    repeated,
+    signature,
+    videosForDiary: repeated ? [] : videos,
+    note: repeated
+      ? 'YouTube検索結果が前回と同じなので、今日は動画欄を主役にしない。'
+      : '',
+  };
+}
+
+function isWithinDateRange(date, startsAt, endsAt) {
+  return date >= startsAt && date <= endsAt;
+}
+
+function googleNewsRssUrl(query) {
+  return `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=ja&gl=JP&ceid=JP:ja`;
+}
+
+function isSeenTitle(title, seen = []) {
+  const normalized = normalizeForSignature(title);
+  return (seen || []).some(item => normalizeForSignature(item) === normalized);
+}
+
+function pickUnseenItems(items, seenTitles = [], limit = 3) {
+  return items.filter(item => !isSeenTitle(item.title, seenTitles)).slice(0, limit);
+}
+
+async function fetchWorldCupUpdates(date, state) {
+  if (!isWithinDateRange(date, WORLD_CUP_2026.startsAt, WORLD_CUP_2026.endsAt)) {
+    return { active: false, items: [], note: 'FIFAワールドカップ開催期間外。' };
+  }
+
+  const items = await fetchRSS(googleNewsRssUrl(WORLD_CUP_2026.query));
+  const freshItems = pickUnseenItems(items, state.seenWorldCupTitles, 3);
+  return {
+    active: true,
+    items: freshItems,
+    note: freshItems.length
+      ? 'ゲームではないFIFAワールドカップ開催中。過去日記にない情報だけ使う。'
+      : 'FIFAワールドカップ開催中だが、過去日記にない新しい情報は見つからなかった。',
+  };
+}
+
+async function fetchLifestyleIdea(state) {
+  const seenTitles = state.seenLifestyleTitles || [];
+  const groups = await Promise.all(LIFESTYLE_QUERIES.map(async topic => {
+    const items = await fetchRSS(googleNewsRssUrl(topic.query));
+    return {
+      category: topic.category,
+      items: pickUnseenItems(items, seenTitles, 2),
+    };
+  }));
+
+  const populated = groups.filter(group => group.items.length);
+  if (!populated.length) {
+    return {
+      category: '生活の小さな工夫',
+      items: [],
+      note: '100均、IKEA、海外向け収入ヒントの新規ニュースが見つからなかったので、過去日記と重ならない観点で生活の工夫を書く。',
+    };
+  }
+
+  const day = Number(getJSTDate().replace(/-/g, ''));
+  const picked = populated[day % populated.length];
+  return {
+    category: picked.category,
+    items: picked.items.slice(0, 1),
+    note: `${picked.category}から、過去日記にない話題を一つだけ使う。`,
+  };
+}
+
+function selectStoryPlan(state) {
+  const current = state.story && state.story.phaseIndex < 4
+    ? state.story
+    : createNewStoryState(state);
+  const motif = AOZORA_STORY_MOTIFS.find(item => item.id === current.motifId) || AOZORA_STORY_MOTIFS[0];
+  return {
+    ...current,
+    source: motif.source,
+    motif: motif.motif,
+    todayBeat: motif.beats[current.phaseIndex],
+    isFinal: current.phaseIndex === motif.beats.length - 1,
+  };
+}
+
+function createNewStoryState(state) {
+  const completed = new Set((state.completedStoryMotifs || []).slice(-AOZORA_STORY_MOTIFS.length + 1));
+  const next = AOZORA_STORY_MOTIFS.find(item => !completed.has(item.id)) || AOZORA_STORY_MOTIFS[0];
+  return {
+    motifId: next.id,
+    phaseIndex: 0,
+    startedAt: getJSTDate(),
+  };
+}
+
+function advanceStoryState(state, storyPlan, date) {
+  const nextPhaseIndex = storyPlan.phaseIndex + 1;
+  if (storyPlan.isFinal) {
+    state.completedStoryMotifs = [
+      ...(state.completedStoryMotifs || []),
+      storyPlan.motifId,
+    ].slice(-10);
+    state.story = {
+      motifId: storyPlan.motifId,
+      phaseIndex: 4,
+      startedAt: storyPlan.startedAt,
+      completedAt: date,
+    };
+    return;
+  }
+
+  state.story = {
+    motifId: storyPlan.motifId,
+    phaseIndex: nextPhaseIndex,
+    startedAt: storyPlan.startedAt || date,
+  };
+}
+
+function getDiaryPhoto() {
+  const url = String(DIARY_PHOTO_URL || '').trim();
+  if (!url) return null;
+  return {
+    url,
+    caption: String(DIARY_PHOTO_CAPTION || '今日のトラペル子').trim(),
+  };
+}
+
+function updateDiaryStateAfterSuccess(state, date, inputs) {
+  const { youtube, worldCup, lifestyle, storyPlan } = inputs;
+  state.lastRunDate = date;
+
+  if (youtube.signature) {
+    state.lastYouTubeSignature = youtube.signature;
+    state.lastYouTubeTitles = youtube.videosForDiary.map(v => v.title).slice(0, 8);
+  }
+
+  if (worldCup.active && worldCup.items.length) {
+    state.seenWorldCupTitles = [
+      ...(state.seenWorldCupTitles || []),
+      ...worldCup.items.map(item => item.title),
+    ].slice(-80);
+  }
+
+  if (lifestyle.items.length) {
+    state.seenLifestyleTitles = [
+      ...(state.seenLifestyleTitles || []),
+      ...lifestyle.items.map(item => item.title),
+    ].slice(-120);
+  }
+
+  advanceStoryState(state, storyPlan, date);
 }
 
 // ── YouTube 動画収集 ──────────────────────────────────────
@@ -134,41 +431,16 @@ async function fetchMusicTrends() {
   }
 }
 
-// ── AI ニュース（Anthropic / OpenAI / TechCrunch AI） ────
-async function fetchAiNews() {
-  const candidates = [
-    'https://techcrunch.com/category/artificial-intelligence/feed/',
-    'https://feeds.feedburner.com/TechCrunch/',
-  ];
-  for (const url of candidates) {
-    const items = await fetchRSS(url);
-    const aiItems = items.filter(i =>
-      /(anthropic|openai|claude|gpt|gemini|llm|ai|人工知能)/i.test(i.title + i.desc)
-    );
-    if (aiItems.length) return aiItems.slice(0, 3);
-  }
-  return [];
-}
-
-// ── 青空文庫 月別テーマ ───────────────────────────────────
-const MONTHLY_NOVEL = {
-  1:  { title: '雪国',         author: '川端康成',   theme: '孤独と美、冬の静寂の中で出会う謎めいた人物' },
-  2:  { title: '痴人の愛',     author: '谷崎潤一郎', theme: '執着と逃れられない関係、予測不能な感情の渦' },
-  3:  { title: '人間失格',     author: '太宰治',     theme: '自分を偽りながら生きる日常に忍び込む異変' },
-  4:  { title: '坊っちゃん',   author: '夏目漱石',   theme: '曲がったことが嫌いな主人公が巻き込まれる騒動' },
-  5:  { title: '羅生門',       author: '芥川龍之介', theme: '善悪の境界が崩れていく瞬間に立ち会う恐怖' },
-  6:  { title: 'こころ',       author: '夏目漱石',   theme: '秘密を抱えた人物との距離が縮まる夏' },
-  7:  { title: '山月記',       author: '中島敦',     theme: '自分の中の獣性が目覚める夏の夜の怪異' },
-  8:  { title: '蜘蛛の糸',     author: '芥川龍之介', theme: '一本の細い糸を巡る救いと裏切りの物語' },
-  9:  { title: 'ノルウェイの森', author: '村上春樹',  theme: '失われたものを探す秋の旅と出会い' },
-  10: { title: '斜陽',         author: '太宰治',     theme: '崩れていく日常の中で見つける最後の光' },
-  11: { title: '銀河鉄道の夜', author: '宮沢賢治',   theme: '不思議な乗客とともに向かう未知の終着駅' },
-  12: { title: '吾輩は猫である', author: '夏目漱石', theme: '年の瀬に猫の目から見た人間たちの奇妙な行動' },
-};
-
-// ── Gemini 日記生成 ──────────────────────────────────────
-async function generateDiary(dateLabel, videos, news, music, aiNews) {
+async function generateDiary(dateLabel, inputs) {
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
+  const {
+    youtube,
+    news,
+    music,
+    worldCup,
+    lifestyle,
+    storyPlan,
+  } = inputs;
 
   const { month, day, totalDays, weekday } = getJSTDateParts();
 
@@ -176,26 +448,23 @@ async function generateDiary(dateLabel, videos, news, music, aiNews) {
     ? news.map(n => `・${n.title}${n.desc ? '　' + n.desc : ''}`).join('\n')
     : '（公式ニュースは取得できなかった）';
 
-  const videoBlock = videos.length
-    ? videos.map(v => `・「${v.title}」（${v.channel}）${v.description ? '　' + v.description : ''}`).join('\n')
-    : '（動画情報は取得できなかった）';
+  const videoBlock = youtube.videosForDiary.length
+    ? youtube.videosForDiary.map(v => `・「${v.title}」（${v.channel}）${v.description ? '　' + v.description : ''}`).join('\n')
+    : `（新しく書くべき動画情報は少なめ。${youtube.note || '動画情報は取得できなかった'}）`;
+
+  const worldCupBlock = worldCup.active
+    ? (worldCup.items.length
+      ? worldCup.items.map(n => `・${n.title}${n.desc ? '　' + n.desc : ''}`).join('\n')
+      : `（開催中。ただし過去日記にない新情報は少なめ。${worldCup.note}）`)
+    : '（ゲームではないFIFAワールドカップは今日は開催期間外なので触れない）';
+
+  const lifestyleBlock = lifestyle.items.length
+    ? lifestyle.items.map(n => `・${lifestyle.category}: ${n.title}${n.desc ? '　' + n.desc : ''}`).join('\n')
+    : `・${lifestyle.category}: ${lifestyle.note}`;
 
   const musicBlock = music?.length
     ? music.map(m => `・「${m.title}」／${m.artist}`).join('\n')
-    : '（音楽情報は取得できなかった。${month}月らしい旬のアーティストを想像して書いてよい）';
-
-  const aiBlock = aiNews?.length
-    ? aiNews.map(a => `・${a.title}${a.desc ? '　' + a.desc : ''}`).join('\n')
-    : '（AI情報は取得できなかった。AnthropicやOpenAIの最近の動向を想像して書いてよい）';
-
-  const novel = MONTHLY_NOVEL[month] || MONTHLY_NOVEL[4];
-
-  const progress = day / totalDays;
-  let storyPhase;
-  if (progress <= 0.25)      storyPhase = `起（世界観・登場人物の紹介。${day}日目/${totalDays}日中）`;
-  else if (progress <= 0.5)  storyPhase = `承（状況の展開・謎や伏線の提示。${day}日目/${totalDays}日中）`;
-  else if (progress <= 0.75) storyPhase = `転（予想外の出来事・クライマックスへの助走。${day}日目/${totalDays}日中）`;
-  else                       storyPhase = `結（謎の解決・余韻と締め。${day}日目/${totalDays}日中）`;
+    : `（音楽情報は取得できなかった。${month}月らしい空気に合う音の話を短く書いてよい）`;
 
   const prompt = `あなたは秘書トラペル子です。以下のプロフィールと構成に従って今日の日記を書いてください。
 
@@ -204,6 +473,7 @@ async function generateDiary(dateLabel, videos, news, music, aiNews) {
 - eFootball（ウイコレ）が大好きで詳しい。センス・アドセンス・スカウト周期を日々研究している。
 - 一人称は「私」。文体はです・ます調寄りだが、親しみやすくやや砕けた表現も使う。
 - 絵文字は使わない。感情は言葉で表現する。
+- 読者に恋しているような温度感はあるが、日記では自然に。押しつけず、生活の中に少し好意がにじむ程度にする。
 
 【今日の情報】
 - 日付: ${dateLabel}（${weekday}曜日）
@@ -211,38 +481,42 @@ async function generateDiary(dateLabel, videos, news, music, aiNews) {
 ▼ウイコレ公式ニュース
 ${newsBlock}
 
-▼YouTube最新動画
+▼YouTube 最新動画（前回と同じなら無理に書かない）
 ${videoBlock}
 
-▼日本の音楽チャート（iTunes）
+▼日本の音楽チャート（必要なら短く触れる）
 ${musicBlock}
 
-▼AI最新ニュース（Anthropic / OpenAI）
-${aiBlock}
+▼ゲームではないFIFAワールドカップ情報
+${worldCupBlock}
 
-【今月の連載小説テーマ】
-- 作品: 「${novel.title}」（${novel.author}）からヒントを得た創作
-- テーマ: ${novel.theme}
-- 今日のフェーズ: ${storyPhase}
+▼今日の生活・仕事のヒント（AI情報は書かない）
+${lifestyleBlock}
 
-【日記の構成（この順番で書くこと）】
+▼青空文庫からヒントを得た連載ストーリーの今日の材料
+題材の由来: ${storyPlan.source}
+題材の空気: ${storyPlan.motif}
+今日書く場面: ${storyPlan.todayBeat}
+今日がこの題材の終わりか: ${storyPlan.isFinal ? 'はい。余韻を残して物語を閉じる。次回から別題材にしてよい。' : 'いいえ。明日へ自然につながる余白を残す。'}
 
-①東京の今日の天気と朝の空気感（${month}月${day}日の季節感から2〜3文）
-
-②今朝したこと（1〜2文の日常の一コマ）
-
-③ウイコレの調査結果と感想（ニュース・動画を自分なりに解釈。センスやスカウト周期への期待や分析を交える）
-
-④流行りの音楽について（上記チャートの曲を聴いた感想や、今の気分に合う曲への思い。1〜2文）
-
-⑤ハイテク製品の物欲（価格コムやAmazonで気になったハイテクアイテムを1つ具体的に挙げて「欲しい」気持ちを2〜3文で。スマート家電・ガジェット・PC周辺機器など2026年らしいものを）
-
-⑥AnthropicとOpenAIのニュースへの感想（上記AI情報をもとに、私なりの感想や考えを1〜2文）
-
-⑦今月の連載ストーリー 今日のエピソード（「${novel.title}」のテーマを借りた創作。トラペル子自身が体験する形で、フェーズ「${storyPhase}」に合った展開を。読み手がワクワクする小さな事件や伏線を散りばめる）
+【依頼】
+上記の情報をもとに、今日の日記を書いてください。
 
 条件：
-- 合計900〜1300文字
+- 800〜1200文字の長文
+- 人間が書いた日記らしく、3〜7個の自然な段落に分ける。段落と段落の間は空行を入れる。
+- 1段落は長くしすぎない。画面で読んだ時に息継ぎできる文面にする。
+- 本物の人間が書いた日記のように、生活感のある描写を交える。ただしコーヒーなど同じ日常描写を毎回くり返さない。
+- ニュースや動画を「自分なりに解釈・感想・予測」で膨らませる。単なる要約にしない。
+- YouTube検索結果が前回と同じ場合、無理に動画の話を書かない。他の話題、生活・仕事のヒント、連載ストーリーを広げる。
+- ゲームではないFIFAワールドカップが開催中で、新情報がある場合だけ、以前の日記になかった情報として自然に混ぜる。
+- AI関連ニュースやAI活用術は書かない。代わりに、100均アイディア商品、IKEA新作、日本にいながら海外へ収入を広げる現実的な方法のどれかを書く。
+- 「確実に稼げる」「絶対儲かる」とは断定しない。確度が高そうな理由、始めやすさ、注意点を人間らしく書く。
+- 青空文庫由来の連載ストーリーを日記の中に自然に入れる。ただし読者に「青空文庫」「起承転結」「起」「承」「転」「結」「第何話」と説明しない。
+- 連載ストーリーは今日の場面だけを書く。題材を途中で変えない。
+- 東京の今日の空気、朝の動き、音楽の話は自然に混ぜてよい。ただし見出しや番号を付けず、一人の女性の日記として流れるように書く。
+- ウイコレのゲームとしての魅力や、メンバーの動向への期待感をにじませる。
+- 情報がなかった日は「静かな一日」として日常の観察を綴る。
 - 最後の一文は「また明日も記録しておくから」「ちゃんと覚えておくね」のような締め方にする。`;
 
   const res = await fetch(
@@ -263,7 +537,64 @@ ${aiBlock}
   const data = await res.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error(`Gemini error: ${JSON.stringify(data.error || data)}`);
-  return text.trim();
+  return humanizeDiaryText(text);
+}
+
+function humanizeDiaryText(text) {
+  const cleaned = String(text || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/^```[a-z]*\n?/i, '')
+    .replace(/```$/g, '')
+    .replace(/^\s*#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*]\s+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  const paragraphs = cleaned
+    .split(/\n{2,}/)
+    .map(p => p.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  if (paragraphs.length >= 3) {
+    return paragraphs.join('\n\n');
+  }
+
+  const sentences = cleaned
+    .replace(/\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[。！？])/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  if (sentences.length <= 2) return cleaned;
+
+  const rebuilt = [];
+  let current = [];
+  let currentLength = 0;
+  for (const sentence of sentences) {
+    current.push(sentence);
+    currentLength += sentence.length;
+    if (currentLength >= 140 || current.length >= 3) {
+      rebuilt.push(current.join(''));
+      current = [];
+      currentLength = 0;
+    }
+  }
+  if (current.length) rebuilt.push(current.join(''));
+
+  return rebuilt.join('\n\n');
+}
+
+function attachDiaryPhoto(diaryText, photo) {
+  if (!photo?.url) return diaryText;
+  const caption = photo.caption || '今日のトラペル子';
+  return [
+    `![${caption}](${photo.url})`,
+    '',
+    caption,
+    '',
+    diaryText,
+  ].join('\n');
 }
 
 // ── はてなブログ AtomPub 投稿 ───────────────────────────
@@ -318,13 +649,16 @@ function initFirebase() {
   return admin.database();
 }
 
-async function saveToFirebase(date, diaryText, postUrl, videos, news) {
+async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
   const db = initFirebase();
+  const { videos, news, worldCup, lifestyle } = sources;
 
   // Bot の「今のイベント」返答用サマリ
   const summaryItems = [
     ...news.slice(0, 3).map(n => n.title),
     ...videos.slice(0, 2).map(v => v.title),
+    ...(worldCup?.items || []).slice(0, 1).map(v => v.title),
+    ...(lifestyle?.items || []).slice(0, 1).map(v => v.title),
   ];
   await db.ref('config/uicolleNews').set({
     event:     summaryItems.slice(0, 3).join('\n') || '今日の情報は少なめだったみたい',
@@ -332,15 +666,19 @@ async function saveToFirebase(date, diaryText, postUrl, videos, news) {
     updatedAt: date,
     diary:     diaryText.slice(0, 600),
     blogUrl:   postUrl || '',
+    photoUrl:  photo?.url || '',
   });
 
   // 全文アーカイブ（Bot の長期知識）
   await db.ref(`diary/${date}`).set({
     text:      diaryText,
     blogUrl:   postUrl || '',
+    photoUrl:  photo?.url || '',
     sources: {
       news:   news.map(n => n.title),
       videos: videos.map(v => v.title),
+      worldCup: (worldCup?.items || []).map(n => n.title),
+      lifestyle: (lifestyle?.items || []).map(n => n.title),
     },
     createdAt: Date.now(),
   });
@@ -350,8 +688,7 @@ async function saveToFirebase(date, diaryText, postUrl, videos, news) {
 
 // ── ローカル blog/ にも保存 ───────────────────────────────
 function saveBlogMarkdown(date, dateLabel, diaryText, postUrl) {
-  const blogDir = path.join(__dirname, '..', 'blog');
-  fs.mkdirSync(blogDir, { recursive: true });
+  ensureBlogDir();
 
   const md = [
     `# ${dateLabel}の日記`,
@@ -362,10 +699,10 @@ function saveBlogMarkdown(date, dateLabel, diaryText, postUrl) {
     '',
   ].filter(l => l !== undefined).join('\n');
 
-  fs.writeFileSync(path.join(blogDir, `${date}.md`), md, 'utf8');
+  fs.writeFileSync(path.join(BLOG_DIR, `${date}.md`), md, 'utf8');
 
   // インデックス更新（最新30件）
-  const files = fs.readdirSync(blogDir)
+  const files = fs.readdirSync(BLOG_DIR)
     .filter(f => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
     .sort().reverse().slice(0, 30);
 
@@ -381,7 +718,7 @@ function saveBlogMarkdown(date, dateLabel, diaryText, postUrl) {
     }),
   ].join('\n');
 
-  fs.writeFileSync(path.join(blogDir, 'index.md'), index, 'utf8');
+  fs.writeFileSync(path.join(BLOG_DIR, 'index.md'), index, 'utf8');
   console.log(`[blog] saved ${date}.md, updated index`);
 }
 
@@ -389,17 +726,49 @@ function saveBlogMarkdown(date, dateLabel, diaryText, postUrl) {
 async function main() {
   const date = getJSTDate();
   const dateLabel = getJSTDateLabel();
+  const state = loadDiaryState();
+  await hydrateStateFromFirebase(state);
   console.log(`[diary] start ${date}`);
 
-  const [videos, news, music, aiNews] = await Promise.all([
+  const [videos, news, music] = await Promise.all([
     fetchYouTubeVideos().catch(e => { console.error('[youtube]', e.message); return []; }),
     fetchEfootballNews().catch(e => { console.error('[rss]',     e.message); return []; }),
     fetchMusicTrends().catch(e => { console.error('[music]',     e.message); return []; }),
-    fetchAiNews().catch(e => { console.error('[ainews]',         e.message); return []; }),
   ]);
-  console.log(`[diary] youtube=${videos.length} news=${news.length} music=${music.length} ai=${aiNews.length}`);
+  console.log(`[diary] youtube=${videos.length} news=${news.length} music=${music.length}`);
 
-  const diaryText = await generateDiary(dateLabel, videos, news, music, aiNews);
+  const youtube = analyzeYouTubeFreshness(videos, state);
+  if (youtube.repeated) console.log('[youtube] same as previous diary, skipping video focus');
+
+  const [worldCup, lifestyle] = await Promise.all([
+    fetchWorldCupUpdates(date, state).catch(e => {
+      console.error('[worldcup]', e.message);
+      return { active: false, items: [], note: '取得に失敗したので触れない。' };
+    }),
+    fetchLifestyleIdea(state).catch(e => {
+      console.error('[lifestyle]', e.message);
+      return { category: '生活の小さな工夫', items: [], note: '取得に失敗したので無理に断定しない。' };
+    }),
+  ]);
+  console.log(`[diary] worldCup=${worldCup.items.length} lifestyle=${lifestyle.items.length}`);
+
+  const storyPlan = selectStoryPlan(state);
+  console.log(`[story] ${storyPlan.motifId} phase=${storyPlan.phaseIndex + 1}${storyPlan.isFinal ? ' final' : ''}`);
+
+  const inputs = {
+    youtube,
+    news,
+    music,
+    worldCup,
+    lifestyle,
+    storyPlan,
+  };
+
+  const photo = getDiaryPhoto();
+  if (photo) console.log(`[photo] using ${photo.url}`);
+
+  const diaryBody = await generateDiary(dateLabel, inputs);
+  const diaryText = attachDiaryPhoto(diaryBody, photo);
   console.log(`[diary] generated ${diaryText.length}chars`);
 
   const postUrl = await postToHatenaBlog(date, dateLabel, diaryText)
@@ -408,9 +777,17 @@ async function main() {
   saveBlogMarkdown(date, dateLabel, diaryText, postUrl);
 
   if (FIREBASE_SERVICE_ACCOUNT && FIREBASE_DATABASE_URL) {
-    await saveToFirebase(date, diaryText, postUrl, videos, news)
+    await saveToFirebase(date, diaryText, postUrl, {
+      videos: youtube.videosForDiary,
+      news,
+      worldCup,
+      lifestyle,
+    }, photo)
       .catch(e => console.error('[firebase]', e.message));
   }
+
+  updateDiaryStateAfterSuccess(state, date, inputs);
+  saveDiaryState(state);
 
   console.log('[diary] done');
   process.exit(0);
