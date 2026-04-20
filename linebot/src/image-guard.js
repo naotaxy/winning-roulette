@@ -31,7 +31,7 @@ function classifyOcrResult(ocrResult) {
     hasScores,
     matchedTeams,
     isCompleteMatch: hasScores && matchedTeams === 2,
-    isMaybeMatch: hasScores && matchedTeams >= 1,
+    isMaybeMatch: hasScores || matchedTeams >= 1,
   };
 }
 
