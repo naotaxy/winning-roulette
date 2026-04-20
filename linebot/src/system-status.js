@@ -35,6 +35,7 @@ function formatRenderStatus() {
   const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.RENDER_EXTERNAL_HOSTNAME || '';
   const commit = shortSha(process.env.RENDER_GIT_COMMIT);
   const instance = process.env.RENDER_INSTANCE_ID ? '見えてるよ' : '環境変数では見えてないよ';
+  const ocr = getImageOcrStatusLine();
 
   return [
     'Renderの状況、私から見える範囲で見たよ。',
@@ -44,6 +45,7 @@ function formatRenderStatus() {
     `インスタンス: ${instance}`,
     commit ? `デプロイcommit: ${commit}` : 'デプロイcommit: Render環境変数では見えてないの。',
     externalUrl ? `URL: ${externalUrl}` : 'URL: Render環境変数では見えてないの。',
+    ocr,
     'ちゃんと動いてくれてて、私ちょっと安心した。',
   ].join('\n');
 }
@@ -105,6 +107,7 @@ function formatOverallStatus([firebase, github], ai) {
   return [
     'システム全体、私が見えるところだけ確認したよ。',
     `Render: OK（この返事ができてる / 起動 ${formatDuration(process.uptime())} / commit ${renderCommit}）`,
+    getImageOcrStatusLine(),
     firebaseLine,
     githubLine,
     ai,
@@ -112,6 +115,17 @@ function formatOverallStatus([firebase, github], ai) {
     `メモリ: ${formatMemory(process.memoryUsage().rss)}`,
     '全部を公式障害情報まで見てるわけじゃないけど、私から見える健康状態はここまでだよ。',
   ].join('\n');
+}
+
+function getImageOcrStatusLine() {
+  try {
+    const { getImageOcrQueueState } = require('./image-ocr-queue');
+    const state = getImageOcrQueueState();
+    const label = state.running ? '処理中' : '待機中';
+    return `画像OCR: ${label}（待ち ${state.pending} / 上限 ${state.maxBacklog} / スキップ ${state.totalSkipped}）`;
+  } catch (err) {
+    return `画像OCR: 確認NG（${trimError(err?.message || err)}）`;
+  }
 }
 
 async function getAiStatusLine() {

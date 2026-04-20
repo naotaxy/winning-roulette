@@ -19,6 +19,7 @@ const {
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
 const { getTokyoDateParts, shiftMonth } = require('./date-utils');
 const { inspectImage, looksLikePhoneScreenshot, classifyOcrResult } = require('./image-guard');
+const { enqueueImageOcr } = require('./image-ocr-queue');
 const {
   calculateMonthlyStandings,
   calculateAnnualStandings,
@@ -93,7 +94,9 @@ async function handleImage(event, client) {
   /* OCR */
   let ocrResult;
   try {
-    ocrResult = await parseMatchResult(buffer, playerMap);
+    const queued = await enqueueImageOcr(() => parseMatchResult(buffer, playerMap), msgId);
+    if (queued.skipped) return;
+    ocrResult = queued.value;
   } catch (err) {
     console.error('[webhook] OCR failed', err);
     return sendImageResponse(event, client, {
