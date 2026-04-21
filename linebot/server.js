@@ -17,7 +17,11 @@ const app  = express();
 const port = process.env.PORT || 3000;
 
 /* ── ヘルスチェック（UptimeRobot用） ── */
-app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+app.get('/health', (_req, res) => res.json({
+  ok: true,
+  ts: new Date().toISOString(),
+  commit: process.env.RENDER_GIT_COMMIT ? process.env.RENDER_GIT_COMMIT.slice(0, 7) : null,
+}));
 
 /* ── LINE Webhook ── */
 app.post('/webhook', middleware(config), (req, res) => {
