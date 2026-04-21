@@ -148,15 +148,20 @@ async function startGeoGame({ event, client, sourceId, senderName }) {
     });
   }
 
+  await client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: [
+      'ジオゲームだね。いいよ、都内の写真を探してくる。',
+      '無料データから選ぶから、少しだけ待ってて。',
+    ].join('\n'),
+  });
+
   let photo;
   try {
     photo = await fetchTokyoCommonsPhoto(config);
   } catch (err) {
     console.error('[geo-game] photo fetch failed', err);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '無料の写真データを取りに行ったんだけど、今はうまく見つけられなかったの。\n少しあとで「ジオゲーム」って呼んで。次はちゃんと出したいな。',
-    });
+    return pushText(client, sourceId, '無料の写真データを取りに行ったんだけど、今はうまく見つけられなかったの。\n少しあとで「ジオゲーム」って呼んで。次はちゃんと出したいな。');
   }
 
   const now = Date.now();
@@ -177,7 +182,14 @@ async function startGeoGame({ event, client, sourceId, senderName }) {
   await saveGeoGame(sourceId, game);
   scheduleAutoReveal(sourceId, client, game, config);
 
-  return client.replyMessage(event.replyToken, buildStartMessages(game));
+  try {
+    return await client.pushMessage(sourceId, buildStartMessages(game));
+  } catch (err) {
+    console.error('[geo-game] start push failed', err);
+    clearRevealTimer(sourceId);
+    await finishGeoGame(sourceId, game, 'delivery_failed');
+    return;
+  }
 }
 
 async function answerGeoGame({ event, client, sourceId, senderName, answerText }) {

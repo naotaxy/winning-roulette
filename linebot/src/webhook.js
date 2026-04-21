@@ -161,7 +161,7 @@ async function getSenderName(event, client, fallback = null) {
   const userId = event.source?.userId;
   if (!userId) return fallback;
 
-  try {
+  return withTimeout((async () => {
     let profile;
     if (event.source.groupId && typeof client.getGroupMemberProfile === 'function') {
       profile = await client.getGroupMemberProfile(event.source.groupId, userId);
@@ -171,14 +171,21 @@ async function getSenderName(event, client, fallback = null) {
       profile = await client.getProfile(userId);
     }
     return profile?.displayName || fallback;
-  } catch (_) {
+  })(), 900, fallback).catch(async () => {
     try {
       const profile = await client.getProfile(userId);
       return profile?.displayName || fallback;
     } catch (_) {
       return fallback;
     }
-  }
+  });
+}
+
+function withTimeout(promise, timeoutMs, fallback) {
+  return Promise.race([
+    promise,
+    new Promise(resolve => setTimeout(() => resolve(fallback), timeoutMs)),
+  ]);
 }
 
 async function handleText(event, client) {
@@ -222,7 +229,15 @@ async function handleText(event, client) {
   }
 
   if (intent?.type === 'geoGame') {
-    return handleGeoGameIntent({ event, client, sourceId, senderName, intent });
+    try {
+      return await handleGeoGameIntent({ event, client, sourceId, senderName, intent });
+    } catch (err) {
+      console.error('[webhook] geo game failed', err);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'ジオゲームでつまずいちゃった。\nでも無視したわけじゃないよ。今のエラーは記録したから、少し直してまた呼んでね。',
+      });
+    }
   }
 
   if (intent === 'casual') {
