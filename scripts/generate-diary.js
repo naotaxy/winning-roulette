@@ -4,9 +4,10 @@
  *
  * 1. YouTube Data API v3 でウイコレ関連動画を収集
  * 2. eFootball 公式 RSS でニュースを収集
- * 3. Gemini で長文・人間らしい日記を生成
- * 4. はてなブログ AtomPub API で投稿
- * 5. Firebase にアーカイブ保存（Bot の知識源）
+ * 3. JMOOC開講中講座・生活ヒントを収集
+ * 4. Gemini で長文・人間らしい日記を生成
+ * 5. はてなブログ AtomPub API で投稿
+ * 6. Firebase にアーカイブ保存（Bot の知識源）
  *
  * GitHub Secrets 必要:
  *   YOUTUBE_API_KEY, GEMINI_API_KEY,
@@ -43,6 +44,7 @@ const DEFAULT_DIARY_GEMINI_MODEL = 'gemini-2.5-flash';
 const DEFAULT_DIARY_GEMINI_FALLBACK_MODELS = ['gemini-2.5-flash-lite'];
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 const GEMINI_RETRY_DELAYS_MS = [5000, 15000, 30000];
+const JMOOC_HOME_URL = 'https://www.jmooc.jp/';
 
 const WORLD_CUP_2026 = {
   startsAt: '2026-06-11',
@@ -58,10 +60,6 @@ const LIFESTYLE_QUERIES = [
   {
     category: 'IKEA新作',
     query: 'IKEA 日本 新商品 新作 家具 収納',
-  },
-  {
-    category: '日本から海外へ稼ぐ現実的なヒント',
-    query: '日本 在宅 海外 収入 越境EC デジタル販売 副業',
   },
 ];
 
@@ -154,6 +152,16 @@ async function hydrateStateFromFirebase(state) {
       entries.flatMap(entry => entry?.sources?.lifestyle || []),
       120,
     );
+    state.seenYouTubeTitles = mergeUniqueTitles(
+      state.seenYouTubeTitles,
+      entries.flatMap(entry => entry?.sources?.videos || []),
+      160,
+    );
+    state.seenJmoocCourseTitles = mergeUniqueTitles(
+      state.seenJmoocCourseTitles,
+      entries.flatMap(entry => entry?.sources?.jmooc || []),
+      120,
+    );
     state.hydratedFromFirebaseAt = Date.now();
     console.log('[state] hydrated from Firebase diary archive');
   } catch (err) {
@@ -193,15 +201,69 @@ function buildYouTubeSignature(videos) {
 
 function analyzeYouTubeFreshness(videos, state) {
   const signature = buildYouTubeSignature(videos);
+  const seenTitles = [
+    ...(state.seenYouTubeTitles || []),
+    ...(state.lastYouTubeTitles || []),
+  ];
+  const freshVideos = videos.filter(video => !isSimilarTitle(video.title, seenTitles));
   const repeated = !!signature && signature === state.lastYouTubeSignature;
+  const noFreshTopic = videos.length > 0 && freshVideos.length === 0;
   return {
-    repeated,
+    repeated: repeated || noFreshTopic,
     signature,
-    videosForDiary: repeated ? [] : videos,
-    note: repeated
-      ? 'YouTube検索結果が前回と同じなので、今日は動画欄を主役にしない。'
+    videosForDiary: repeated || noFreshTopic ? [] : freshVideos,
+    note: repeated || noFreshTopic
+      ? 'YouTube検索結果が前回または過去日記と似ているので、今日は動画欄を主役にしない。'
       : '',
   };
+}
+
+function isSimilarTitle(title, seenTitles = []) {
+  const current = normalizeTopicTitle(title);
+  if (!current) return true;
+
+  return (seenTitles || []).some(seenTitle => {
+    const seen = normalizeTopicTitle(seenTitle);
+    if (!seen) return false;
+    if (current === seen) return true;
+    if (current.length >= 10 && seen.includes(current)) return true;
+    if (seen.length >= 10 && current.includes(seen)) return true;
+    return bigramJaccard(current, seen) >= 0.58;
+  });
+}
+
+function normalizeTopicTitle(value) {
+  return normalizeForSignature(value)
+    .replace(/【[^】]*】/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/[0-9０-９]{4}[-/年.][0-9０-９]{1,2}[-/月.]?[0-9０-９]{0,2}日?/g, ' ')
+    .replace(/[0-9０-９]+月[0-9０-９]+日?/g, ' ')
+    .replace(/[12][0-9０-９]{3}/g, ' ')
+    .replace(/[!！?？#＃【】()[\]（）「」『』"'“”‘’、。・:：/／\\|｜_-]+/g, ' ')
+    .replace(/(efootball|ウイコレ|winning eleven|実況|解説|最新|動画|shorts?)/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function bigramJaccard(a, b) {
+  const gramsA = toBigrams(a);
+  const gramsB = toBigrams(b);
+  if (!gramsA.size || !gramsB.size) return 0;
+  let intersection = 0;
+  for (const gram of gramsA) {
+    if (gramsB.has(gram)) intersection += 1;
+  }
+  return intersection / (gramsA.size + gramsB.size - intersection);
+}
+
+function toBigrams(value) {
+  const text = String(value || '').replace(/\s+/g, '');
+  const grams = new Set();
+  if (text.length <= 1) return grams;
+  for (let i = 0; i < text.length - 1; i += 1) {
+    grams.add(text.slice(i, i + 2));
+  }
+  return grams;
 }
 
 function isWithinDateRange(date, startsAt, endsAt) {
@@ -238,6 +300,12 @@ async function fetchWorldCupUpdates(date, state) {
 }
 
 async function fetchLifestyleIdea(state) {
+  const jmooc = await fetchJmoocOpenCourse(state).catch(err => {
+    console.warn('[jmooc] failed:', err.message);
+    return null;
+  });
+  if (jmooc) return jmooc;
+
   const seenTitles = state.seenLifestyleTitles || [];
   const groups = await Promise.all(LIFESTYLE_QUERIES.map(async topic => {
     const items = await fetchRSS(googleNewsRssUrl(topic.query));
@@ -252,7 +320,7 @@ async function fetchLifestyleIdea(state) {
     return {
       category: '生活の小さな工夫',
       items: [],
-      note: '100均、IKEA、海外向け収入ヒントの新規ニュースが見つからなかったので、過去日記と重ならない観点で生活の工夫を書く。',
+      note: 'JMOOC、100均、IKEAの新規話題が見つからなかったので、過去日記と重ならない観点で生活の工夫を書く。',
     };
   }
 
@@ -263,6 +331,103 @@ async function fetchLifestyleIdea(state) {
     items: picked.items.slice(0, 1),
     note: `${picked.category}から、過去日記にない話題を一つだけ使う。`,
   };
+}
+
+async function fetchJmoocOpenCourse(state) {
+  const courses = await fetchJmoocOpenCourses();
+  if (!courses.length) return null;
+
+  const seenTitles = state.seenJmoocCourseTitles || [];
+  const unseen = courses.filter(course => !isSimilarTitle(course.title, seenTitles));
+  const pool = unseen.length ? unseen : courses;
+  const day = Number(getJSTDate().replace(/-/g, ''));
+  const course = pool[day % pool.length];
+  const descParts = [
+    course.openDateLabel ? `${course.openDateLabel}開講` : '',
+    course.provider ? `提供: ${course.provider}` : '',
+    course.teacher ? `講師: ${course.teacher}` : '',
+    course.url ? `URL: ${course.url}` : '',
+  ].filter(Boolean);
+
+  return {
+    category: 'JMOOC開講中講座',
+    items: [{
+      title: course.title,
+      desc: descParts.join(' / '),
+    }],
+    jmoocCourse: course,
+    note: unseen.length
+      ? 'JMOOCの開講中講座から、過去日記で紹介していない講座を一つ選ぶ。'
+      : 'JMOOCの開講中講座は取得できたが未紹介講座が少ないので、同じ講座名でも角度を変えて深掘りする。',
+  };
+}
+
+async function fetchJmoocOpenCourses() {
+  const res = await fetch(JMOOC_HOME_URL, {
+    signal: AbortSignal.timeout(8000),
+    headers: { 'user-agent': 'winning-roulette-diary/1.0' },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const html = await res.text();
+  return parseJmoocOpenCourses(html);
+}
+
+function parseJmoocOpenCourses(html) {
+  const courses = [];
+  for (const match of String(html || '').matchAll(/<article id="lecture-([^"]+)"([\s\S]*?)<\/article\s*>/g)) {
+    const id = match[1];
+    const block = match[2];
+    if (!/jmooc_lecture_status-open|status-open/.test(block)) continue;
+
+    const title = cleanHtml(block.match(/<h3 class="lecturecard-title">([\s\S]*?)<\/h3>/)?.[1]);
+    if (!title) continue;
+
+    const url = cleanHtml(block.match(/<a href="([^"]+)" target="_blank">\s*<div class="lecturecard-thumb-wrap">/)?.[1] ||
+      block.match(/<a href="([^"]+)" target="_blank">\s*<h3 class="lecturecard-title">/)?.[1] || '');
+    const openDate = cleanHtml(block.match(/<time datetime="([^"]+)">/)?.[1]);
+    const openDateLabel = cleanHtml(block.match(/<time datetime="[^"]+">([\s\S]*?)<\/time>/)?.[1]);
+    const providers = [...block.matchAll(/<span class="lecturecard-term-span">([\s\S]*?)<\/span>/g)]
+      .map(item => cleanHtml(item[1]))
+      .filter(Boolean);
+    const teacher = cleanHtml(block.match(/<span class="lecturecard-teachers-span">\s*([\s\S]*?)<\/span>/)?.[1]);
+
+    courses.push({
+      id,
+      title,
+      url,
+      openDate,
+      openDateLabel,
+      provider: providers.join('、'),
+      teacher,
+    });
+  }
+
+  return courses;
+}
+
+function cleanHtml(value) {
+  return decodeHtmlEntities(String(value || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim());
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || '')
+    .replace(/&#(\d+);/g, (_, code) => {
+      const n = Number(code);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : _;
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
+      const n = Number.parseInt(code, 16);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : _;
+    })
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'");
 }
 
 function selectStoryPlan(state) {
@@ -329,6 +494,13 @@ function updateDiaryStateAfterSuccess(state, date, inputs) {
     state.lastYouTubeSignature = youtube.signature;
     state.lastYouTubeTitles = youtube.videosForDiary.map(v => v.title).slice(0, 8);
   }
+  if (youtube.videosForDiary.length) {
+    state.seenYouTubeTitles = mergeUniqueTitles(
+      state.seenYouTubeTitles,
+      youtube.videosForDiary.map(v => v.title),
+      160,
+    );
+  }
 
   if (worldCup.active && worldCup.items.length) {
     state.seenWorldCupTitles = [
@@ -342,6 +514,13 @@ function updateDiaryStateAfterSuccess(state, date, inputs) {
       ...(state.seenLifestyleTitles || []),
       ...lifestyle.items.map(item => item.title),
     ].slice(-120);
+  }
+  if (lifestyle.jmoocCourse?.title) {
+    state.seenJmoocCourseTitles = mergeUniqueTitles(
+      state.seenJmoocCourseTitles,
+      [lifestyle.jmoocCourse.title],
+      120,
+    );
   }
 
   advanceStoryState(state, storyPlan, date);
@@ -453,13 +632,13 @@ async function generateDiary(dateLabel, inputs) {
 ▼公式ニュース
 ${newsBlock}
 
-▼YouTube 最新動画（前回と同じなら無理に書かない）
+▼YouTube 最新動画（過去と同じ・似た話題なら無理に書かない）
 ${videoBlock}
 
 ▼ゲームではないFIFAワールドカップ情報
 ${worldCupBlock}
 
-▼今日の生活・仕事のヒント（AI情報は書かない）
+▼今日の学び・生活のヒント（AI情報と収益化の話は書かない）
 ${lifestyleBlock}
 
 ▼青空文庫からヒントを得た連載ストーリーの今日の材料
@@ -473,14 +652,15 @@ ${lifestyleBlock}
 
 条件：
 - 800〜1200文字の長文
-- 人間が書いた日記らしく、3〜7個の自然な段落に分ける。段落と段落の間は空行を入れる。
-- 1段落は長くしすぎない。画面で読んだ時に息継ぎできる文面にする。
+- 人間が書いた日記らしく、4〜8個の自然な段落に分ける。段落と段落の間は必ず空行を入れる。
+- 1段落は2〜4文まで。画面で読んだ時に息継ぎできる文面にする。
 - 本物の人間が書いた日記のように、生活感のある描写を交える。ただしコーヒーなど同じ日常描写を毎回くり返さない。
 - ニュースや動画を「自分なりに解釈・感想・予測」で膨らませる。単なる要約にしない。
-- YouTube検索結果が前回と同じ場合、無理に動画の話を書かない。他の話題、生活・仕事のヒント、連載ストーリーを広げる。
+- YouTube検索結果が前回と同じ、または過去日記の動画話題と似ている場合、無理に動画の話を書かない。他の話題、学びのヒント、連載ストーリーを広げる。
 - ゲームではないFIFAワールドカップが開催中で、新情報がある場合だけ、以前の日記になかった情報として自然に混ぜる。
-- AI関連ニュースやAI活用術は書かない。代わりに、100均アイディア商品、IKEA新作、日本にいながら海外へ収入を広げる現実的な方法のどれかを書く。
-- 「確実に稼げる」「絶対儲かる」とは断定しない。確度が高そうな理由、始めやすさ、注意点を人間らしく書く。
+- AI関連ニュースやAI活用術は書かない。収益化系の話題も扱わない。
+- JMOOC開講中講座がある場合は、その講座を一つだけ選び、講座名・提供機関・講師・開講日を踏まえて深掘りする。なぜ今学ぶ価値があるか、どんな人に向くか、最初に何を見るとよいかを日記の中で自然に紹介する。
+- JMOOC講座が取得できなかった場合だけ、100均アイディア商品かIKEA新作を生活の観察として書く。
 - 青空文庫由来の連載ストーリーを日記の中に自然に入れる。ただし読者に「青空文庫」「起承転結」「起」「承」「転」「結」「第何話」と説明しない。
 - 連載ストーリーは今日の場面だけを書く。題材を途中で変えない。
 - ウイコレのゲームとしての魅力や、メンバーの動向への期待感をにじませる。
@@ -602,8 +782,9 @@ function humanizeDiaryText(text) {
     .map(p => p.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim())
     .filter(Boolean);
 
-  if (paragraphs.length >= 3) {
-    return paragraphs.join('\n\n');
+  const breathingParagraphs = paragraphs.flatMap(p => splitParagraphForBreathing(p));
+  if (breathingParagraphs.length >= 3) {
+    return breathingParagraphs.join('\n\n');
   }
 
   const sentences = cleaned
@@ -629,7 +810,34 @@ function humanizeDiaryText(text) {
   }
   if (current.length) rebuilt.push(current.join(''));
 
-  return rebuilt.join('\n\n');
+  return rebuilt.flatMap(p => splitParagraphForBreathing(p)).join('\n\n');
+}
+
+function splitParagraphForBreathing(paragraph) {
+  const text = String(paragraph || '').replace(/\s+/g, ' ').trim();
+  if (text.length <= 240) return [text].filter(Boolean);
+
+  const sentences = text
+    .split(/(?<=[。！？])/)
+    .map(s => s.trim())
+    .filter(Boolean);
+  if (sentences.length <= 2) return [text];
+
+  const chunks = [];
+  let current = [];
+  let length = 0;
+  for (const sentence of sentences) {
+    current.push(sentence);
+    length += sentence.length;
+    if (length >= 170 || current.length >= 3) {
+      chunks.push(current.join(''));
+      current = [];
+      length = 0;
+    }
+  }
+  if (current.length) chunks.push(current.join(''));
+
+  return chunks.filter(Boolean);
 }
 
 function attachDiaryPhoto(diaryText, photo) {
@@ -726,6 +934,7 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
       videos: videos.map(v => v.title),
       worldCup: (worldCup?.items || []).map(n => n.title),
       lifestyle: (lifestyle?.items || []).map(n => n.title),
+      jmooc: lifestyle?.jmoocCourse?.title ? [lifestyle.jmoocCourse.title] : [],
     },
     createdAt: Date.now(),
   });
