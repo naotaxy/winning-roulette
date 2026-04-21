@@ -37,6 +37,7 @@ const { getSecretaryMentionInfo, getCasualReply, getCasualReplyWithContext, getT
 const { detectSystemStatusKind, formatSystemStatusReply } = require('./system-status');
 const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-risk');
 const { formatMemberFlavorReply, formatAnonymousDiaryHighlights } = require('./group-insights');
+const { detectGeoGameIntent, handleGeoGameIntent } = require('./geo-game');
 const {
   formatAttributeGuide,
   formatRarityGuide,
@@ -122,11 +123,7 @@ async function handleImage(event, client) {
   }
 
   /* 送信者の表示名を取得（addedBy用） */
-  let senderName = '(LINE bot)';
-  try {
-    const profile = await client.getProfile(event.source.userId);
-    senderName = profile.displayName;
-  } catch(_) {}
+  const senderName = await getSenderName(event, client, '(LINE bot)');
 
   /* 保留データを Firebase に保存 */
   const now = new Date();
@@ -160,15 +157,35 @@ async function sendImageResponse(event, client, message) {
   return client.replyMessage(event.replyToken, message);
 }
 
+async function getSenderName(event, client, fallback = null) {
+  const userId = event.source?.userId;
+  if (!userId) return fallback;
+
+  try {
+    let profile;
+    if (event.source.groupId && typeof client.getGroupMemberProfile === 'function') {
+      profile = await client.getGroupMemberProfile(event.source.groupId, userId);
+    } else if (event.source.roomId && typeof client.getRoomMemberProfile === 'function') {
+      profile = await client.getRoomMemberProfile(event.source.roomId, userId);
+    } else {
+      profile = await client.getProfile(userId);
+    }
+    return profile?.displayName || fallback;
+  } catch (_) {
+    try {
+      const profile = await client.getProfile(userId);
+      return profile?.displayName || fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
+}
+
 async function handleText(event, client) {
   const text = event.message.text || '';
   const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
 
-  let senderName = null;
-  try {
-    const profile = await client.getProfile(event.source.userId);
-    senderName = profile.displayName || null;
-  } catch (_) {}
+  const senderName = await getSenderName(event, client, null);
 
   // 全メッセージを会話メモリに保存（話者名付き）
   saveConversationMessage(sourceId, senderName, text).catch(() => {});
@@ -202,6 +219,10 @@ async function handleText(event, client) {
       type: 'text',
       text: aiReply || `直近${messages.length}件の会話はちゃんと覚えてるよ。要約にはAI機能が必要だけど、記録はしてある。`,
     });
+  }
+
+  if (intent?.type === 'geoGame') {
+    return handleGeoGameIntent({ event, client, sourceId, senderName, intent });
   }
 
   if (intent === 'casual') {
@@ -410,6 +431,9 @@ function detectTextIntent(text) {
   if (/(まとめて|要約|最近の会話|会話まとめ|何話してた|なに話してた|みんな何|みんな何言)/.test(withoutMention)) return 'summary';
 
   const targetText = withoutMention;
+
+  const geoGameIntent = detectGeoGameIntent(targetText);
+  if (geoGameIntent) return geoGameIntent;
 
   if (detectBillingRiskIntent(targetText)) return 'billing';
 

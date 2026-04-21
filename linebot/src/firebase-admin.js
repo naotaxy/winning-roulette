@@ -26,6 +26,9 @@ const CACHE_TTL = 5 * 60 * 1000;
 const DEFAULT_RESTRICT_MONTHS = [5, 6, 8, 9, 11];
 const AI_CHAT_GUARD_PATH = 'config/aiChatGuard/autoDisabled';
 const AI_CHAT_USAGE_ROOT = 'aiChatUsage';
+const GEO_GAME_ROOT = 'geoGames';
+const GEO_GAME_USAGE_ROOT = 'geoGameUsage';
+const GEO_GAME_CACHE_ROOT = 'geoGameCache';
 
 async function getPlayers() {
   if (_playersCache && Date.now() - _playersCacheTs < CACHE_TTL) return _playersCache;
@@ -123,6 +126,70 @@ async function checkFirebaseStatus() {
       error: err?.message || String(err),
     };
   }
+}
+
+async function getGeoGameConfig() {
+  const snap = await getDb().ref('config/geoGame').once('value');
+  return snap.val() || {};
+}
+
+async function getGeoGame(sourceId) {
+  if (!sourceId) return null;
+  const snap = await getDb().ref(`${GEO_GAME_ROOT}/${sourceId}/current`).once('value');
+  return snap.val() || null;
+}
+
+async function saveGeoGame(sourceId, game) {
+  if (!sourceId || !game) return;
+  await getDb().ref(`${GEO_GAME_ROOT}/${sourceId}/current`).set(game);
+}
+
+async function saveGeoGameAnswer(sourceId, answerKey, answer) {
+  if (!sourceId || !answerKey || !answer) return;
+  await getDb().ref(`${GEO_GAME_ROOT}/${sourceId}/current/answers/${answerKey}`).set(answer);
+}
+
+async function finishGeoGame(sourceId, game, status = 'finished') {
+  if (!sourceId || !game) return;
+  const finishedAt = Date.now();
+  const finishedGame = { ...game, status, finishedAt };
+  const updates = {};
+  updates[`${GEO_GAME_ROOT}/${sourceId}/current`] = null;
+  updates[`${GEO_GAME_ROOT}/${sourceId}/history/${game.id || finishedAt}`] = finishedGame;
+  await getDb().ref().update(updates);
+}
+
+async function reserveGeoGameStart(dayKey, limit) {
+  const ref = getDb().ref(`${GEO_GAME_USAGE_ROOT}/${dayKey}/started`);
+  const result = await ref.transaction(current => {
+    const count = Number(current) || 0;
+    if (limit > 0 && count >= limit) return;
+    return count + 1;
+  }, undefined, false);
+  return {
+    allowed: !!result.committed,
+    count: Number(result.snapshot?.val()) || 0,
+    limit,
+  };
+}
+
+async function getGeoGameUsage(dayKey) {
+  const snap = await getDb().ref(`${GEO_GAME_USAGE_ROOT}/${dayKey}`).once('value');
+  return snap.val() || {};
+}
+
+async function getGeoGameGeocodeCache(cacheKey) {
+  if (!cacheKey) return null;
+  const snap = await getDb().ref(`${GEO_GAME_CACHE_ROOT}/geocodes/${cacheKey}`).once('value');
+  return snap.val() || null;
+}
+
+async function saveGeoGameGeocodeCache(cacheKey, data) {
+  if (!cacheKey || !data) return;
+  await getDb().ref(`${GEO_GAME_CACHE_ROOT}/geocodes/${cacheKey}`).set({
+    ...data,
+    savedAt: Date.now(),
+  });
 }
 
 async function getAiChatGuardState(limits) {
@@ -593,6 +660,15 @@ module.exports = {
   saveConversationMessage,
   getRecentConversation,
   checkFirebaseStatus,
+  getGeoGameConfig,
+  getGeoGame,
+  saveGeoGame,
+  saveGeoGameAnswer,
+  finishGeoGame,
+  reserveGeoGameStart,
+  getGeoGameUsage,
+  getGeoGameGeocodeCache,
+  saveGeoGameGeocodeCache,
   getAiChatGuardState,
   reserveAiChatRequest,
   recordAiChatUsage,

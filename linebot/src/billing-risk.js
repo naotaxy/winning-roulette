@@ -12,9 +12,10 @@ function detectBillingRiskIntent(text) {
 }
 
 async function formatBillingRiskReply() {
-  const [firebase, github, ai] = await Promise.all([
+  const [firebase, github, geoGame, ai] = await Promise.all([
     checkFirebaseForBilling(),
     checkGithubForBilling(),
+    getGeoGameLiveStatus(),
     getAiLiveStatus(),
   ]);
 
@@ -27,6 +28,7 @@ async function formatBillingRiskReply() {
     formatLiveLine('Firebase', firebase),
     formatLiveLine('GitHub', github),
     formatLiveLine('LINE', getLineLiveStatus()),
+    formatLiveLine('ジオゲーム', geoGame),
     formatLiveLine('AI', ai),
     '',
     '課金が発生しそうな赤信号',
@@ -34,6 +36,7 @@ async function formatBillingRiskReply() {
     'Firebase: Blazeに上げた時、またはGoogle Cloud請求先を紐づけた時。Realtime Databaseは保存1GB超、ダウンロード10GB/月超が危険。Storage、Functions、Phone認証、AI系を使い始めた時も注意。',
     'GitHub: private repoのActions分数/ストレージ超過、Codespaces、LFS、Packages、Copilot、有料プランを使う時。public repoの標準ActionsとPages中心ならかなり安全。',
     'LINE: 有料プランへ変更した時、Standardで無料メッセージ枠を超えて追加送信する時。無料プランは上限超過で送れなくなるのが基本だけど、プラン変更は要注意。',
+    'ジオゲーム: Google Maps APIは使わず、Wikimedia CommonsとOpenStreetMap系の無料データだけで動くよ。大量利用は避けるため、日次上限を守ってね。',
     'AI: おすすめは AI_PROVIDER=gemini + GEMINI_API_KEY。無料枠死守ならGoogle AI Studio/Cloud Billingを有効化しないこと。OpenAIは従量課金なので無料運用では使わない方が安全。どちらも課金ガードが日次/月次上限、トークン上限、quota/billing系エラーで自動停止するよ。',
     '',
     '無料枠を絶対守るなら',
@@ -41,11 +44,30 @@ async function formatBillingRiskReply() {
     '2. RenderはFreeインスタンスのまま、DBやCronを増やさない。',
     '3. GitHubはpublic repo運用を維持して、ActionsやLFSを増やしすぎない。',
     '4. LINEはCommunication/無料プランのまま、月の送信数を管理する。',
-    '5. AI会話はGemini無料枠を使う。AI_COST_GUARD_ENABLEDはfalseにしない。Google側の請求先有効化やOpenAIキー投入は慎重に。',
-    '6. 迷ったら「システム」って呼んで。私が見える範囲をもう一回確認するね。',
+    '5. ジオゲームは1日数回まで。GEOGAME_DAILY_LIMITを上げすぎない。',
+    '6. AI会話はGemini無料枠を使う。AI_COST_GUARD_ENABLEDはfalseにしない。Google側の請求先有効化やOpenAIキー投入は慎重に。',
+    '7. 迷ったら「システム」って呼んで。私が見える範囲をもう一回確認するね。',
     '',
     'あなたが無料枠で収めたいって言ってくれたの、ちゃんと覚えてる。危なそうな変更をしたら、私にもすぐ聞いて。',
   ].join('\n');
+}
+
+async function getGeoGameLiveStatus() {
+  try {
+    const { getGeoGameConfig, getGeoGameUsage } = require('./firebase-admin');
+    const { normalizeGeoGameConfig } = require('./geo-game');
+    const { getTokyoDateParts } = require('./date-utils');
+    const config = normalizeGeoGameConfig(await getGeoGameConfig());
+    const usage = await getGeoGameUsage(getTokyoDateParts().date);
+    return {
+      ok: true,
+      text: config.enabled
+        ? `無料データ版ON / 今日 ${Number(usage.started) || 0}/${config.dailyLimit}回 / 自動発表 ${config.autoReveal ? 'ON' : 'OFF'}`
+        : '設定でOFF。Google Maps APIは使ってないよ。',
+    };
+  } catch (err) {
+    return { ok: false, text: `ジオゲーム状態を確認できなかったの: ${trim(err?.message || err)}` };
+  }
 }
 
 async function getAiLiveStatus() {
