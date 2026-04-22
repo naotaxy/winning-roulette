@@ -1371,7 +1371,7 @@ async function boot() {
 
   /* ③ Firebase 初期化と設定同期 */
   try {
-    SYNC.init();
+    await SYNC.init();
     SYNC.watchConfig(cfg => {
       if (cfg.items12?.length === 12)  STATE.items12        = cfg.items12;
       if (cfg.items6?.length  === 6)   STATE.items6         = cfg.items6;

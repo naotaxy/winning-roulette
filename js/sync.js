@@ -12,9 +12,10 @@ const SYNC = (() => {
   let _handlers = {};   // event → callback[]
   let _isReady  = false;
   let _sessionId = null;
+  const PUBLIC_CONFIG_KEYS = ['items12', 'items6', 'players', 'restrictMonths', 'matchSchedule'];
 
   /* ── Firebase 初期化 ── */
-  function init() {
+  async function init() {
     if (!FIREBASE_READY) {
       console.info('[SYNC] Firebase未設定 — LocalStorageモードで動作');
       _isReady = false;
@@ -22,6 +23,11 @@ const SYNC = (() => {
     }
     try {
       if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+      if (firebase.auth) {
+        await firebase.auth().signInAnonymously();
+      } else {
+        throw new Error('Firebase Auth SDK is not loaded');
+      }
       _db      = firebase.database();
       _isReady = true;
       console.info('[SYNC] Firebase接続OK');
@@ -154,7 +160,15 @@ const SYNC = (() => {
   ───────────────────────────────────────────── */
   function watchConfig(cb) {
     if (_isReady) {
-      _db.ref('config').on('value', snap => cb(snap.val() || {}));
+      const config = {};
+      PUBLIC_CONFIG_KEYS.forEach(key => {
+        const ref = _db.ref(`config/${key}`);
+        ref.on('value', snap => {
+          if (snap.exists()) config[key] = snap.val();
+          else delete config[key];
+          cb({ ...config });
+        });
+      });
     } else {
       cb(_localLoad('config') || {});
     }
@@ -162,7 +176,11 @@ const SYNC = (() => {
 
   async function saveConfig(data) {
     if (_isReady) {
-      await _db.ref('config').update(data);
+      const safe = {};
+      PUBLIC_CONFIG_KEYS.forEach(key => {
+        if (Object.prototype.hasOwnProperty.call(data || {}, key)) safe[key] = data[key];
+      });
+      if (Object.keys(safe).length) await _db.ref('config').update(safe);
     } else {
       const cur = _localLoad('config') || {};
       _localSave('config', { ...cur, ...data });
