@@ -50,6 +50,56 @@ const TOKYO_SEEDS = [
   { label: '吉祥寺', lat: 35.702258, lng: 139.57979 },
 ];
 
+const TOKYO_GUESS_POINTS = [
+  ...TOKYO_SEEDS,
+  { label: '高円寺', lat: 35.705326, lng: 139.649692 },
+  { label: '阿佐ヶ谷', lat: 35.704872, lng: 139.635892 },
+  { label: '荻窪', lat: 35.704522, lng: 139.620015 },
+  { label: '西荻窪', lat: 35.703842, lng: 139.599611 },
+  { label: '三鷹', lat: 35.702708, lng: 139.560831 },
+  { label: '代々木', lat: 35.683061, lng: 139.702042 },
+  { label: '大久保', lat: 35.700898, lng: 139.697311 },
+  { label: '高田馬場', lat: 35.712285, lng: 139.703782 },
+  { label: '目白', lat: 35.721204, lng: 139.706587 },
+  { label: '大塚', lat: 35.731412, lng: 139.728662 },
+  { label: '巣鴨', lat: 35.733492, lng: 139.739345 },
+  { label: '駒込', lat: 35.736489, lng: 139.746875 },
+  { label: '田端', lat: 35.738062, lng: 139.76086 },
+  { label: '西日暮里', lat: 35.731954, lng: 139.766857 },
+  { label: '日暮里', lat: 35.727772, lng: 139.770987 },
+  { label: '鶯谷', lat: 35.721484, lng: 139.778015 },
+  { label: '御徒町', lat: 35.707438, lng: 139.774632 },
+  { label: '神田', lat: 35.69169, lng: 139.770883 },
+  { label: '有楽町', lat: 35.675069, lng: 139.763328 },
+  { label: '新橋', lat: 35.666195, lng: 139.758587 },
+  { label: '浜松町', lat: 35.655391, lng: 139.757135 },
+  { label: '田町', lat: 35.645736, lng: 139.747575 },
+  { label: '大崎', lat: 35.619772, lng: 139.728439 },
+  { label: '五反田', lat: 35.626446, lng: 139.723444 },
+  { label: '恵比寿', lat: 35.64669, lng: 139.710106 },
+  { label: '代官山', lat: 35.648098, lng: 139.703139 },
+  { label: '中目黒', lat: 35.644302, lng: 139.699157 },
+  { label: '下北沢', lat: 35.66149, lng: 139.666872 },
+  { label: '井の頭公園', lat: 35.700001, lng: 139.575833 },
+  { label: '自由が丘', lat: 35.607365, lng: 139.668701 },
+  { label: '二子玉川', lat: 35.611527, lng: 139.626495 },
+  { label: '赤羽', lat: 35.778026, lng: 139.720928 },
+  { label: '北千住', lat: 35.749566, lng: 139.804691 },
+  { label: '錦糸町', lat: 35.696975, lng: 139.814145 },
+  { label: '月島', lat: 35.664875, lng: 139.784858 },
+  { label: '門前仲町', lat: 35.671716, lng: 139.796308 },
+  { label: '清澄白河', lat: 35.68213, lng: 139.798881 },
+  { label: '葛西', lat: 35.663518, lng: 139.872704 },
+  { label: '西葛西', lat: 35.66476, lng: 139.859549 },
+  { label: '東京都庁', lat: 35.689634, lng: 139.692101, aliases: ['都庁'] },
+  { label: '明治神宮', lat: 35.676398, lng: 139.699325 },
+  { label: '上野公園', lat: 35.715298, lng: 139.773037 },
+  { label: '皇居', lat: 35.685175, lng: 139.752799 },
+  { label: '日比谷公園', lat: 35.673873, lng: 139.755649 },
+  { label: '築地', lat: 35.665486, lng: 139.770667 },
+  { label: '東京スカイツリー', lat: 35.710063, lng: 139.8107, aliases: ['スカイツリー'] },
+];
+
 const revealTimers = new Map();
 let lastNominatimAt = 0;
 let nominatimQueue = Promise.resolve();
@@ -463,6 +513,10 @@ async function geocodeGuess(query) {
 
   const normalized = String(query || '').normalize('NFKC').trim();
   if (!normalized) return null;
+
+  const local = matchLocalTokyoGuess(normalized);
+  if (local) return local;
+
   const cacheKey = makeCacheKey(normalized);
   const cached = await getGeoGameGeocodeCache(cacheKey);
   if (cached && Date.now() - Number(cached.savedAt || 0) < GEOCODE_CACHE_TTL) {
@@ -504,6 +558,38 @@ async function geocodeGuess(query) {
   };
   await saveGeoGameGeocodeCache(cacheKey, geocoded);
   return geocoded;
+}
+
+function matchLocalTokyoGuess(query) {
+  const queryKeys = makeGuessKeys(query);
+  if (!queryKeys.length) return null;
+
+  const ranked = TOKYO_GUESS_POINTS
+    .map(point => {
+      const aliases = [point.label, `${point.label}駅`, ...(point.aliases || [])];
+      const keys = [...new Set(aliases.flatMap(makeGuessKeys))].sort((a, b) => b.length - a.length);
+      return { point, keys };
+    })
+    .sort((a, b) => Math.max(...b.keys.map(k => k.length)) - Math.max(...a.keys.map(k => k.length)));
+
+  for (const { point, keys } of ranked) {
+    const matched = queryKeys.some(queryKey => keys.some(key => (
+      queryKey === key ||
+      (key.length >= 3 && queryKey.includes(key)) ||
+      (queryKey.length >= 3 && key.includes(queryKey))
+    )));
+    if (!matched) continue;
+
+    return {
+      lat: point.lat,
+      lng: point.lng,
+      label: point.label,
+      displayName: `${point.label}（ローカル辞書）`,
+      provider: 'local-tokyo-gazetteer',
+    };
+  }
+
+  return null;
 }
 
 async function fetchNominatimJson(url, headers) {
@@ -596,6 +682,28 @@ function parseCoordinateGuess(query) {
     displayName: null,
     provider: 'coordinate',
   };
+}
+
+function makeGuessKeys(value) {
+  const raw = String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[・、。,.，:：;；!！?？()（）「」『』【】\[\]_-]/g, '');
+  const strippedContext = raw
+    .replace(/^(東京都|東京)/, '')
+    .replace(/(東京都|東京)$/, '')
+    .replace(/^(jr|京王|小田急|東急|東京メトロ|メトロ|都営)/, '');
+  const candidates = [
+    raw,
+    strippedContext,
+    strippedContext.replace(/(駅前|駅周辺|駅)$/g, ''),
+    strippedContext.replace(/(周辺|あたり|付近)$/g, ''),
+  ];
+
+  return [...new Set(candidates)]
+    .map(item => item.trim())
+    .filter(item => item.length >= 2);
 }
 
 function calculateDistanceMeters(lat1, lng1, lat2, lng2) {
@@ -700,4 +808,5 @@ module.exports = {
   normalizeGeoGameConfig,
   calculateDistanceMeters,
   parseCoordinateGuess,
+  matchLocalTokyoGuess,
 };
