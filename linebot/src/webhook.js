@@ -38,6 +38,7 @@ const { detectSystemStatusKind, formatSystemStatusReply } = require('./system-st
 const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-risk');
 const { formatMemberFlavorReply, formatAnonymousDiaryHighlights } = require('./group-insights');
 const { detectGeoGameIntent, handleGeoGameIntent } = require('./geo-game');
+const { detectDiceGameIntent, formatDiceGameReply } = require('./dice-games');
 const {
   formatAttributeGuide,
   formatRarityGuide,
@@ -238,6 +239,13 @@ async function handleText(event, client) {
         text: 'ジオゲームでつまずいちゃった。\nでも無視したわけじゃないよ。今のエラーは記録したから、少し直してまた呼んでね。',
       });
     }
+  }
+
+  if (intent?.type === 'diceGame') {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatDiceGameReply(intent, senderName),
+    });
   }
 
   if (intent === 'casual') {
@@ -449,6 +457,9 @@ function detectTextIntent(text) {
 
   const geoGameIntent = detectGeoGameIntent(targetText);
   if (geoGameIntent) return geoGameIntent;
+
+  const diceGameIntent = detectDiceGameIntent(targetText);
+  if (diceGameIntent) return diceGameIntent;
 
   if (detectBillingRiskIntent(targetText)) return 'billing';
 
