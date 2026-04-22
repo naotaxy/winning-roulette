@@ -320,6 +320,14 @@
       ".read": false,
       ".write": false
     },
+    "ocrAutomation": {
+      ".read": false,
+      ".write": false
+    },
+    "screenshotCandidates": {
+      ".read": false,
+      ".write": false
+    },
     "aiChatUsage": {
       ".read": false,
       ".write": false

@@ -16,6 +16,11 @@ const {
   getRecentDiaries,
   saveConversationMessage,
   getRecentConversation,
+  getOcrAutomationState,
+  setOcrAutoEnabled,
+  saveScreenshotCandidate,
+  updateScreenshotCandidate,
+  getScreenshotCandidates,
 } = require('./firebase-admin');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
 const { getTokyoDateParts, shiftMonth } = require('./date-utils');
@@ -39,6 +44,7 @@ const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-r
 const { formatMemberFlavorReply, formatAnonymousDiaryHighlights } = require('./group-insights');
 const { detectGeoGameIntent, handleGeoGameIntent } = require('./geo-game');
 const { detectDiceGameIntent, formatDiceGameReply } = require('./dice-games');
+const { detectOcrControlIntent } = require('./ocr-control');
 const {
   formatAttributeGuide,
   formatRarityGuide,
@@ -51,6 +57,9 @@ const {
   detectUicolleIntent,
 } = require('./uicolle-knowledge');
 const { shouldUseAiChat, formatAiChatReply } = require('./ai-chat');
+
+const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
+const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
 
 async function handle(event, client) {
   /* ── 画像メッセージ → OCR → 確認FlexMessage ── */
@@ -70,6 +79,9 @@ async function handle(event, client) {
 
 async function handleImage(event, client) {
   const msgId = event.message.id;
+  const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
+  const eventTime = event.timestamp ? new Date(event.timestamp) : new Date();
+  const eventDate = getTokyoDateParts(eventTime);
   console.log(`[webhook] image received msgId=${msgId}`);
 
   /* LINE Content API から画像バイナリを取得 */
@@ -88,6 +100,31 @@ async function handleImage(event, client) {
     return;
   }
 
+  const ocrState = await getOcrAutomationState(sourceId);
+  if (!ocrState.autoEnabled) {
+    const senderName = await getSenderName(event, client, '不明');
+    await saveScreenshotCandidate(sourceId, eventDate.date, msgId, {
+      sourceId,
+      userId: event.source?.userId || null,
+      senderName,
+      createdAt: event.timestamp || Date.now(),
+      createdAtIso: eventTime.toISOString(),
+      width: imageProfile.width,
+      height: imageProfile.height,
+      ratio: imageProfile.ratio,
+      status: 'queued',
+    });
+    console.log(`[webhook] auto OCR disabled; queued screenshot msgId=${msgId} sourceId=${sourceId} date=${eventDate.date}`);
+    return;
+  }
+
+  /* 送信者の表示名を取得（addedBy用） */
+  const senderName = await getSenderName(event, client, '(LINE bot)');
+  const outcome = await processImageBufferForOcr(buffer, msgId, senderName);
+  if (outcome.message) return sendImageResponse(event, client, outcome.message);
+}
+
+async function processImageBufferForOcr(buffer, msgId, senderName) {
   /* プレイヤーマップを Firebase から取得 */
   const players   = await getPlayers();
   console.log(`[webhook] players count=${Array.isArray(players) ? players.length : Object.keys(players||{}).length} type=${Array.isArray(players)?'array':typeof players}`);
@@ -100,31 +137,36 @@ async function handleImage(event, client) {
   let ocrResult;
   try {
     const queued = await enqueueImageOcr(() => parseMatchResult(buffer, playerMap), msgId);
-    if (queued.skipped) return;
+    if (queued.skipped) return { status: 'skipped' };
     ocrResult = queued.value;
   } catch (err) {
     console.error('[webhook] OCR failed', err);
-    return sendImageResponse(event, client, {
-      type: 'text',
-      text: 'ごめんね、うまく読み取れなかったの。\nあなたの試合、ちゃんと受け取りたかったから少し悔しいな。\nアプリから入れてくれたら、私が大事に預かるね。\nhttps://naotaxy.github.io/winning-roulette/',
-    });
+    return {
+      status: 'failed',
+      error: err?.message || String(err),
+      message: {
+        type: 'text',
+        text: 'ごめんね、うまく読み取れなかったの。\nあなたの試合、ちゃんと受け取りたかったから少し悔しいな。\nアプリから入れてくれたら、私が大事に預かるね。\nhttps://naotaxy.github.io/winning-roulette/',
+      },
+    };
   }
 
   const ocrClass = classifyOcrResult(ocrResult);
   if (!ocrClass.isMaybeMatch) {
     console.log(`[webhook] ignored non-uicolle image msgId=${msgId} scores=${ocrClass.hasScores} matchedTeams=${ocrClass.matchedTeams}`);
-    return;
+    return { status: 'ignored', ocrClass };
   }
   if (!ocrClass.isCompleteMatch) {
     console.log(`[webhook] uicolle-like image incomplete msgId=${msgId} scores=${ocrClass.hasScores} matchedTeams=${ocrClass.matchedTeams}`);
-    return sendImageResponse(event, client, {
-      type: 'text',
-      text: '試合結果っぽいところまでは見えたんだけど、チーム名かスコアを片方見失っちゃった。\nもう一回送って。次はちゃんと見つけたいの。',
-    });
+    return {
+      status: 'incomplete',
+      ocrClass,
+      message: {
+        type: 'text',
+        text: '試合結果っぽいところまでは見えたんだけど、チーム名かスコアを片方見失っちゃった。\nもう一回送って。次はちゃんと見つけたいの。',
+      },
+    };
   }
-
-  /* 送信者の表示名を取得（addedBy用） */
-  const senderName = await getSenderName(event, client, '(LINE bot)');
 
   /* 保留データを Firebase に保存 */
   const now = new Date();
@@ -143,7 +185,7 @@ async function handleImage(event, client) {
 
   /* 確認FlexMessageを送信 */
   const flex = buildConfirmFlex(ocrResult, msgId);
-  return sendImageResponse(event, client, flex);
+  return { status: 'complete', ocrClass, ocrResult, pending, message: flex };
 }
 
 async function sendImageResponse(event, client, message) {
@@ -246,6 +288,10 @@ async function handleText(event, client) {
       type: 'text',
       text: formatDiceGameReply(intent, senderName),
     });
+  }
+
+  if (intent?.type === 'ocrControl') {
+    return handleOcrControlIntent({ event, client, sourceId, senderName, intent });
   }
 
   if (intent === 'casual') {
@@ -412,6 +458,234 @@ async function handleText(event, client) {
   });
 }
 
+async function handleOcrControlIntent({ event, client, sourceId, senderName, intent }) {
+  const today = getTokyoDateParts();
+  const maxImages = getBatchOcrMaxImages();
+
+  if (intent.action === 'enable' || intent.action === 'disable') {
+    const enabled = intent.action === 'enable';
+    await setOcrAutoEnabled(sourceId, enabled, senderName);
+    const text = enabled
+      ? [
+        'このグループの自動OCRをONに戻したよ。',
+        'これからは端末スクショが来たら、今まで通り試合結果っぽいものをその場で確認に出すね。',
+        'また静かにしたい時は「@秘書トラペル子 自動OCR OFF」って言って。',
+      ].join('\n')
+      : [
+        'このグループの自動OCRをOFFにしたよ。',
+        'これから上がる端末スクショは、私が静かに今日分として控えておくね。',
+        '集計したくなったら「@秘書トラペル子 集計して」って呼んで。ちゃんと見に行くから。',
+      ].join('\n');
+    return client.replyMessage(event.replyToken, { type: 'text', text });
+  }
+
+  if (intent.action === 'status') {
+    const [state, candidates] = await Promise.all([
+      getOcrAutomationState(sourceId),
+      getScreenshotCandidates(sourceId, today.date, 200),
+    ]);
+    const counts = countScreenshotCandidates(candidates);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: [
+        `このグループの自動OCR: ${state.autoEnabled ? 'ON' : 'OFF'}`,
+        `今日控えてるスクショ候補: ${counts.queued}枚`,
+        `今日すでに確認を出したもの: ${counts.complete}枚`,
+        `見送り済み: ${counts.ignored + counts.incomplete}枚`,
+        state.updatedBy ? `最後に切り替えた人: ${state.updatedBy}` : '',
+        '私は勝手に騒ぎすぎないように、ここはちゃんと気をつけるね。',
+      ].filter(Boolean).join('\n'),
+    });
+  }
+
+  const allCandidates = await getScreenshotCandidates(sourceId, today.date, 200);
+  const processable = allCandidates.filter(isProcessableScreenshotCandidate);
+  if (!processable.length) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: [
+        '今日このグループで控えてるスクショ候補はないみたい。',
+        '自動OCR OFF中に上がった端末スクショだけ、あとから集計できるように控えてるよ。',
+      ].join('\n'),
+    });
+  }
+
+  const batch = processable.slice(0, maxImages);
+  const remaining = processable.length - batch.length;
+  processScreenshotBatch({ client, sourceId, dayKey: today.date, candidates: batch, remaining })
+    .catch(err => console.error('[batch-ocr] failed', err));
+
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: [
+      `今日のスクショ候補${batch.length}枚を集計し始めるね。`,
+      remaining > 0 ? `無料運用で重くしすぎないよう、今回は先頭${batch.length}枚まで見るよ。残り${remaining}枚はもう一回「集計して」で続きから見るね。` : '',
+      '読めた試合だけ確認ボタンを出すから、少しだけ待ってて。',
+    ].filter(Boolean).join('\n'),
+  });
+}
+
+async function processScreenshotBatch({ client, sourceId, dayKey, candidates, remaining = 0 }) {
+  const summary = {
+    total: candidates.length,
+    complete: 0,
+    ignored: 0,
+    incomplete: 0,
+    failed: 0,
+    skipped: 0,
+    remaining,
+  };
+
+  for (const candidate of candidates) {
+    const msgId = candidate.messageId || candidate.id;
+    await updateScreenshotCandidate(sourceId, dayKey, msgId, {
+      status: 'processing',
+      processingStartedAt: Date.now(),
+    });
+
+    let buffer;
+    try {
+      const stream = await client.getMessageContent(msgId);
+      buffer = await streamToBuffer(stream);
+    } catch (err) {
+      summary.failed++;
+      await updateScreenshotCandidate(sourceId, dayKey, msgId, {
+        status: 'fetch_failed',
+        error: trimBatchError(err?.message || err),
+      });
+      continue;
+    }
+
+    let imageProfile;
+    try {
+      imageProfile = await inspectImage(buffer);
+    } catch (err) {
+      summary.failed++;
+      await updateScreenshotCandidate(sourceId, dayKey, msgId, {
+        status: 'unreadable',
+        error: trimBatchError(err?.message || err),
+      });
+      continue;
+    }
+
+    if (!looksLikePhoneScreenshot(imageProfile)) {
+      summary.ignored++;
+      await updateScreenshotCandidate(sourceId, dayKey, msgId, {
+        status: 'ignored_non_screenshot',
+        width: imageProfile.width,
+        height: imageProfile.height,
+        ratio: imageProfile.ratio,
+      });
+      continue;
+    }
+
+    let outcome;
+    try {
+      outcome = await processImageBufferForOcr(buffer, msgId, candidate.senderName || 'LINE bot');
+    } catch (err) {
+      summary.failed++;
+      await updateScreenshotCandidate(sourceId, dayKey, msgId, {
+        status: 'ocr_failed',
+        error: trimBatchError(err?.message || err),
+      });
+      continue;
+    }
+
+    if (outcome.status === 'complete') {
+      try {
+        await client.pushMessage(sourceId, outcome.message);
+        summary.complete++;
+        await updateScreenshotCandidate(sourceId, dayKey, msgId, {
+          status: 'complete',
+          completedAt: Date.now(),
+          away: outcome.pending?.away || null,
+          home: outcome.pending?.home || null,
+          awayScore: outcome.pending?.awayScore ?? null,
+          homeScore: outcome.pending?.homeScore ?? null,
+        });
+      } catch (err) {
+        summary.failed++;
+        await updateScreenshotCandidate(sourceId, dayKey, msgId, {
+          status: 'delivery_failed',
+          error: trimBatchError(err?.message || err),
+        });
+      }
+    } else if (outcome.status === 'ignored') {
+      summary.ignored++;
+      await updateScreenshotCandidate(sourceId, dayKey, msgId, {
+        status: 'ignored_non_uicolle',
+        ocrClass: outcome.ocrClass || null,
+      });
+    } else if (outcome.status === 'incomplete') {
+      summary.incomplete++;
+      await updateScreenshotCandidate(sourceId, dayKey, msgId, {
+        status: 'incomplete',
+        ocrClass: outcome.ocrClass || null,
+      });
+    } else if (outcome.status === 'skipped') {
+      summary.skipped++;
+      await updateScreenshotCandidate(sourceId, dayKey, msgId, { status: 'skipped_backlog' });
+    } else {
+      summary.failed++;
+      await updateScreenshotCandidate(sourceId, dayKey, msgId, {
+        status: 'ocr_failed',
+        error: trimBatchError(outcome.error || 'OCR failed'),
+      });
+    }
+  }
+
+  return pushText(client, sourceId, formatBatchOcrSummary(summary));
+}
+
+function countScreenshotCandidates(candidates) {
+  return candidates.reduce((acc, candidate) => {
+    if (candidate.status === 'complete') acc.complete++;
+    else if (candidate.status === 'ignored_non_uicolle' || candidate.status === 'ignored_non_screenshot') acc.ignored++;
+    else if (candidate.status === 'incomplete') acc.incomplete++;
+    else if (isProcessableScreenshotCandidate(candidate)) acc.queued++;
+    return acc;
+  }, { queued: 0, complete: 0, ignored: 0, incomplete: 0 });
+}
+
+function isProcessableScreenshotCandidate(candidate) {
+  const status = String(candidate?.status || 'queued');
+  if (['queued', 'fetch_failed', 'ocr_failed', 'skipped_backlog', 'unreadable', 'delivery_failed'].includes(status)) return true;
+  if (status === 'processing') {
+    const startedAt = Number(candidate.processingStartedAt) || 0;
+    return startedAt > 0 && Date.now() - startedAt > BATCH_PROCESSING_STALE_MS;
+  }
+  return false;
+}
+
+function formatBatchOcrSummary(summary) {
+  return [
+    '今日のスクショ集計、終わったよ。',
+    `見た候補: ${summary.total}枚`,
+    `確認ボタンを出した試合: ${summary.complete}枚`,
+    `ウイコレ試合結果ではなさそうで見送ったもの: ${summary.ignored}枚`,
+    `試合結果っぽいけど読み切れなかったもの: ${summary.incomplete}枚`,
+    summary.skipped ? `混雑で後回しにしたもの: ${summary.skipped}枚` : '',
+    summary.failed ? `取得かOCRで失敗したもの: ${summary.failed}枚` : '',
+    summary.remaining ? `まだ控えが${summary.remaining}枚あるよ。続けるなら、もう一回「集計して」って呼んでね。` : '',
+    summary.complete ? '読めた分は確認ボタンを押したら登録できるよ。私、ちゃんと待ってる。' : '今回は登録確認まで進める画像はなかったみたい。必要なスクショだけまた上げてくれたら、私が見るね。',
+  ].filter(Boolean).join('\n');
+}
+
+function getBatchOcrMaxImages() {
+  const value = Number(process.env.BATCH_OCR_MAX_IMAGES || DEFAULT_BATCH_OCR_MAX_IMAGES);
+  if (!Number.isFinite(value) || value < 1) return DEFAULT_BATCH_OCR_MAX_IMAGES;
+  return Math.floor(value);
+}
+
+async function pushText(client, to, text) {
+  if (!to || typeof client.pushMessage !== 'function') return null;
+  return client.pushMessage(to, { type: 'text', text });
+}
+
+function trimBatchError(value) {
+  return String(value || '').replace(/\s+/g, ' ').slice(0, 200);
+}
+
 async function buildAiConversationContext(year, month, senderName = null, sourceId = null) {
   try {
     const players = await getPlayers();
@@ -460,6 +734,9 @@ function detectTextIntent(text) {
 
   const diceGameIntent = detectDiceGameIntent(targetText);
   if (diceGameIntent) return diceGameIntent;
+
+  const ocrControlIntent = detectOcrControlIntent(targetText);
+  if (ocrControlIntent) return ocrControlIntent;
 
   if (detectBillingRiskIntent(targetText)) return 'billing';
 

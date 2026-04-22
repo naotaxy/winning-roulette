@@ -115,15 +115,17 @@ Renderの無料プランは15分アクセスがないとスリープする。
 2. Webhook受信 → Render(Node.js)へ転送
 3. LINE Content APIから画像バイナリ取得
 4. 端末スクリーンショットらしい画像だけOCR対象にする
-5. Firebase config/players からプレイヤーマップ取得（5分キャッシュ）
-6. Tesseract.js (jpn+eng) でOCR
+5. 自動OCRがOFFなら screenshotCandidates/{sourceId}/{date}/{msgId} に控えて返信しない
+6. 自動OCRがONなら Firebase config/players からプレイヤーマップ取得（5分キャッシュ）
+7. Tesseract.js (jpn+eng) でOCR
    - スコア: BgDiff → Invert → DigitFallback の3段階
    - チーム名: ファジーマッチング（Levenshtein + bigram Jaccard、閾値0.45）
-7. スコアと両チームが揃ったウイコレ結果だけ pendingOcr/{msgId} に一時保存（TTL: 1時間）
-8. 確認FlexMessage を返信
+8. スコアと両チームが揃ったウイコレ結果だけ pendingOcr/{msgId} に一時保存（TTL: 1時間）
+9. 確認FlexMessage を返信
 
 ウイコレ結果ではなさそうな画像は、グループを邪魔しないように返信せず無視します。
 試合結果らしいが一部だけ読めない画像は、登録せず再送を促します。
+自動OCRがOFFの時は「@秘書トラペル子 集計して」で、その日に控えたスクリーンショット候補だけをまとめてOCRします。
 ```
 
 ### テキスト受信時

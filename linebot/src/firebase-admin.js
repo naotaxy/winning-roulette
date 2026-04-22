@@ -29,6 +29,8 @@ const AI_CHAT_USAGE_ROOT = 'aiChatUsage';
 const GEO_GAME_ROOT = 'geoGames';
 const GEO_GAME_USAGE_ROOT = 'geoGameUsage';
 const GEO_GAME_CACHE_ROOT = 'geoGameCache';
+const OCR_AUTOMATION_ROOT = 'ocrAutomation';
+const SCREENSHOT_CANDIDATES_ROOT = 'screenshotCandidates';
 
 async function getPlayers() {
   if (_playersCache && Date.now() - _playersCacheTs < CACHE_TTL) return _playersCache;
@@ -190,6 +192,69 @@ async function saveGeoGameGeocodeCache(cacheKey, data) {
     ...data,
     savedAt: Date.now(),
   });
+}
+
+async function getOcrAutomationState(sourceId) {
+  if (!sourceId) return normalizeOcrAutomationState(null);
+  const snap = await getDb().ref(`${OCR_AUTOMATION_ROOT}/${sourceId}`).once('value');
+  return normalizeOcrAutomationState(snap.val());
+}
+
+async function setOcrAutoEnabled(sourceId, enabled, updatedBy = null) {
+  if (!sourceId) return normalizeOcrAutomationState({ autoEnabled: enabled });
+  const now = Date.now();
+  const payload = {
+    autoEnabled: enabled === true,
+    updatedAt: now,
+    updatedAtIso: new Date(now).toISOString(),
+    updatedBy: String(updatedBy || '不明').slice(0, 50),
+  };
+  await getDb().ref(`${OCR_AUTOMATION_ROOT}/${sourceId}`).update(payload);
+  return normalizeOcrAutomationState(payload);
+}
+
+async function saveScreenshotCandidate(sourceId, dayKey, msgId, data = {}) {
+  if (!sourceId || !dayKey || !msgId) return;
+  const now = Date.now();
+  await getDb().ref(`${SCREENSHOT_CANDIDATES_ROOT}/${sourceId}/${dayKey}/${msgId}`).update({
+    ...data,
+    messageId: msgId,
+    status: data.status || 'queued',
+    updatedAt: now,
+    updatedAtIso: new Date(now).toISOString(),
+  });
+}
+
+async function updateScreenshotCandidate(sourceId, dayKey, msgId, patch = {}) {
+  if (!sourceId || !dayKey || !msgId) return;
+  const now = Date.now();
+  await getDb().ref(`${SCREENSHOT_CANDIDATES_ROOT}/${sourceId}/${dayKey}/${msgId}`).update({
+    ...patch,
+    updatedAt: now,
+    updatedAtIso: new Date(now).toISOString(),
+  });
+}
+
+async function getScreenshotCandidates(sourceId, dayKey, limit = 100) {
+  if (!sourceId || !dayKey) return [];
+  const snap = await getDb().ref(`${SCREENSHOT_CANDIDATES_ROOT}/${sourceId}/${dayKey}`).once('value');
+  const raw = snap.val();
+  if (!raw) return [];
+  const rows = Object.entries(raw)
+    .map(([id, value]) => ({ id, ...(value || {}), messageId: value?.messageId || id }))
+    .sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+  const max = Number(limit);
+  return Number.isFinite(max) && max > 0 ? rows.slice(0, Math.floor(max)) : rows;
+}
+
+function normalizeOcrAutomationState(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  return {
+    autoEnabled: source.autoEnabled !== false,
+    updatedAt: toNonNegativeInteger(source.updatedAt) || null,
+    updatedAtIso: source.updatedAtIso ? trimGuardText(source.updatedAtIso) : '',
+    updatedBy: source.updatedBy ? trimGuardText(source.updatedBy) : '',
+  };
 }
 
 async function getAiChatGuardState(limits) {
@@ -669,6 +734,11 @@ module.exports = {
   getGeoGameUsage,
   getGeoGameGeocodeCache,
   saveGeoGameGeocodeCache,
+  getOcrAutomationState,
+  setOcrAutoEnabled,
+  saveScreenshotCandidate,
+  updateScreenshotCandidate,
+  getScreenshotCandidates,
   getAiChatGuardState,
   reserveAiChatRequest,
   recordAiChatUsage,
