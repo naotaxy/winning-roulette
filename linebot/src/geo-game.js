@@ -57,7 +57,7 @@ let nominatimQueue = Promise.resolve();
 function detectGeoGameIntent(text) {
   const raw = String(text || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
   if (!raw) return null;
-  const t = raw.replace(/^(@?秘書トラペル子)/, '');
+  const t = stripCommandPunctuation(raw.replace(/^(@?(?:秘書)?トラペル子(?:さん|ちゃん)?|@秘書)/, ''));
   const gamePrefix = /^(ジオゲーム|場所当て|場所あて|ここどこ|地理ゲーム|geogame|geo)/;
   const shortStart = /^(ジオゲーム|場所当て|場所あて|ここどこ|地理ゲーム|geogame|geo)$/;
 
@@ -82,6 +82,10 @@ function detectGeoGameIntent(text) {
   }
 
   return null;
+}
+
+function stripCommandPunctuation(text) {
+  return String(text || '').replace(/^[,，、。．.・:：;；!！?？\-ー~〜「」『』()[\]（）【】]+/, '');
 }
 
 async function handleGeoGameIntent({ event, client, sourceId, senderName, intent }) {

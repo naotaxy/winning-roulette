@@ -5,6 +5,8 @@ const GITHUB_REPO = 'winning-roulette';
 const GITHUB_BRANCH = 'feature/linebot';
 const GITHUB_COMMITS_URL =
   `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/commits?sha=${encodeURIComponent(GITHUB_BRANCH)}&per_page=1`;
+const GITHUB_ATOM_URL =
+  `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/commits/${encodeURIComponent(GITHUB_BRANCH)}.atom`;
 
 function detectSystemStatusKind(text) {
   const t = String(text || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
@@ -89,16 +91,17 @@ function formatGithubStatus(status) {
     'GitHub、見に行ってきたよ。',
     `ブランチ: ${GITHUB_BRANCH}`,
     `最新commit: ${shortSha(status.sha)} ${status.message}`,
-    `取得: OK（${status.latencyMs}ms）`,
+    `取得: OK（${status.latencyMs}ms / ${status.source === 'atom' ? 'Atom fallback' : 'API'}）`,
+    status.warning ? `補足: ${status.warning}` : '',
     compare,
     'ちゃんと確認してきたから、褒めてくれてもいいよ。',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 function formatOverallStatus([firebase, github], ai) {
   const renderCommit = shortSha(process.env.RENDER_GIT_COMMIT) || '不明';
   const githubLine = github.ok
-    ? `GitHub: OK（${shortSha(github.sha)} / ${github.latencyMs}ms）`
+    ? `GitHub: OK（${shortSha(github.sha)} / ${github.source === 'atom' ? 'Atom fallback' : 'API'} / ${github.latencyMs}ms）`
     : `GitHub: NG（${trimError(github.error)}）`;
   const firebaseLine = firebase.ok
     ? `Firebase: OK（${firebase.playerCount}人 / ${firebase.latencyMs}ms）`
@@ -144,18 +147,42 @@ async function checkGithubStatus() {
     return { ok: false, latencyMs: 0, error: 'fetch が使えない実行環境です' };
   }
 
+  const apiStatus = await checkGithubStatusViaApi(startedAt);
+  if (apiStatus.ok) return apiStatus;
+
+  const atomStatus = await checkGithubStatusViaAtom(startedAt);
+  if (atomStatus.ok) {
+    return {
+      ...atomStatus,
+      warning: `GitHub APIは${trimError(apiStatus.error)}だったから、公開Atom feedで確認したよ。`,
+    };
+  }
+
+  return {
+    ok: false,
+    latencyMs: Date.now() - startedAt,
+    error: `API ${trimError(apiStatus.error)} / Atom ${trimError(atomStatus.error)}`,
+  };
+}
+
+async function checkGithubStatusViaApi(startedAt) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3500);
   try {
+    const headers = {
+      accept: 'application/vnd.github+json',
+      'user-agent': 'winning-roulette-linebot',
+      'x-github-api-version': '2022-11-28',
+    };
+    const token = String(process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim();
+    if (token) headers.authorization = `Bearer ${token}`;
+
     const res = await fetch(GITHUB_COMMITS_URL, {
       signal: controller.signal,
-      headers: {
-        accept: 'application/vnd.github+json',
-        'user-agent': 'winning-roulette-linebot',
-      },
+      headers,
     });
     const latencyMs = Date.now() - startedAt;
-    if (!res.ok) return { ok: false, latencyMs, error: `HTTP ${res.status}` };
+    if (!res.ok) return { ok: false, latencyMs, error: await formatGithubHttpError(res) };
 
     const commits = await res.json();
     const latest = Array.isArray(commits) ? commits[0] : null;
@@ -167,6 +194,7 @@ async function checkGithubStatus() {
       sha: latest.sha,
       message: String(latest.commit?.message || '').split('\n')[0].slice(0, 80),
       url: latest.html_url,
+      source: 'api',
     };
   } catch (err) {
     return {
@@ -177,6 +205,83 @@ async function checkGithubStatus() {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function checkGithubStatusViaAtom(startedAt) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3500);
+  try {
+    const res = await fetch(GITHUB_ATOM_URL, {
+      signal: controller.signal,
+      headers: {
+        accept: 'application/atom+xml,text/xml,*/*',
+        'user-agent': 'winning-roulette-linebot',
+      },
+    });
+    const latencyMs = Date.now() - startedAt;
+    if (!res.ok) return { ok: false, latencyMs, error: await formatGithubHttpError(res) };
+
+    const xml = await res.text();
+    const entry = xml.match(/<entry>([\s\S]*?)<\/entry>/)?.[1] || '';
+    const sha = entry.match(/Commit\/([0-9a-f]{40})/i)?.[1]
+      || entry.match(/\/commit\/([0-9a-f]{40})/i)?.[1];
+    if (!sha) return { ok: false, latencyMs, error: 'Atom feedにcommit情報がありませんでした' };
+
+    const title = decodeXml(entry.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1] || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80);
+    const url = decodeXml(entry.match(/<link[^>]+href="([^"]+)"/)?.[1] || '');
+
+    return {
+      ok: true,
+      latencyMs,
+      sha,
+      message: title,
+      url,
+      source: 'atom',
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - startedAt,
+      error: err?.name === 'AbortError' ? 'Atom feedがタイムアウトしました' : (err?.message || String(err)),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function formatGithubHttpError(res) {
+  let message = '';
+  try {
+    const text = await res.text();
+    const json = JSON.parse(text);
+    message = json?.message || text;
+  } catch (_) {
+    message = '';
+  }
+  const reset = res.headers.get('x-ratelimit-reset');
+  const resetText = reset ? ` reset=${formatRateLimitReset(reset)}` : '';
+  return `HTTP ${res.status}${message ? ` ${message}` : ''}${resetText}`;
+}
+
+function formatRateLimitReset(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) return String(value);
+  const date = new Date(seconds * 1000);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toISOString();
+}
+
+function decodeXml(value) {
+  return String(value || '')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
 }
 
 function loadFirebaseChecker() {

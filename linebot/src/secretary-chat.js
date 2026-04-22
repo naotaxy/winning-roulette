@@ -289,12 +289,18 @@ function normalizeForChat(text) {
   return String(text || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
 }
 
+const SECRETARY_MENTION_PATTERN = /@?(?:秘書)?トラペル子(?:さん|ちゃん)?|@秘書/;
+const SECRETARY_MENTION_REMOVE_PATTERN = /@?(?:秘書)?トラペル子(?:さん|ちゃん)?|@秘書/g;
+const LEADING_AFTER_MENTION_PATTERN = /^[,，、。．.・:：;；!！?？\-ー~〜「」『』()[\]（）【】]+/;
+
 function removeSecretaryMention(compactText) {
-  return compactText.replace(/@?秘書トラペル子/g, '');
+  return compactText
+    .replace(SECRETARY_MENTION_REMOVE_PATTERN, '')
+    .replace(LEADING_AFTER_MENTION_PATTERN, '');
 }
 
 function hasSecretaryMention(compactText) {
-  return /@?秘書トラペル子/.test(compactText);
+  return SECRETARY_MENTION_PATTERN.test(compactText);
 }
 
 function pickReply(replies, seedText) {

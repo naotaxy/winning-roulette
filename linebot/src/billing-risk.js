@@ -124,9 +124,10 @@ async function checkGithubForBilling() {
     const { checkGithubStatus } = require('./system-status');
     const status = await checkGithubStatus();
     if (!status.ok) return { ok: false, text: `GitHub確認NG: ${trim(status.error)}` };
+    const source = status.source === 'atom' ? 'Atom代替' : '公開API';
     return {
       ok: true,
-      text: `公開API確認OK（${status.latencyMs}ms）/ feature/linebot ${status.sha.slice(0, 7)}。BillingはGitHub管理画面で確認してね。`,
+      text: `${source}確認OK（${status.latencyMs}ms）/ feature/linebot ${status.sha.slice(0, 7)}。BillingはGitHub管理画面で確認してね。`,
     };
   } catch (err) {
     return { ok: false, text: `GitHub確認NG: ${trim(err?.message || err)}` };
