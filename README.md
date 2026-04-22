@@ -62,12 +62,20 @@ const LIFF_ID = 'xxxxxxxxxx-xxxxxxxx';
 
 Firebase Realtime Databaseを使います。主な保存対象は次の通りです。
 
-- `config`: ルーレット項目、プレイヤー設定、縛り月
+- `config`: ルーレット項目、プレイヤー設定、縛り月、対戦スケジュール
 - `sessions`: 現在のスピン状態とスピナー
 - `spinHistory`: ルーレット履歴
 - `monthlyRules`: 月別ルール
-- `results`: 試合結果
+- `matchResults`: 試合結果
 - `playerAvatars`: プレイヤー別プロフィール画像
+
+### Realtime Database セキュリティルール
+
+公開アプリからはFirebase Authenticationの匿名認証で接続します。Firebase Consoleで先に `Authentication > Sign-in method > Anonymous` を有効化してください。
+
+その後、`Realtime Database > ルール` に [database.rules.json](./database.rules.json) の内容を反映します。
+
+このルールでは公開アプリに必要な共有データだけを認証済みクライアントへ開き、LINE Botや日記・ジオゲーム・会話ログなどのAdmin SDK専用データはブラウザから読めない/書けないようにしています。
 
 ## GitHub Pagesデプロイ
 

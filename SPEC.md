@@ -160,9 +160,10 @@
 ## Firebase セットアップ手順
 
 1. https://console.firebase.google.com でプロジェクト作成
-2. Realtime Database を作成（セキュリティルール: 認証ユーザーのみ書き込み可）
-3. `js/firebase-config.js` に設定値を記入
-4. GitHubにプッシュ
+2. Authentication の Sign-in method で Anonymous を有効化
+3. Realtime Database を作成し、`database.rules.json` をセキュリティルールに反映
+4. `js/firebase-config.js` に設定値を記入
+5. GitHubにプッシュ
 
 ---
 
@@ -171,6 +172,8 @@
 ```
 /
 ├── index.html              # メインHTML（5タブ構成）
+├── database.rules.json     # Realtime Database セキュリティルール
+├── firebase.json           # Firebase CLI 用設定
 ├── css/style.css           # デザインシステム
 ├── js/
 │   ├── firebase-config.js  # Firebase設定（要記入）
