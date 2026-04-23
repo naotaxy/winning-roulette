@@ -46,6 +46,12 @@ const { detectGeoGameIntent, handleGeoGameIntent } = require('./geo-game');
 const { detectDiceGameIntent, formatDiceGameReply } = require('./dice-games');
 const { detectOcrControlIntent } = require('./ocr-control');
 const {
+  detectConciergeIntent,
+  formatPendingDecisionReply,
+  buildArrangeStarterReply,
+  handleConciergePostback,
+} = require('./concierge');
+const {
   formatAttributeGuide,
   formatRarityGuide,
   formatSenseGuide,
@@ -292,6 +298,17 @@ async function handleText(event, client) {
 
   if (intent?.type === 'ocrControl') {
     return handleOcrControlIntent({ event, client, sourceId, senderName, intent });
+  }
+
+  if (intent?.type === 'concierge') {
+    if (intent.action === 'pending') {
+      const messages = await getRecentConversation(sourceId, 120);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatPendingDecisionReply(messages),
+      });
+    }
+    return client.replyMessage(event.replyToken, buildArrangeStarterReply(intent.scenario || null));
   }
 
   if (intent === 'casual') {
@@ -844,6 +861,9 @@ function detectTextIntent(text) {
   const ocrControlIntent = detectOcrControlIntent(targetText);
   if (ocrControlIntent) return ocrControlIntent;
 
+  const conciergeIntent = detectConciergeIntent(targetText);
+  if (conciergeIntent) return conciergeIntent;
+
   if (detectBillingRiskIntent(targetText)) return 'billing';
 
   const uicolleKind = detectUicolleIntent(targetText);
@@ -878,6 +898,10 @@ function detectTextIntent(text) {
 
 async function handlePostback(event, client) {
   const data = event.postback.data;
+
+  if (data.startsWith('concierge:')) {
+    return client.replyMessage(event.replyToken, handleConciergePostback(data));
+  }
 
   if (data.startsWith('ocr_ok:')) {
     const msgId = data.replace('ocr_ok:', '');
