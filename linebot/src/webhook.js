@@ -485,16 +485,31 @@ async function handleOcrControlIntent({ event, client, sourceId, senderName, int
       getScreenshotCandidates(sourceId, today.date, 200),
     ]);
     const counts = countScreenshotCandidates(candidates);
+    const pendingTotal = counts.queued + counts.failed + counts.processing;
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: [
         `このグループの自動OCR: ${state.autoEnabled ? 'ON' : 'OFF'}`,
-        `今日控えてるスクショ候補: ${counts.queued}枚`,
+        `今日控えてるスクショ候補: ${pendingTotal}枚`,
+        counts.processing ? `今処理中: ${counts.processing}枚` : '',
         `今日すでに確認を出したもの: ${counts.complete}枚`,
         `見送り済み: ${counts.ignored + counts.incomplete}枚`,
+        counts.failed ? `再試行待ち: ${counts.failed}枚` : '',
         state.updatedBy ? `最後に切り替えた人: ${state.updatedBy}` : '',
+        counts.queued ? '一覧を見たい時は「@秘書トラペル子 OCR候補」で見せるね。' : '',
         '私は勝手に騒ぎすぎないように、ここはちゃんと気をつけるね。',
       ].filter(Boolean).join('\n'),
+    });
+  }
+
+  if (intent.action === 'preview') {
+    const [state, candidates] = await Promise.all([
+      getOcrAutomationState(sourceId),
+      getScreenshotCandidates(sourceId, today.date, 200),
+    ]);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatScreenshotCandidatePreview(state, candidates),
     });
   }
 
@@ -642,19 +657,110 @@ function countScreenshotCandidates(candidates) {
     if (candidate.status === 'complete') acc.complete++;
     else if (candidate.status === 'ignored_non_uicolle' || candidate.status === 'ignored_non_screenshot') acc.ignored++;
     else if (candidate.status === 'incomplete') acc.incomplete++;
-    else if (isProcessableScreenshotCandidate(candidate)) acc.queued++;
+    else if (isActiveProcessingScreenshotCandidate(candidate)) acc.processing++;
+    else if (isStaleProcessingScreenshotCandidate(candidate)) acc.failed++;
+    else if (isRetryableScreenshotCandidate(candidate)) acc.failed++;
+    else if (isQueueReadyScreenshotCandidate(candidate)) acc.queued++;
     return acc;
-  }, { queued: 0, complete: 0, ignored: 0, incomplete: 0 });
+  }, { queued: 0, processing: 0, complete: 0, ignored: 0, incomplete: 0, failed: 0 });
 }
 
 function isProcessableScreenshotCandidate(candidate) {
+  return isQueueReadyScreenshotCandidate(candidate) || isRetryableScreenshotCandidate(candidate) || isStaleProcessingScreenshotCandidate(candidate);
+}
+
+function isQueueReadyScreenshotCandidate(candidate) {
+  return String(candidate?.status || 'queued') === 'queued';
+}
+
+function isRetryableScreenshotCandidate(candidate) {
   const status = String(candidate?.status || 'queued');
-  if (['queued', 'fetch_failed', 'ocr_failed', 'skipped_backlog', 'unreadable', 'delivery_failed'].includes(status)) return true;
-  if (status === 'processing') {
-    const startedAt = Number(candidate.processingStartedAt) || 0;
-    return startedAt > 0 && Date.now() - startedAt > BATCH_PROCESSING_STALE_MS;
+  return ['fetch_failed', 'ocr_failed', 'skipped_backlog', 'unreadable', 'delivery_failed'].includes(status);
+}
+
+function isActiveProcessingScreenshotCandidate(candidate) {
+  const status = String(candidate?.status || 'queued');
+  if (status !== 'processing') return false;
+  const startedAt = Number(candidate.processingStartedAt) || 0;
+  return !startedAt || Date.now() - startedAt <= BATCH_PROCESSING_STALE_MS;
+}
+
+function isStaleProcessingScreenshotCandidate(candidate) {
+  const status = String(candidate?.status || 'queued');
+  if (status !== 'processing') return false;
+  const startedAt = Number(candidate.processingStartedAt) || 0;
+  return startedAt > 0 && Date.now() - startedAt > BATCH_PROCESSING_STALE_MS;
+}
+
+function formatScreenshotCandidatePreview(state, candidates) {
+  const counts = countScreenshotCandidates(candidates);
+  const previewItems = candidates.filter(candidate =>
+    isQueueReadyScreenshotCandidate(candidate)
+    || isRetryableScreenshotCandidate(candidate)
+    || isActiveProcessingScreenshotCandidate(candidate)
+    || isStaleProcessingScreenshotCandidate(candidate)
+  );
+
+  if (!previewItems.length) {
+    return [
+      '今日見せられるOCR候補はまだないみたい。',
+      `このグループの自動OCRは今 ${state.autoEnabled ? 'ON' : 'OFF'}。`,
+      state.autoEnabled
+        ? '今は自動でその場判定する方だから、候補一覧は溜まりにくいよ。'
+        : 'OFF中に上がった端末スクショだけ、ここに並ぶようにしてるよ。',
+    ].join('\n');
   }
-  return false;
+
+  const lines = [
+    `今日のOCR候補プレビューだよ。自動OCRは今 ${state.autoEnabled ? 'ON' : 'OFF'}。`,
+    `未処理: ${counts.queued}枚 / 再試行待ち: ${counts.failed}枚 / 処理中: ${counts.processing}枚 / 確認送信済み: ${counts.complete}枚`,
+    '',
+  ];
+
+  previewItems.slice(0, 8).forEach((candidate, index) => {
+    lines.push(formatScreenshotCandidatePreviewLine(candidate, index + 1));
+  });
+
+  if (previewItems.length > 8) {
+    lines.push('');
+    lines.push(`ほかにあと${previewItems.length - 8}枚あるよ。`);
+  }
+
+  lines.push('');
+  lines.push('このまま進めるなら「@秘書トラペル子 集計して」って呼んでね。');
+  return lines.join('\n');
+}
+
+function formatScreenshotCandidatePreviewLine(candidate, index) {
+  const sender = String(candidate?.senderName || '不明').slice(0, 20);
+  const time = formatTokyoTime(candidate?.createdAt || candidate?.updatedAt);
+  const size = candidate?.width && candidate?.height ? `${candidate.width}x${candidate.height}` : 'サイズ未記録';
+  const label = formatScreenshotCandidateStatusLabel(candidate);
+  return `${index}. ${time} ${sender} ${label} ${size}`;
+}
+
+function formatScreenshotCandidateStatusLabel(candidate) {
+  const status = String(candidate?.status || 'queued');
+  if (status === 'queued') return '[待機中]';
+  if (status === 'processing' && isStaleProcessingScreenshotCandidate(candidate)) return '[再開待ち]';
+  if (status === 'processing') return '[処理中]';
+  if (status === 'fetch_failed') return '[再取得待ち]';
+  if (status === 'ocr_failed') return '[OCR再試行待ち]';
+  if (status === 'skipped_backlog') return '[混雑で後回し]';
+  if (status === 'unreadable') return '[画像再確認待ち]';
+  if (status === 'delivery_failed') return '[送信再試行待ち]';
+  return `[${status}]`;
+}
+
+function formatTokyoTime(value) {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return '--:--';
+  return new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(timestamp));
 }
 
 function formatBatchOcrSummary(summary) {
