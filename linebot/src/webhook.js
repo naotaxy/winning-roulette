@@ -45,6 +45,7 @@ const { formatMemberFlavorReply, formatAnonymousDiaryHighlights } = require('./g
 const { detectGeoGameIntent, handleGeoGameIntent } = require('./geo-game');
 const { detectDiceGameIntent, formatDiceGameReply } = require('./dice-games');
 const { detectOcrControlIntent } = require('./ocr-control');
+const { detectProjectGuideIntent, formatProjectGuideReply } = require('./project-guide');
 const {
   detectConciergeIntent,
   formatPendingDecisionReply,
@@ -309,6 +310,13 @@ async function handleText(event, client) {
       });
     }
     return client.replyMessage(event.replyToken, buildArrangeStarterReply(intent.scenario || null));
+  }
+
+  if (intent === 'projectGuide') {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatProjectGuideReply(),
+    });
   }
 
   if (intent === 'casual') {
@@ -863,6 +871,8 @@ function detectTextIntent(text) {
 
   const conciergeIntent = detectConciergeIntent(targetText);
   if (conciergeIntent) return conciergeIntent;
+
+  if (detectProjectGuideIntent(targetText)) return 'projectGuide';
 
   if (detectBillingRiskIntent(targetText)) return 'billing';
 
