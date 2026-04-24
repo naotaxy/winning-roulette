@@ -168,11 +168,17 @@ function buildApprovalFlex(caseId, analysis, request) {
 }
 
 // ── 承認案からキーワード抽出 ─────────────────────────────────────────────────
+const GENERIC_WORDS = /^(穴場|おすすめ|人気|定番|有名|格安|高級|温泉|観光|旅行|国内|海外|近場|遠出|ベスト|プレミアム|スポット)[のでにはが\s]*/;
+
 function extractSearchKeyword(optionText) {
   if (!optionText) return '';
-  // 最初の句読点・改行の前だけ取る（場所名が先頭にくることが多い）
-  const first = optionText.split(/[。、・\n]/)[0];
-  return first.slice(0, 20).trim();
+  // 最初の句読点・改行の前だけ取る
+  const first = optionText.split(/[。\n]/)[0].trim();
+  // 先頭の汎用語を除去して地名だけ残す
+  const cleaned = first.replace(GENERIC_WORDS, '').trim();
+  // 「・」区切りの先頭2セグメントまで（例: 「京都・嵐山エリア」）
+  const segments = cleaned.split('・').slice(0, 2).join('・');
+  return segments.slice(0, 20).trim();
 }
 
 // ── 案件ステータス表示 ────────────────────────────────────────────────────────

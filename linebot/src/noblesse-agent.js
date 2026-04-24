@@ -31,6 +31,8 @@ const NOBLESSE_SYSTEM_PROMPT = [
   '推奨: [案X]がいいと思う。どうする？',
   '',
   '絵文字なし。改行はそのまま出力。全体200文字以内厳守。',
+  '旅行・宿泊・グルメ系の依頼では、各案の先頭に必ず具体的な地名・店名・エリア名を書くこと。',
+  '例: 案A（穴場）: 徳島・祖谷渓。秘境温泉で非日常体験。',
 ].join('\n');
 
 async function formatNoblesseReply(userText, senderName) {
