@@ -30,7 +30,7 @@ const { resolveRealName, updateGroupProfiles, formatProfileForContext } = requir
 const { searchRestaurants, extractRestaurantParams, isRestaurantRequest, buildRestaurantCarousel, buildBudgetQuickReply } = require('./hotpepper');
 const { isHotelRequest, extractHotelParams, searchHotels, buildHotelCarousel, buildBudgetQuickReplyForHotel } = require('./rakuten-travel');
 const { isWeatherRequest, extractWeatherCity, fetchWeatherForCity, formatWeatherReply } = require('./weather');
-const { isTransportRequest, isTaxiRequest, isFlightRequest, extractRouteParams, searchRoute, formatRouteReply, buildTaxiFlex, buildFlightFlex } = require('./transport');
+const { isTransportRequest, isTaxiRequest, isFlightRequest, extractRouteParams, buildRouteFlex, buildTaxiFlex, buildFlightFlex } = require('./transport');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
 const { getTokyoDateParts, shiftMonth } = require('./date-utils');
 const { inspectImage, looksLikePhoneScreenshot, classifyOcrResult } = require('./image-guard');
@@ -366,18 +366,14 @@ async function handleText(event, client) {
       return client.replyMessage(event.replyToken, buildFlightFlex(from, to));
     }
     // 電車・経路検索
-    const { from, to, tomorrow, hour, minute } = extractRouteParams(withoutMention);
+    const { from, to } = extractRouteParams(withoutMention);
     if (!from || !to) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: '出発地と目的地を教えてくれる？\n例:「新宿から渋谷の行き方は？」',
       });
     }
-    const routes = await searchRoute({ from, to, tomorrow, hour, minute });
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: formatRouteReply(routes, from, to),
-    });
+    return client.replyMessage(event.replyToken, buildRouteFlex(from, to));
   }
 
   if (intent === 'noblesse:status') {
@@ -1174,10 +1170,8 @@ async function handleNoblessePostback(event, client, data) {
         await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。フライト情報を出すね。` });
         if (sourceId) client.pushMessage(sourceId, buildFlightFlex(routeParams.from, routeParams.to)).catch(() => {});
       } else {
-        await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。ルートを調べてくるね。` });
-        const routes = await searchRoute(routeParams);
-        const replyText = formatRouteReply(routes, routeParams.from, routeParams.to);
-        if (sourceId) client.pushMessage(sourceId, { type: 'text', text: replyText }).catch(() => {});
+        await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。経路を出すね。` });
+        if (sourceId) client.pushMessage(sourceId, buildRouteFlex(routeParams.from, routeParams.to)).catch(() => {});
       }
       return;
     }

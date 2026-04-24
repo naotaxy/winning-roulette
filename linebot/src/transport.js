@@ -38,55 +38,54 @@ function buildSearchDatetime(tomorrow, hour, minute) {
   return `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}${p(now.getHours())}${p(now.getMinutes())}`;
 }
 
-// ── Yahoo!乗換案内 API ────────────────────────────────────────────────────────
-async function searchRoute({ from, to, tomorrow = false, hour = null, minute = null, count = 3 }) {
-  const appId = process.env.YAHOO_APP_ID;
-  if (!appId || !from || !to) return null;
+// ── 経路検索Flex（APIなし・ディープリンク方式） ──────────────────────────────
+function buildRouteFlex(from, to) {
+  const subtitle = from && to ? `${from} → ${to}` : '経路検索';
+  const yahooUrl = `https://transit.yahoo.co.jp/search/print?from=${encodeURIComponent(from || '')}&to=${encodeURIComponent(to || '')}&by=train&kind=1`;
+  const googleUrl = `https://www.google.com/maps/dir/${encodeURIComponent(from || '')}/${encodeURIComponent(to || '')}`;
+  const navitimeUrl = `https://transfer.navitime.biz/5931bus/pc/transfer/TransferTop?start=${encodeURIComponent(from || '')}&goal=${encodeURIComponent(to || '')}`;
 
-  const params = new URLSearchParams({
-    appid:    appId,
-    from,
-    to,
-    output:   'json',
-    counts:   String(Math.min(count, 5)),
-    datetime: buildSearchDatetime(tomorrow, hour, minute),
-  });
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 6000);
-  try {
-    const res = await fetch(`https://map.yahooapis.jp/transit/V1/search?${params}`, { signal: controller.signal });
-    if (!res.ok) { console.error('[transport] yahoo API error', res.status); return null; }
-    const data = await res.json();
-    return (data?.Feature || []).map(f => f?.Property?.Route).filter(Boolean);
-  } catch (err) {
-    if (err?.name !== 'AbortError') console.error('[transport] route search failed', err?.message || err);
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// ── ルート返答テキスト ────────────────────────────────────────────────────────
-function formatRouteReply(routes, from, to) {
-  if (!routes?.length) {
-    return `${from || '出発地'}から${to || '目的地'}のルートを取得できなかったよ。\n出発地・目的地をもう少し具体的に教えて。`;
-  }
-  const lines = [`${from} → ${to} の経路だよ。`, ''];
-  routes.slice(0, 3).forEach((route, i) => {
-    const mv = route?.Summary?.Move || {};
-    const time      = mv.Time      ? `${mv.Time}分`                         : '--';
-    const transfers = mv.TransferCount ? `乗換${mv.TransferCount}回`        : '乗換なし';
-    const fare      = mv.Fare      ? `${Number(mv.Fare).toLocaleString()}円` : '--';
-    lines.push(`ルート${i + 1}  ${time} / ${transfers} / ${fare}`);
-    const trains = (route?.Section || [])
-      .filter(s => s?.Type === 'move' && s?.Transport?.Name)
-      .map(s => s.Transport.Name)
-      .slice(0, 3);
-    if (trains.length) lines.push(`  ${trains.join(' → ')}`);
-    lines.push('');
-  });
-  return lines.join('\n').trim();
+  return {
+    type: 'flex',
+    altText: `${subtitle} の経路を調べてみて。`,
+    contents: {
+      type: 'bubble',
+      size: 'kilo',
+      header: {
+        type: 'box', layout: 'vertical', backgroundColor: '#1e3a5f',
+        contents: [
+          { type: 'text', text: '🚃 経路検索', color: '#ffffff', size: 'sm', weight: 'bold' },
+          { type: 'text', text: subtitle, color: '#aaaaaa', size: 'xs', margin: 'xs' },
+        ],
+      },
+      body: {
+        type: 'box', layout: 'vertical', paddingAll: 'md',
+        contents: [
+          { type: 'text', text: '以下のアプリで出発地・目的地が入力済みで開くよ。', size: 'sm', wrap: true, color: '#444444' },
+        ],
+      },
+      footer: {
+        type: 'box', layout: 'vertical', paddingAll: 'sm',
+        contents: [
+          {
+            type: 'button',
+            action: { type: 'uri', label: 'Yahoo!乗換案内で検索', uri: yahooUrl },
+            style: 'primary', height: 'sm',
+          },
+          {
+            type: 'button',
+            action: { type: 'uri', label: 'Googleマップで検索', uri: googleUrl },
+            style: 'secondary', height: 'sm', margin: 'sm',
+          },
+          {
+            type: 'button',
+            action: { type: 'uri', label: 'NAVITIME で検索', uri: navitimeUrl },
+            style: 'link', height: 'sm', margin: 'sm',
+          },
+        ],
+      },
+    },
+  };
 }
 
 // ── タクシーFlex ──────────────────────────────────────────────────────────────
@@ -178,6 +177,6 @@ function buildFlightFlex(from, to) {
 
 module.exports = {
   isTransportRequest, isTaxiRequest, isFlightRequest,
-  extractRouteParams, searchRoute, formatRouteReply,
+  extractRouteParams, buildRouteFlex,
   buildTaxiFlex, buildFlightFlex,
 };
