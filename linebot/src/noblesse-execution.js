@@ -25,7 +25,7 @@ function buildPreparedSendFlex(caseId, title, enabled) {
           {
             type: 'text',
             text: enabled
-              ? '今いるトークに、秘書トラペル子名義でこの文面を送るよ。'
+              ? '送信先を選んで、このトークか個人トークへ送れるよ。'
               : 'まだ未入力のところが残ってるから、そのままの自動送信は止めておくね。',
             size: 'xs',
             color: '#777777',
@@ -45,9 +45,9 @@ function buildPreparedSendFlex(caseId, title, enabled) {
             height: 'sm',
             action: {
               type: 'postback',
-              label: 'この文面を送信',
-              data: `noblesse:send_prepared:${caseId}`,
-              displayText: 'この文面を送信',
+              label: '送信先を選ぶ',
+              data: `noblesse:select_send_target:${caseId}`,
+              displayText: '送信先を選ぶ',
             },
           }]
           : [{
@@ -106,9 +106,9 @@ function buildDecisionActionFlex(caseId, kind, item) {
     margin: 'sm',
     action: {
       type: 'postback',
-      label: '内容を送信',
-      data: `noblesse:send_prepared:${caseId}`,
-      displayText: '内容を送信',
+      label: '送信先を選ぶ',
+      data: `noblesse:select_send_target:${caseId}`,
+      displayText: '送信先を選ぶ',
     },
   });
 
@@ -167,8 +167,77 @@ function buildDecisionShareText(caseId, kind, item) {
   return lines.join('\n');
 }
 
+function buildSendTargetFlex(caseId, title, targets = []) {
+  const buttons = targets.slice(0, 3).map((target, index) => {
+    const button = {
+      type: 'button',
+      style: index === 0 ? 'primary' : 'secondary',
+      height: 'sm',
+      action: {
+        type: 'postback',
+        label: target.label,
+        data: `noblesse:send_prepared:${caseId}:${target.kind}`,
+        displayText: `${target.label}で送る`,
+      },
+    };
+    if (index) button.margin = 'sm';
+    return button;
+  });
+
+  return {
+    type: 'flex',
+    altText: `案件 ${caseId} の送信先選択`,
+    contents: {
+      type: 'bubble',
+      size: 'kilo',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#132238',
+        contents: [
+          { type: 'text', text: 'どこへ送る？', color: '#ffffff', size: 'sm', weight: 'bold' },
+          { type: 'text', text: `案件 ${caseId}`, color: '#a7b0ba', size: 'xs', margin: 'xs' },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: 'md',
+        contents: [
+          { type: 'text', text: title || 'この文面', size: 'sm', wrap: true, color: '#444444' },
+          {
+            type: 'text',
+            text: '依頼者や管理者への個人送信は、Botとその相手が1対1でつながっている時に使えるよ。',
+            size: 'xs',
+            color: '#777777',
+            wrap: true,
+            margin: 'md',
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: 'sm',
+        contents: buttons.length ? buttons : [{
+          type: 'button',
+          style: 'secondary',
+          height: 'sm',
+          action: {
+            type: 'postback',
+            label: '送れない',
+            data: `noblesse:noop:${caseId}:send_target_unavailable`,
+            displayText: '送信先なし',
+          },
+        }],
+      },
+    },
+  };
+}
+
 module.exports = {
   buildPreparedSendFlex,
   buildDecisionActionFlex,
   buildDecisionShareText,
+  buildSendTargetFlex,
 };

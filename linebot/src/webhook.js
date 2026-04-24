@@ -107,6 +107,7 @@ const {
   buildPreparedSendFlex,
   buildDecisionActionFlex,
   buildDecisionShareText,
+  buildSendTargetFlex,
 } = require('./noblesse-execution');
 const {
   planNoblesseExecution,
@@ -1507,6 +1508,37 @@ async function handleNoblessePostback(event, client, data) {
     }
   }
 
+  if (action === 'select_send_target') {
+    const caseData = await getNoblesseCase(caseId);
+    if (!caseData) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `案件 ${caseId} が見つからなかったの。もう一度相談してくれる？`,
+      });
+    }
+    const prepared = getPreparedSend(caseData);
+    if (!prepared) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `案件 ${caseId} に送信できる内容がまだないみたい。先に案を進めようか。`,
+      });
+    }
+    if (!prepared.allowImmediateSend) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'まだ未入力のところが残ってるから、そのまま送るのは止めておくね。必要な情報を埋めたら、また私に見せて。',
+      });
+    }
+    const targets = resolvePreparedSendTargets(caseData, sourceId);
+    if (!targets.length) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '送れる先がまだ見つからないの。このトークか、Botとつながってる個人トークが必要みたい。',
+      });
+    }
+    return client.replyMessage(event.replyToken, buildSendTargetFlex(caseId, prepared.title || 'この文面', targets));
+  }
+
   if (action === 'send_prepared') {
     const caseData = await getNoblesseCase(caseId);
     if (!caseData) {
@@ -1528,6 +1560,14 @@ async function handleNoblessePostback(event, client, data) {
         text: 'まだ未入力のところが残ってるから、そのまま送るのは止めておくね。必要な情報を埋めたら、また私に見せて。',
       });
     }
+    const targetKind = normalizePreparedSendTargetKind(parts[3] || 'current');
+    const target = getPreparedSendTarget(caseData, sourceId, targetKind);
+    if (!target) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'その送信先はまだ使えないみたい。送信先を選び直してくれる？',
+      });
+    }
     const sendPlan = await planNoblesseExecution({
       caseId,
       caseData,
@@ -1538,6 +1578,8 @@ async function handleNoblessePostback(event, client, data) {
       payload: {
         kind: prepared.kind || '',
         title: prepared.title || '',
+        targetKind: target.kind,
+        targetLabel: target.ackLabel,
       },
     });
     if (!sendPlan.allowed) {
@@ -1554,24 +1596,56 @@ async function handleNoblessePostback(event, client, data) {
     await logCaseEvent(caseId, eventKind, { actorName, note: prepared.title || '' });
     try {
       await markExecutionRunning(sendPlan, {
-        destination: sourceId,
+        destination: target.targetId,
+        targetKind: target.kind,
         note: prepared.kind || '',
       });
-      await client.replyMessage(event.replyToken, [
-        { type: 'text', text: prepared.text },
-        { type: 'text', text: `案件 ${caseId} の送信を反映したよ。` },
-      ]);
-      await completeNoblesseExecution(sendPlan, {
-        destination: sourceId,
-        sentTitle: prepared.title || '',
-      });
+      if (target.kind === 'current') {
+        await client.replyMessage(event.replyToken, [
+          { type: 'text', text: prepared.text },
+          { type: 'text', text: `案件 ${caseId} を ${target.ackLabel} に送ったよ。` },
+        ]);
+        await completeNoblesseExecution(sendPlan, {
+          destination: target.targetId,
+          targetKind: target.kind,
+          sentTitle: prepared.title || '',
+        });
+      } else {
+        await client.pushMessage(target.targetId, buildPreparedSendMessages(caseId, prepared, caseData, target));
+        try {
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: `案件 ${caseId} を ${target.ackLabel} に送ったよ。`,
+          });
+        } catch (ackErr) {
+          if (sourceId) {
+            await pushText(client, sourceId, `案件 ${caseId} を ${target.ackLabel} に送ったよ。`).catch(() => {});
+          }
+        }
+        await completeNoblesseExecution(sendPlan, {
+          destination: target.targetId,
+          targetKind: target.kind,
+          sentTitle: prepared.title || '',
+        });
+      }
       return;
     } catch (err) {
       await failNoblesseExecution(sendPlan, err, {
-        destination: sourceId,
+        destination: target.targetId,
+        targetKind: target.kind,
         sentTitle: prepared.title || '',
       });
-      throw err;
+      if (target.kind === 'current') {
+        if (sourceId) {
+          await pushText(client, sourceId, formatPreparedSendFailure(target)).catch(() => {});
+          return;
+        }
+        throw err;
+      }
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatPreparedSendFailure(target),
+      });
     }
   }
 
@@ -1609,6 +1683,77 @@ function normalizeHotelCandidates(hotels) {
     price: hotel?.hotelMinCharge ? `${Number(hotel.hotelMinCharge).toLocaleString()}円〜/人` : '',
     review: hotel?.reviewAverage ? `評価: ★${hotel.reviewAverage}` : '',
   }));
+}
+
+function resolvePreparedSendTargets(caseData, sourceId) {
+  const targets = [];
+  const used = new Set();
+
+  const addTarget = (kind, targetId, label, ackLabel) => {
+    const normalizedId = String(targetId || '').trim();
+    if (!normalizedId || used.has(normalizedId)) return;
+    used.add(normalizedId);
+    targets.push({ kind, targetId: normalizedId, label, ackLabel });
+  };
+
+  if (sourceId && sourceId !== 'unknown') {
+    addTarget('current', sourceId, 'このトークへ送信', 'このトーク');
+  }
+
+  if (caseData?.userId) {
+    const requesterName = caseData?.senderName ? `${caseData.senderName}さん` : '依頼者';
+    addTarget('requester', caseData.userId, `${requesterName}に送信`, `${requesterName}の個人トーク`);
+  }
+
+  const adminUserId = String(process.env.LINE_ADMIN_USER_ID || '').trim();
+  if (adminUserId) {
+    addTarget('admin', adminUserId, '管理者に送信', '管理者の個人トーク');
+  }
+
+  return targets;
+}
+
+function getPreparedSendTarget(caseData, sourceId, kind) {
+  const targets = resolvePreparedSendTargets(caseData, sourceId);
+  return targets.find(target => target.kind === normalizePreparedSendTargetKind(kind)) || null;
+}
+
+function normalizePreparedSendTargetKind(kind) {
+  const normalized = String(kind || 'current').trim().toLowerCase();
+  if (normalized === 'source') return 'current';
+  if (normalized === 'requester') return 'requester';
+  if (normalized === 'admin') return 'admin';
+  return 'current';
+}
+
+function buildPreparedSendMessages(caseId, prepared, caseData, target) {
+  const intro = buildPreparedSendIntro(caseId, caseData, target);
+  const messages = [];
+  if (intro) messages.push({ type: 'text', text: intro });
+  messages.push({ type: 'text', text: prepared.text });
+  return messages;
+}
+
+function buildPreparedSendIntro(caseId, caseData, target) {
+  if (!target || target.kind === 'current') return '';
+  if (target.kind === 'requester') {
+    return `ノブレス案件 ${caseId} の内容を送るね。`;
+  }
+  const requesterName = caseData?.senderName || '不明';
+  return [
+    `ノブレス案件 ${caseId} の共有だよ。`,
+    `依頼者: ${requesterName}`,
+  ].join('\n');
+}
+
+function formatPreparedSendFailure(target) {
+  if (target?.kind === 'requester') {
+    return '依頼者さんの個人トークには送れなかったの。Botと1対1でつながっているか、あとで確認してみて。';
+  }
+  if (target?.kind === 'admin') {
+    return '管理者の個人トークには送れなかったの。LINE_ADMIN_USER_ID の設定か、Botとの接続状態を見てみて。';
+  }
+  return 'このトークへの送信で少しつまずいちゃった。もう一度だけ試してみて。';
 }
 
 // ── 誤送信→自己訂正パターン ──────────────────────────────────────────────
