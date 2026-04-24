@@ -69,7 +69,7 @@ function buildPreparedSendFlex(caseId, title, enabled) {
 function buildDecisionActionFlex(caseId, kind, item) {
   const title = kind === 'hotel' ? 'このホテルで進める？' : 'このお店で進める？';
   const note = kind === 'hotel'
-    ? '最終予約の確定ボタンはまだ押さないけど、予約導線と共有送信まではここで進められるよ。'
+    ? '最終予約の確定ボタンはまだ押さないけど、写真や口コミを見ながら予約導線と共有送信まではここで進められるよ。'
     : '電話や予約ページへ進めるよ。必要なら、この内容をみんなに送るところまでやるね。';
 
   const footerButtons = [];
@@ -82,6 +82,19 @@ function buildDecisionActionFlex(caseId, kind, item) {
         type: 'uri',
         label: '電話する',
         uri: `tel:${item.phone}`,
+      },
+    });
+  }
+  if (kind === 'hotel' && item?.reviewUrl) {
+    footerButtons.push({
+      type: 'button',
+      style: 'secondary',
+      height: 'sm',
+      margin: footerButtons.length ? 'sm' : undefined,
+      action: {
+        type: 'uri',
+        label: '口コミを見る',
+        uri: item.reviewUrl,
       },
     });
   }
@@ -130,6 +143,15 @@ function buildDecisionActionFlex(caseId, kind, item) {
     contents: {
       type: 'bubble',
       size: 'kilo',
+      ...(item?.heroImage ? {
+        hero: {
+          type: 'image',
+          url: item.heroImage,
+          size: 'full',
+          aspectRatio: '20:13',
+          aspectMode: 'cover',
+        },
+      } : {}),
       header: {
         type: 'box',
         layout: 'vertical',
@@ -149,6 +171,16 @@ function buildDecisionActionFlex(caseId, kind, item) {
           ...(item?.budget ? [{ type: 'text', text: `予算: ${item.budget}`, size: 'xs', color: '#444444', margin: 'sm', wrap: true }] : []),
           ...(item?.price ? [{ type: 'text', text: `料金: ${item.price}`, size: 'xs', color: '#444444', margin: 'sm', wrap: true }] : []),
           ...(item?.review ? [{ type: 'text', text: item.review, size: 'xs', color: '#444444', margin: 'sm', wrap: true }] : []),
+          ...(item?.access ? [{ type: 'text', text: `アクセス: ${item.access}`, size: 'xs', color: '#555555', margin: 'xs', wrap: true }] : []),
+          ...(item?.roomImage ? [{
+            type: 'image',
+            url: item.roomImage,
+            size: 'full',
+            aspectRatio: '20:9',
+            aspectMode: 'cover',
+            margin: 'sm',
+          }] : []),
+          ...(item?.reviewSnippet ? [{ type: 'text', text: item.reviewSnippet, size: 'xs', color: '#666666', margin: 'sm', wrap: true }] : []),
           { type: 'text', text: note, size: 'xs', color: '#777777', margin: 'md', wrap: true },
         ],
       },
@@ -173,7 +205,9 @@ function buildDecisionShareText(caseId, kind, item) {
   if (item?.budget) lines.push(`予算目安: ${item.budget}`);
   if (item?.price) lines.push(`料金目安: ${item.price}`);
   if (item?.review) lines.push(`${item.review}`);
+  if (item?.access) lines.push(`アクセス: ${item.access}`);
   if (item?.phone) lines.push(`電話: ${item.phone}`);
+  if (item?.reviewUrl) lines.push(`口コミ: ${item.reviewUrl}`);
   if (item?.url) lines.push(`予約導線: ${item.url}`);
   lines.push('最終確定は各ページ側でお願いね。');
   return lines.join('\n');

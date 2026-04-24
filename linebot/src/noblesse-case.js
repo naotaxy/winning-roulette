@@ -145,6 +145,32 @@ async function updateBookingForm(caseId, patch) {
   });
 }
 
+async function rememberSearchIntake(caseId, searchIntake) {
+  if (!caseId || !searchIntake || typeof searchIntake !== 'object') return null;
+  return updateCase(caseId, {
+    searchIntake: {
+      ...searchIntake,
+      updatedAt: Date.now(),
+    },
+  });
+}
+
+async function updateSearchIntake(caseId, patch) {
+  if (!caseId || !patch || typeof patch !== 'object') return null;
+  const existing = await getNoblesseCase(caseId);
+  if (!existing) return null;
+  const current = existing.searchIntake && typeof existing.searchIntake === 'object'
+    ? existing.searchIntake
+    : {};
+  return updateCase(caseId, {
+    searchIntake: {
+      ...current,
+      ...patch,
+      updatedAt: Date.now(),
+    },
+  });
+}
+
 async function logCaseEvent(caseId, kind, details = {}) {
   await safeAppendCaseEvent(caseId, {
     kind,
@@ -347,6 +373,11 @@ function getBookingForm(caseData) {
   return caseData.bookingForm;
 }
 
+function getSearchIntake(caseData) {
+  if (!caseData?.searchIntake?.kind) return null;
+  return caseData.searchIntake;
+}
+
 function previewText(text, maxLen) {
   const normalized = String(text || '').replace(/\s+/g, ' ').trim();
   if (!normalized) return '';
@@ -409,6 +440,14 @@ function formatCaseEvent(event) {
       return `${ts} ${actor}予約情報を更新${event.field ? ` (${event.field})` : ''}`;
     case 'booking_form_completed':
       return `${ts} ${actor}予約情報が揃った`;
+    case 'search_strategy_selected':
+      return `${ts} ${actor}検索の進め方を選択${event.mode ? ` (${event.mode})` : ''}`;
+    case 'search_intake_started':
+      return `${ts} ${actor}検索条件のヒアリング開始${event.kind ? ` (${event.kind})` : ''}`;
+    case 'search_intake_updated':
+      return `${ts} ${actor}検索条件を更新${event.field ? ` (${event.field})` : ''}`;
+    case 'search_intake_completed':
+      return `${ts} ${actor}検索条件が揃った`;
     case 'restaurant_search':
       return `${ts} ${actor}お店候補を検索${buildSearchSuffix(event)}`;
     case 'hotel_search':
@@ -525,9 +564,12 @@ module.exports = {
   rememberSelectionCandidates,
   rememberPreparedSend,
   rememberBookingForm,
+  rememberSearchIntake,
   updateBookingForm,
+  updateSearchIntake,
   getPreparedSend,
   getBookingForm,
+  getSearchIntake,
   getSelectionCandidate,
   logCaseEvent,
   buildApprovalFlex,

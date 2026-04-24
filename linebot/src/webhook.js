@@ -31,8 +31,8 @@ const {
   initMemberProfileStub,
 } = require('./firebase-admin');
 const { resolveRealName, updateGroupProfiles, formatProfileForContext } = require('./member-profile');
-const { searchRestaurants, extractRestaurantParams, isRestaurantRequest, buildRestaurantCarousel, buildBudgetQuickReply } = require('./hotpepper');
-const { isHotelRequest, extractHotelParams, searchHotels, buildHotelCarousel, buildBudgetQuickReplyForHotel } = require('./rakuten-travel');
+const { searchRestaurants, extractRestaurantParams, isRestaurantRequest, buildRestaurantCarousel } = require('./hotpepper');
+const { isHotelRequest, extractHotelParams, searchHotels, sortHotelsForConcierge, buildHotelCarousel } = require('./rakuten-travel');
 const { isWeatherRequest, extractWeatherCity, fetchWeatherForCity, formatWeatherReply } = require('./weather');
 const { isTransportRequest, isTaxiRequest, isFlightRequest, extractRouteParams, buildRouteFlex, buildTaxiFlex, buildFlightFlex } = require('./transport');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
@@ -87,9 +87,12 @@ const {
   rememberSelectionCandidates,
   rememberPreparedSend,
   rememberBookingForm,
+  rememberSearchIntake,
   updateBookingForm,
+  updateSearchIntake,
   getPreparedSend,
   getBookingForm,
+  getSearchIntake,
   getSelectionCandidate,
   logCaseEvent,
   buildApprovalFlex,
@@ -130,6 +133,17 @@ const {
   buildBookingShareText,
   applyBookingFieldInput,
 } = require('./noblesse-booking');
+const {
+  createSearchIntake,
+  isSearchKeywordUsable,
+  buildSearchStrategyReply,
+  getNextSearchField: getNextSearchIntakeField,
+  isSearchIntakeComplete,
+  buildSearchIntakePrompt,
+  applySearchFieldInput,
+  buildSearchExecutionParams,
+  buildSearchIntakeSummary,
+} = require('./noblesse-search-intake');
 
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
 const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
@@ -323,6 +337,16 @@ async function handleText(event, client) {
 
   const mentionInfo = getSecretaryMentionInfo(text);
   if (!mentionInfo.mentioned) {
+    const searchAwaitingReply = await maybeHandleSearchIntakeAwaitingInput({
+      event,
+      client,
+      sourceId,
+      userId,
+      senderName,
+      text,
+    });
+    if (searchAwaitingReply) return searchAwaitingReply;
+
     const bookingAwaitingReply = await maybeHandleBookingAwaitingInput({
       event,
       client,
@@ -1251,7 +1275,7 @@ async function handleNoblessePostback(event, client, data) {
 
     const opts = parseCaseOptions(caseData.analysis || '');
     const chosenText = opts[option] || '';
-    const searchKeyword = extractSearchKeyword(chosenText) || extractSearchKeyword(caseData.request || '') || caseData.request || '';
+    const searchKeyword = pickSearchKeyword(caseData.request || '', chosenText);
     const combinedText = `${caseData.request || ''} ${caseData.analysis || ''}`;
 
     if (isMessageDraftRequest(combinedText)) {
@@ -1287,51 +1311,31 @@ async function handleNoblessePostback(event, client, data) {
     }
 
     if (isRestaurantRequest(combinedText)) {
-      const { capacity, budgetYen } = extractRestaurantParams(combinedText);
-      if (budgetYen) {
-        await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。「${searchKeyword}」でお店を探してくるね。` });
-        const shops = await searchRestaurants({ keyword: searchKeyword, capacity, budgetYen });
-        if (shops?.length) {
-          await rememberSelectionCandidates(caseId, 'restaurant', normalizeRestaurantCandidates(shops));
-          await logCaseEvent(caseId, 'restaurant_search', {
-            actorName,
-            keyword: searchKeyword,
-            count: shops.length,
-            budgetYen,
-          });
-        }
-        const flex = shops?.length
-          ? buildRestaurantCarousel(shops, caseId)
-          : { type: 'text', text: '条件に合うお店が見つからなかった。キーワードを変えて再度相談してみて。' };
-        if (sourceId) client.pushMessage(sourceId, flex).catch(() => {});
-      } else {
-        await client.replyMessage(event.replyToken, buildBudgetQuickReply(caseId, searchKeyword));
-      }
-      return;
+      return handleRestaurantApprovalFlow({
+        client,
+        event,
+        sourceId,
+        actorName,
+        userId: event.source?.userId || '',
+        caseId,
+        caseData,
+        option,
+        searchKeyword,
+      });
     }
 
     if (isHotelRequest(combinedText)) {
-      const { adultNum, nights, maxCharge } = extractHotelParams(combinedText);
-      if (maxCharge) {
-        await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。「${searchKeyword}」のホテルを探してくるね。` });
-        const hotels = await searchHotels({ keyword: searchKeyword, adultNum, nights, maxCharge });
-        if (hotels?.length) {
-          await rememberSelectionCandidates(caseId, 'hotel', normalizeHotelCandidates(hotels));
-          await logCaseEvent(caseId, 'hotel_search', {
-            actorName,
-            keyword: searchKeyword,
-            count: hotels.length,
-            budgetYen: maxCharge,
-          });
-        }
-        const flex = hotels?.length
-          ? buildHotelCarousel(hotels, caseId)
-          : { type: 'text', text: '条件に合うホテルが見つからなかったよ。エリアや条件を変えてみて。' };
-        if (sourceId) client.pushMessage(sourceId, flex).catch(() => {});
-      } else {
-        await client.replyMessage(event.replyToken, buildBudgetQuickReplyForHotel(caseId, searchKeyword));
-      }
-      return;
+      return handleHotelApprovalFlow({
+        client,
+        event,
+        sourceId,
+        actorName,
+        userId: event.source?.userId || '',
+        caseId,
+        caseData,
+        option,
+        searchKeyword,
+      });
     }
 
     if (isTransportRequest(combinedText)) {
@@ -1363,24 +1367,64 @@ async function handleNoblessePostback(event, client, data) {
     const searchParams = new URLSearchParams(paramStr);
     const keyword = decodeURIComponent(searchParams.get('keyword') || '');
     const maxCharge = Number(searchParams.get('budget') || 0);
-    const { adultNum, nights } = extractHotelParams(keyword);
+    const { adultNum, nights, checkinDate, checkoutDate } = extractHotelParams(keyword);
 
-    await client.replyMessage(event.replyToken, { type: 'text', text: `${maxCharge ? `${maxCharge.toLocaleString()}円以内` : ''}で探してくるね。少し待って。` });
-    const hotels = await searchHotels({ keyword, adultNum, nights, maxCharge: maxCharge || null });
-    if (hotels?.length) {
-      await rememberSelectionCandidates(caseId, 'hotel', normalizeHotelCandidates(hotels));
-      await logCaseEvent(caseId, 'hotel_search', {
-        actorName,
-        keyword,
-        count: hotels.length,
-        budgetYen: maxCharge || 0,
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `${maxCharge ? `${maxCharge.toLocaleString()}円以内` : ''}${checkinDate ? `、${checkinDate}${checkoutDate ? `〜${checkoutDate}` : ''}` : ''}で探してくるね。少し待って。`,
+    });
+    return runHotelSearchFlow({
+      client,
+      sourceId,
+      actorName,
+      caseId,
+      keyword,
+      adultNum,
+      nights,
+      checkinDate,
+      checkoutDate,
+      maxCharge: maxCharge || null,
+      strategy: 'guided',
+      assumptionNote: '',
+    });
+  }
+
+  if (action === 'search_mode') {
+    const strategy = parts[3] === 'concierge' ? 'concierge' : 'guided';
+    const caseData = await getNoblesseCase(caseId);
+    if (!caseData) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `案件 ${caseId} が見つからなかったの。もう一度相談してくれる？`,
       });
     }
-    const flex = hotels?.length
-      ? buildHotelCarousel(hotels, caseId)
-      : { type: 'text', text: '条件に合うホテルが見つからなかったよ。エリアや条件を変えてみて。' };
-    if (sourceId) client.pushMessage(sourceId, flex).catch(() => {});
-    return;
+    const combinedText = `${caseData.request || ''} ${caseData.analysis || ''}`;
+    const kind = isHotelRequest(combinedText) ? 'hotel' : 'restaurant';
+    const approvedOption = caseData.approvedOption || 'C';
+    const options = parseCaseOptions(caseData.analysis || '');
+    const chosenText = options[approvedOption] || '';
+    const intake = createSearchIntake({
+      kind,
+      strategy,
+      requestText: caseData.request || '',
+      searchKeyword: pickSearchKeyword(caseData.request || '', chosenText),
+      option: approvedOption,
+      actorName,
+      ownerUserId: event.source?.userId || '',
+    });
+    await rememberSearchIntake(caseId, intake);
+    await logCaseEvent(caseId, 'search_strategy_selected', {
+      actorName,
+      mode: strategy === 'concierge' ? '秘書に任せる' : '条件ヒアリング',
+    });
+    return continueSearchIntakeOrRun({
+      client,
+      event,
+      sourceId,
+      actorName,
+      caseId,
+      intake,
+    });
   }
 
   if (action === 'hotel_select') {
@@ -1428,12 +1472,15 @@ async function handleNoblessePostback(event, client, data) {
       }
     }
     const shareText = buildDecisionShareText(caseId, 'hotel', hotel);
+    const searchIntake = getSearchIntake(caseData);
     const bookingForm = createBookingForm({
       kind: 'hotel',
       name: hotel.name,
       url: hotel.url,
       phone: hotel.phone,
       address: hotel.address,
+      partySize: searchIntake?.adultNum || null,
+      reservationDateTime: formatSearchStayLabel(searchIntake),
     }, actorName, event.source?.userId || '');
     await rememberBookingForm(caseId, bookingForm);
     await rememberPreparedSend(caseId, {
@@ -1469,21 +1516,17 @@ async function handleNoblessePostback(event, client, data) {
     const { capacity } = extractRestaurantParams(keyword);
 
     await client.replyMessage(event.replyToken, { type: 'text', text: `${budgetYen ? `${budgetYen.toLocaleString()}円以内` : ''}で探してくるね。少し待って。` });
-    const shops = await searchRestaurants({ keyword, capacity, budgetYen: budgetYen || null });
-    if (shops?.length) {
-      await rememberSelectionCandidates(caseId, 'restaurant', normalizeRestaurantCandidates(shops));
-      await logCaseEvent(caseId, 'restaurant_search', {
-        actorName,
-        keyword,
-        count: shops.length,
-        budgetYen: budgetYen || 0,
-      });
-    }
-    const flex = shops?.length
-      ? buildRestaurantCarousel(shops, caseId)
-      : { type: 'text', text: '条件に合うお店が見つからなかった。エリアやジャンルを変えてみて。' };
-    if (sourceId) client.pushMessage(sourceId, flex).catch(() => {});
-    return;
+    return runRestaurantSearchFlow({
+      client,
+      sourceId,
+      actorName,
+      caseId,
+      keyword,
+      capacity,
+      budgetYen: budgetYen || null,
+      strategy: 'guided',
+      assumptionNote: '',
+    });
   }
 
   if (action === 'restaurant_select') {
@@ -1532,12 +1575,14 @@ async function handleNoblessePostback(event, client, data) {
       }
     }
     const shareText = buildDecisionShareText(caseId, 'restaurant', shop);
+    const searchIntake = getSearchIntake(caseData);
     const bookingForm = createBookingForm({
       kind: 'restaurant',
       name: shop.name,
       url: shop.url,
       phone: shop.phone,
       address: shop.address,
+      partySize: searchIntake?.partySize || null,
     }, actorName, event.source?.userId || '');
     await rememberBookingForm(caseId, bookingForm);
     await rememberPreparedSend(caseId, {
@@ -1781,11 +1826,379 @@ function normalizeRestaurantCandidates(shops) {
 function normalizeHotelCandidates(hotels) {
   return (hotels || []).slice(0, 3).map(hotel => ({
     name: hotel?.hotelName || '',
-    url: hotel?.hotelInformationUrl || '',
+    url: hotel?.planListUrl || hotel?.hotelInformationUrl || '',
     address: `${hotel?.address1 || ''}${hotel?.address2 || ''}`.trim(),
     price: hotel?.hotelMinCharge ? `${Number(hotel.hotelMinCharge).toLocaleString()}円〜/人` : '',
-    review: hotel?.reviewAverage ? `評価: ★${hotel.reviewAverage}` : '',
+    review: hotel?.reviewAverage
+      ? `評価: ★${hotel.reviewAverage}${hotel?.reviewCount ? ` (${Number(hotel.reviewCount).toLocaleString('ja-JP')}件)` : ''}`
+      : '',
+    reviewUrl: hotel?.reviewUrl || '',
+    access: [hotel?.access, hotel?.nearestStation].filter(Boolean).join(' / ').slice(0, 80),
+    reviewSnippet: String(hotel?.userReview || hotel?.hotelSpecial || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+    heroImage: hotel?.hotelImageUrl || hotel?.hotelThumbnailUrl || hotel?.roomImageUrl || hotel?.roomThumbnailUrl || '',
+    roomImage: hotel?.roomImageUrl || hotel?.roomThumbnailUrl || '',
   }));
+}
+
+async function handleHotelApprovalFlow({ client, event, sourceId, actorName, userId, caseId, caseData, option, searchKeyword }) {
+  const intake = createSearchIntake({
+    kind: 'hotel',
+    strategy: 'guided',
+    requestText: caseData.request || '',
+    searchKeyword,
+    option,
+    actorName,
+    ownerUserId: userId,
+  });
+  await rememberSearchIntake(caseId, intake);
+
+  if (!isSearchKeywordUsable(intake.keyword) || !intake.checkinDate) {
+    await logCaseEvent(caseId, 'search_intake_started', { actorName, kind: 'hotel' });
+    return continueSearchIntakeOrRun({ client, event, sourceId, actorName, caseId, intake });
+  }
+
+  if (shouldOfferSearchStrategy(intake)) {
+    return client.replyMessage(event.replyToken, buildSearchStrategyReply(caseId, intake));
+  }
+
+  return runHotelSearchFromIntake({
+    client,
+    event,
+    sourceId,
+    actorName,
+    caseId,
+    intake,
+    openingText: `案${option}で進めるね。条件が足りてるから、そのまま宿を探してくるよ。`,
+  });
+}
+
+async function handleRestaurantApprovalFlow({ client, event, sourceId, actorName, userId, caseId, caseData, option, searchKeyword }) {
+  const intake = createSearchIntake({
+    kind: 'restaurant',
+    strategy: 'guided',
+    requestText: caseData.request || '',
+    searchKeyword,
+    option,
+    actorName,
+    ownerUserId: userId,
+  });
+  await rememberSearchIntake(caseId, intake);
+
+  if (!isSearchKeywordUsable(intake.keyword)) {
+    await logCaseEvent(caseId, 'search_intake_started', { actorName, kind: 'restaurant' });
+    return continueSearchIntakeOrRun({ client, event, sourceId, actorName, caseId, intake });
+  }
+
+  if (shouldOfferSearchStrategy(intake)) {
+    return client.replyMessage(event.replyToken, buildSearchStrategyReply(caseId, intake));
+  }
+
+  return runRestaurantSearchFromIntake({
+    client,
+    event,
+    sourceId,
+    actorName,
+    caseId,
+    intake,
+    openingText: `案${option}で進めるね。条件が足りてるから、そのままお店を探してくるよ。`,
+  });
+}
+
+function shouldOfferSearchStrategy(intake) {
+  if (!intake) return false;
+  if (intake.kind === 'hotel') {
+    return Boolean(intake.checkinDate) && (!intake.budgetYen || !intake.adultNum);
+  }
+  return Boolean(intake.keyword) && (!intake.budgetYen || !intake.partySize);
+}
+
+async function maybeHandleSearchIntakeAwaitingInput({ event, client, sourceId, userId, senderName, text }) {
+  if (!sourceId || sourceId === 'unknown' || !userId || !String(text || '').trim()) return null;
+  const caseData = await findActiveSearchIntakeCase(sourceId, userId, true);
+  const intake = getSearchIntake(caseData);
+  if (!caseData || !intake?.awaitingField) return null;
+  return handleSearchIntakeFieldUpdate({
+    client,
+    event,
+    sourceId,
+    caseId: caseData.caseId,
+    caseData,
+    intake,
+    actorName: senderName || '',
+    userId,
+    rawValue: text,
+  });
+}
+
+async function continueSearchIntakeOrRun({ client, event, sourceId, actorName, caseId, intake }) {
+  const nextField = getNextSearchIntakeField(intake);
+  if (!nextField) {
+    if (intake.kind === 'hotel') {
+      return runHotelSearchFromIntake({ client, event, sourceId, actorName, caseId, intake });
+    }
+    return runRestaurantSearchFromIntake({ client, event, sourceId, actorName, caseId, intake });
+  }
+
+  const updated = {
+    ...intake,
+    awaitingField: nextField,
+    status: 'collecting',
+  };
+  await updateSearchIntake(caseId, updated);
+  return client.replyMessage(event.replyToken, [
+    { type: 'text', text: buildSearchIntakeSummary(caseId, updated) },
+    buildSearchIntakePrompt(caseId, updated),
+  ]);
+}
+
+async function handleSearchIntakeFieldUpdate({ client, event, sourceId, caseId, caseData, intake, actorName, userId, rawValue }) {
+  const parsed = applySearchFieldInput(intake, rawValue);
+  if (!parsed.ok) {
+    return client.replyMessage(event.replyToken, [
+      { type: 'text', text: parsed.error },
+      buildSearchIntakePrompt(caseId, intake),
+    ]);
+  }
+
+  const merged = {
+    ...intake,
+    ...parsed.patch,
+    ownerUserId: userId || intake.ownerUserId || '',
+    ownerName: actorName || intake.ownerName || '',
+  };
+  const nextField = getNextSearchIntakeField(merged);
+  merged.awaitingField = nextField;
+  merged.status = nextField ? 'collecting' : 'ready';
+
+  await updateSearchIntake(caseId, merged);
+  await logCaseEvent(caseId, 'search_intake_updated', {
+    actorName,
+    field: searchFieldLabel(Object.keys(parsed.patch)[0]),
+  });
+
+  if (!nextField) {
+    await logCaseEvent(caseId, 'search_intake_completed', { actorName });
+    if (merged.kind === 'hotel') {
+      return runHotelSearchFromIntake({ client, event, sourceId, actorName, caseId, intake: merged });
+    }
+    return runRestaurantSearchFromIntake({ client, event, sourceId, actorName, caseId, intake: merged });
+  }
+
+  return client.replyMessage(event.replyToken, [
+    { type: 'text', text: `${searchFieldLabel(Object.keys(parsed.patch)[0])}、受け取ったよ。` },
+    buildSearchIntakePrompt(caseId, merged),
+  ]);
+}
+
+async function runHotelSearchFromIntake({ client, event, sourceId, actorName, caseId, intake, openingText = '' }) {
+  const exec = buildSearchExecutionParams(intake);
+  if (openingText) {
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: [
+        openingText,
+        exec.assumptionNote ? `私の仮置き: ${exec.assumptionNote}` : '',
+      ].filter(Boolean).join('\n'),
+    });
+  } else if (event?.replyToken) {
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: [
+        `${exec.checkinDate}${exec.checkoutDate ? `〜${exec.checkoutDate}` : ''}${exec.maxCharge ? ` / ${Number(exec.maxCharge).toLocaleString('ja-JP')}円/人まで` : ''}で探してくるね。`,
+        exec.assumptionNote ? `私の仮置き: ${exec.assumptionNote}` : '',
+      ].filter(Boolean).join('\n'),
+    });
+  }
+  return runHotelSearchFlow({
+    client,
+    sourceId,
+    actorName,
+    caseId,
+    keyword: exec.keyword,
+    adultNum: exec.adultNum,
+    nights: exec.nights,
+    checkinDate: exec.checkinDate,
+    checkoutDate: exec.checkoutDate,
+    maxCharge: exec.maxCharge,
+    strategy: exec.strategy,
+    assumptionNote: exec.assumptionNote,
+  });
+}
+
+async function runRestaurantSearchFromIntake({ client, event, sourceId, actorName, caseId, intake, openingText = '' }) {
+  const exec = buildSearchExecutionParams(intake);
+  if (openingText) {
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: [
+        openingText,
+        exec.assumptionNote ? `私の仮置き: ${exec.assumptionNote}` : '',
+      ].filter(Boolean).join('\n'),
+    });
+  } else if (event?.replyToken) {
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: [
+        `${exec.budgetYen ? `${Number(exec.budgetYen).toLocaleString('ja-JP')}円/人まで` : '条件を仮置きして'}で探してくるね。`,
+        exec.assumptionNote ? `私の仮置き: ${exec.assumptionNote}` : '',
+      ].filter(Boolean).join('\n'),
+    });
+  }
+  return runRestaurantSearchFlow({
+    client,
+    sourceId,
+    actorName,
+    caseId,
+    keyword: exec.keyword,
+    capacity: exec.capacity,
+    budgetYen: exec.budgetYen,
+    strategy: exec.strategy,
+    assumptionNote: exec.assumptionNote,
+  });
+}
+
+async function runHotelSearchFlow({
+  client,
+  sourceId,
+  actorName,
+  caseId,
+  keyword,
+  adultNum,
+  nights,
+  checkinDate,
+  checkoutDate,
+  maxCharge,
+  strategy,
+  assumptionNote,
+}) {
+  let hotels = await searchHotels({
+    keyword,
+    adultNum,
+    nights,
+    checkinDate,
+    checkoutDate,
+    maxCharge: maxCharge || null,
+  });
+  if (strategy === 'concierge') {
+    hotels = sortHotelsForConcierge(hotels);
+  }
+  if (hotels?.length) {
+    await rememberSelectionCandidates(caseId, 'hotel', normalizeHotelCandidates(hotels));
+    await logCaseEvent(caseId, 'hotel_search', {
+      actorName,
+      keyword,
+      count: hotels.length,
+      budgetYen: maxCharge || 0,
+    });
+  }
+  const intro = strategy === 'concierge'
+    ? '口コミと写真がしっかりしてる宿から寄せたよ。'
+    : '';
+  const flex = hotels?.length
+    ? buildHotelCarousel(hotels, caseId)
+    : { type: 'text', text: `条件に合うホテルが見つからなかったよ。${assumptionNote ? `仮置きは ${assumptionNote}。` : ''}エリアや予算を少し広げると動きやすいかも。` };
+  if (sourceId) {
+    if (intro) {
+      await pushText(client, sourceId, intro).catch(() => {});
+    }
+    return client.pushMessage(sourceId, flex).catch(() => {});
+  }
+}
+
+async function runRestaurantSearchFlow({
+  client,
+  sourceId,
+  actorName,
+  caseId,
+  keyword,
+  capacity,
+  budgetYen,
+  strategy,
+  assumptionNote,
+}) {
+  const shops = await searchRestaurants({ keyword, capacity, budgetYen: budgetYen || null });
+  if (shops?.length) {
+    await rememberSelectionCandidates(caseId, 'restaurant', normalizeRestaurantCandidates(shops));
+    await logCaseEvent(caseId, 'restaurant_search', {
+      actorName,
+      keyword,
+      count: shops.length,
+      budgetYen: budgetYen || 0,
+    });
+  }
+  const intro = strategy === 'concierge'
+    ? '写真と情報が見やすい候補から先に寄せたよ。'
+    : '';
+  const flex = shops?.length
+    ? buildRestaurantCarousel(shops, caseId)
+    : { type: 'text', text: `条件に合うお店が見つからなかったよ。${assumptionNote ? `仮置きは ${assumptionNote}。` : ''}エリアや予算を少し広げると動きやすいかも。` };
+  if (sourceId) {
+    if (intro) {
+      await pushText(client, sourceId, intro).catch(() => {});
+    }
+    return client.pushMessage(sourceId, flex).catch(() => {});
+  }
+}
+
+async function findActiveSearchIntakeCase(sourceId, userId, awaitingOnly) {
+  const cases = await getNoblesseCases(sourceId, 10);
+  return cases.find(c => {
+    if (!c || c.status === 'cancelled' || !c.searchIntake?.kind) return false;
+    if (awaitingOnly) {
+      return c.searchIntake.awaitingField
+        && (!c.searchIntake.ownerUserId || c.searchIntake.ownerUserId === userId);
+    }
+    return true;
+  }) || null;
+}
+
+function searchFieldLabel(field) {
+  switch (field) {
+    case 'keyword':
+      return 'エリア';
+    case 'checkinDate':
+      return '日付';
+    case 'adultNum':
+    case 'partySize':
+      return '人数';
+    case 'budgetYen':
+      return '予算';
+    default:
+      return field || '条件';
+  }
+}
+
+function pickSearchKeyword(requestText, chosenText) {
+  const hinted = extractKeywordHint(requestText || '');
+  if (isSearchKeywordUsable(hinted)) return hinted;
+  const requestKeyword = extractSearchKeyword(requestText || '');
+  if (isSearchKeywordUsable(requestKeyword)) return requestKeyword;
+  const hintedOption = extractKeywordHint(chosenText || '');
+  if (isSearchKeywordUsable(hintedOption)) return hintedOption;
+  const optionKeyword = extractSearchKeyword(chosenText || '');
+  if (isSearchKeywordUsable(optionKeyword)) return optionKeyword;
+  return String(requestText || chosenText || '').slice(0, 40);
+}
+
+function extractKeywordHint(text) {
+  const tokens = String(text || '')
+    .normalize('NFKC')
+    .replace(/\d{4}[/-]\d{1,2}[/-]\d{1,2}/g, ' ')
+    .replace(/\d{1,2}[/-]\d{1,2}\s*[-〜~]\s*\d{1,2}[/-]\d{1,2}/g, ' ')
+    .replace(/\d{1,2}[/-]\d{1,2}(?:[/-]\d{1,2})?/g, ' ')
+    .replace(/\d+\s*(人|名|泊)/g, ' ')
+    .replace(/([0-9]+(?:[.,][0-9]+)?)\s*(万円|万|円|k|K)/g, ' ')
+    .replace(/(来週|再来週|今度|週末|平日|土日|日帰り|宿泊|旅行|ホテル|旅館|飲み会|飲みたい|食べたい|泊まりたい|予約|決めたい|探したい|探してほしい|してほしい|したい|行きたい|取りたい|とりたい|相談したい|どうすれば|どうしたら)/g, ' ')
+    .replace(/[でにのへを、。,.!！?？]/g, ' ')
+    .split(/\s+/)
+    .map(token => token.trim())
+    .filter(token => token.length >= 2 && token.length <= 12);
+  return tokens.slice(0, 2).join(' ').trim();
+}
+
+function formatSearchStayLabel(searchIntake) {
+  if (!searchIntake?.checkinDate) return '';
+  return `${searchIntake.checkinDate}${searchIntake.checkoutDate ? `〜${searchIntake.checkoutDate}` : ''}`;
 }
 
 async function maybeHandleBookingAwaitingInput({ event, client, sourceId, userId, senderName, text }) {

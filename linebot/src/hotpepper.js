@@ -23,13 +23,24 @@ function budgetToCode(yen) {
 
 // ── テキストから検索パラメータ抽出 ───────────────────────────────────────────
 function extractRestaurantParams(text) {
-  const t = String(text || '');
+  const t = String(text || '').normalize('NFKC');
   // 人数
   const capMatch = t.match(/(\d+)\s*人/);
   const capacity = capMatch ? Number(capMatch[1]) : null;
-  // 予算（「5000円」「5000円以内」「〜5000」等）
-  const budgetMatch = t.match(/[〜~]?\s*(\d[\d,，]*)\s*(円|k|K)/);
-  const budgetYen = budgetMatch ? Number(budgetMatch[1].replace(/[,，]/g, '')) : null;
+  // 予算（「5000円」「3万円」「5k」等）
+  const budgetMatch = t.match(/([0-9]+(?:[.,][0-9]+)?)\s*(万円|万|円|k|K)/);
+  let budgetYen = null;
+  if (budgetMatch) {
+    const amount = Number(String(budgetMatch[1]).replace(/,/g, ''));
+    if (Number.isFinite(amount) && amount > 0) {
+      const unit = budgetMatch[2];
+      budgetYen = unit === '万円' || unit === '万'
+        ? Math.round(amount * 10000)
+        : unit === 'k' || unit === 'K'
+          ? Math.round(amount * 1000)
+          : Math.round(amount);
+    }
+  }
   return { capacity, budgetYen };
 }
 
