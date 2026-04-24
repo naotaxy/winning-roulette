@@ -39,7 +39,7 @@ const {
 const { formatRuleReply } = require('./rule-message');
 const { formatSecretaryHelp } = require('./help-message');
 const { getSecretaryMentionInfo, getCasualReply, getCasualReplyWithContext, getTiredReply } = require('./secretary-chat');
-const { detectSystemStatusKind, formatSystemStatusReply } = require('./system-status');
+const { detectSystemStatusKind, safeFormatSystemStatusReply } = require('./system-status');
 const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-risk');
 const { formatMemberFlavorReply, formatAnonymousDiaryHighlights } = require('./group-insights');
 const { detectGeoGameIntent, handleGeoGameIntent } = require('./geo-game');
@@ -339,7 +339,7 @@ async function handleText(event, client) {
   if (intent.startsWith('system:')) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: await formatSystemStatusReply(intent.replace('system:', '')),
+      text: await safeFormatSystemStatusReply(intent.replace('system:', '')),
     });
   }
 
@@ -857,6 +857,8 @@ function detectTextIntent(text) {
 
   if (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention)) return 'help';
   if (/(まとめて|要約|最近の会話|会話まとめ|何話してた|なに話してた|みんな何|みんな何言)/.test(withoutMention)) return 'summary';
+  const directSystemStatusKind = detectSystemStatusKind(withoutMention);
+  if (directSystemStatusKind) return `system:${directSystemStatusKind}`;
 
   const targetText = withoutMention;
 
@@ -883,9 +885,6 @@ function detectTextIntent(text) {
   if (/(口癖|因縁|相性|ライバル|メンバー.*煽|みんな.*煽|各メンバー|人物メモ|メンバー分析|キャラ分析)/.test(targetText)) return 'memberFlavor';
   if (/(未対戦|未消化ペア|あと誰.*誰|誰と誰|対戦.*残|残り.*対戦|対戦残り|やってない.*ペア)/.test(targetText)) return 'missingMatchups';
   if (/(日記|読んで|ブログ|最近書いた|最新の日記|何書いた)/.test(targetText)) return 'diary';
-
-  const systemStatusKind = detectSystemStatusKind(targetText);
-  if (systemStatusKind) return `system:${systemStatusKind}`;
 
   const wantsRule = /(縛り|しばり|ルール|rule|制限|条件)/.test(targetText);
   if (wantsRule && /(来月|次月|翌月)/.test(targetText)) return 'nextRule';
