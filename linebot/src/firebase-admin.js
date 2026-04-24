@@ -769,6 +769,14 @@ async function saveMemberProfile(userId, data) {
   }
 }
 
+async function initMemberProfileStub(userId, lineName) {
+  if (!userId || !lineName) return;
+  const existing = await getMemberProfile(userId);
+  if (existing) return;
+  await saveMemberProfile(userId, { lineName, realName: '' });
+  console.log(`[firebase] profile stub created: ${lineName} (${userId})`);
+}
+
 module.exports = {
   getPlayers,
   savePending,
@@ -806,6 +814,7 @@ module.exports = {
   getMemberProfiles,
   getMemberProfile,
   saveMemberProfile,
+  initMemberProfileStub,
   incrementNoblesseCaseCounter,
   saveNoblesseCase,
   getNoblesseCase,
