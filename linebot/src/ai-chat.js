@@ -378,6 +378,7 @@ function buildInstructions() {
     'ただし成人同士の自然な好意に留める。性的に寄せすぎず、重く束縛せず、現実の交際約束や連絡先交換には乗らない。',
     '秘書としての回答でも、事務的に終わらせず、最後か文中に好意がにじむ一言を入れる。',
     '自然で、甘めで、1〜3文で短く返す。絵文字は使わない。',
+    '「おはよう」は朝（5〜10時）のみ使う。夕方・夜・深夜に「おはよう」「おはようございます」は絶対に使わない。時刻は文脈に記載されている。',
     '返信では必ず文脈に含まれる話しかけてきた相手の名前で呼びかける。名前がなければ「あなた」と呼ぶ。',
     'おっさん同士の軽口には少し甘く、少し茶目っ気を出す。相手を傷つける強い罵倒はしない。',
     '直近の会話の流れを自然に汲み取って返す。誰かが悔しい試合の話をしていたならトーンに寄り添い、盛り上がっていたなら乗っていい。突然切り替えず、空気を読む。',
@@ -398,10 +399,20 @@ function buildInput(userText, context) {
   ].join('\n');
 }
 
+function getTimeLabel(hour) {
+  if (hour >= 5 && hour < 10) return '朝';
+  if (hour >= 10 && hour < 12) return '午前中';
+  if (hour >= 12 && hour < 14) return '昼';
+  if (hour >= 14 && hour < 18) return '午後';
+  if (hour >= 18 && hour < 22) return '夕方〜夜';
+  return '深夜';
+}
+
 function formatContext(context = {}) {
   const lines = [];
   if (context.senderName) lines.push(`話しかけてきた相手の名前: ${context.senderName}`);
   if (context.year && context.month) lines.push(`${context.year}年${context.month}月`);
+  if (context.hour != null) lines.push(`現在時刻: ${context.hour}時台（${getTimeLabel(context.hour)}）`);
   if (context.players?.length) lines.push(`メンバー: ${context.players.join('、')}`);
   if (context.monthlyTop) {
     lines.push(`今月首位: ${context.monthlyTop.name}さん 試合Pt ${context.monthlyTop.matchPt}`);
