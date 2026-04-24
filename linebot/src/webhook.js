@@ -23,6 +23,7 @@ const {
   getScreenshotCandidates,
   getMemberProfile,
   getNoblesseCase,
+  initMemberProfileStub,
 } = require('./firebase-admin');
 const { resolveRealName, updateGroupProfiles, formatProfileForContext } = require('./member-profile');
 const { searchRestaurants, extractRestaurantParams, isRestaurantRequest, buildRestaurantCarousel, buildBudgetQuickReply } = require('./hotpepper');
@@ -236,6 +237,10 @@ async function getSenderName(event, client, fallback = null) {
     }
   });
 
+  // Firebase にスタブがなければ自動作成（fire-and-forget）
+  if (lineName && lineName !== fallback) {
+    initMemberProfileStub(userId, lineName).catch(() => {});
+  }
   // Firebase に実名登録があれば優先する
   return resolveRealName(userId, lineName);
 }
