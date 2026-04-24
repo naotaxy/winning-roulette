@@ -86,7 +86,10 @@ const {
   cancelCase,
   rememberSelectionCandidates,
   rememberPreparedSend,
+  rememberBookingForm,
+  updateBookingForm,
   getPreparedSend,
+  getBookingForm,
   getSelectionCandidate,
   logCaseEvent,
   buildApprovalFlex,
@@ -108,6 +111,7 @@ const {
   buildDecisionActionFlex,
   buildDecisionShareText,
   buildSendTargetFlex,
+  buildBookingReadyFlex,
 } = require('./noblesse-execution');
 const {
   planNoblesseExecution,
@@ -116,6 +120,16 @@ const {
   failNoblesseExecution,
   formatExecutionBlockedReply,
 } = require('./noblesse-planner');
+const {
+  createBookingForm,
+  detectBookingCommand,
+  getNextBookingField,
+  isBookingFormComplete,
+  buildBookingPrompt,
+  buildBookingSummaryText,
+  buildBookingShareText,
+  applyBookingFieldInput,
+} = require('./noblesse-booking');
 
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
 const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
@@ -307,6 +321,19 @@ async function handleText(event, client) {
   // 全メッセージを会話メモリに保存（userId付き）
   saveConversationMessage(sourceId, senderName, text, userId).catch(() => {});
 
+  const mentionInfo = getSecretaryMentionInfo(text);
+  if (!mentionInfo.mentioned) {
+    const bookingAwaitingReply = await maybeHandleBookingAwaitingInput({
+      event,
+      client,
+      sourceId,
+      userId,
+      senderName,
+      text,
+    });
+    if (bookingAwaitingReply) return bookingAwaitingReply;
+  }
+
   const intent = detectTextIntent(text);
   if (!intent) return;
 
@@ -491,6 +518,17 @@ async function handleText(event, client) {
     createCase({ caseId, userId, sourceId, senderName, request: withoutMention, analysis }).catch(() => {});
 
     return sendNoblesseReply(client, event, caseId, analysis, withoutMention, sourceId);
+  }
+
+  if (intent?.type === 'booking') {
+    const beastMode = await getBeastModeState(sourceId);
+    if (!beastMode.enabled) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatBeastModeLockedReply(),
+      });
+    }
+    return handleBookingTextIntent({ event, client, sourceId, userId, senderName, intent });
   }
 
   if (intent === 'casual') {
@@ -1087,6 +1125,9 @@ function detectTextIntent(text) {
 
   if (isWeatherRequest(targetText)) return 'weather';
 
+  const bookingCommand = detectBookingCommand(targetText);
+  if (bookingCommand) return bookingCommand;
+
   if (detectNoblesseIntent(targetText)) return 'noblesse';
 
   if (isTransportRequest(targetText)) return 'transport';
@@ -1387,6 +1428,14 @@ async function handleNoblessePostback(event, client, data) {
       }
     }
     const shareText = buildDecisionShareText(caseId, 'hotel', hotel);
+    const bookingForm = createBookingForm({
+      kind: 'hotel',
+      name: hotel.name,
+      url: hotel.url,
+      phone: hotel.phone,
+      address: hotel.address,
+    }, actorName, event.source?.userId || '');
+    await rememberBookingForm(caseId, bookingForm);
     await rememberPreparedSend(caseId, {
       kind: 'decision',
       title: `${hotelName} の共有`,
@@ -1483,6 +1532,14 @@ async function handleNoblessePostback(event, client, data) {
       }
     }
     const shareText = buildDecisionShareText(caseId, 'restaurant', shop);
+    const bookingForm = createBookingForm({
+      kind: 'restaurant',
+      name: shop.name,
+      url: shop.url,
+      phone: shop.phone,
+      address: shop.address,
+    }, actorName, event.source?.userId || '');
+    await rememberBookingForm(caseId, bookingForm);
     await rememberPreparedSend(caseId, {
       kind: 'decision',
       title: `${shopName} の共有`,
@@ -1506,6 +1563,52 @@ async function handleNoblessePostback(event, client, data) {
       await failNoblesseExecution(handoffPlan, err, { handoff: 'decision_panel' });
       throw err;
     }
+  }
+
+  if (action === 'booking_form') {
+    const caseData = await getNoblesseCase(caseId);
+    if (!caseData) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `案件 ${caseId} が見つからなかったの。もう一度相談してくれる？`,
+      });
+    }
+    const bookingForm = getBookingForm(caseData);
+    if (!bookingForm) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '先にお店かホテルを選んでくれる？ そこから予約情報を集めるね。',
+      });
+    }
+    const nextField = getNextBookingField(bookingForm);
+    const updated = await updateBookingForm(caseId, {
+      awaitingField: nextField,
+      ownerUserId: event.source?.userId || bookingForm.ownerUserId || '',
+      ownerName: actorName || bookingForm.ownerName || '',
+      status: nextField ? 'collecting' : 'complete',
+    });
+    await logCaseEvent(caseId, 'booking_form_started', { actorName, note: bookingForm.targetName || '' });
+    return replyBookingFormFlow(client, event, caseId, updated?.bookingForm || { ...bookingForm, awaitingField: nextField });
+  }
+
+  if (action === 'booking_party') {
+    const caseData = await getNoblesseCase(caseId);
+    if (!caseData) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `案件 ${caseId} が見つからなかったの。もう一度相談してくれる？`,
+      });
+    }
+    return handleBookingFieldUpdate({
+      client,
+      event,
+      caseId,
+      caseData,
+      actorName,
+      userId: event.source?.userId || '',
+      field: 'partySize',
+      rawValue: parts[3] || '',
+    });
   }
 
   if (action === 'select_send_target') {
@@ -1683,6 +1786,172 @@ function normalizeHotelCandidates(hotels) {
     price: hotel?.hotelMinCharge ? `${Number(hotel.hotelMinCharge).toLocaleString()}円〜/人` : '',
     review: hotel?.reviewAverage ? `評価: ★${hotel.reviewAverage}` : '',
   }));
+}
+
+async function maybeHandleBookingAwaitingInput({ event, client, sourceId, userId, senderName, text }) {
+  if (!sourceId || sourceId === 'unknown' || !userId || !String(text || '').trim()) return null;
+  const caseData = await findActiveBookingCase(sourceId, userId, true);
+  const bookingForm = getBookingForm(caseData);
+  if (!caseData || !bookingForm?.awaitingField) return null;
+  return handleBookingFieldUpdate({
+    client,
+    event,
+    caseId: caseData.caseId,
+    caseData,
+    actorName: senderName || '',
+    userId,
+    field: bookingForm.awaitingField,
+    rawValue: text,
+  });
+}
+
+async function handleBookingTextIntent({ event, client, sourceId, userId, senderName, intent }) {
+  const caseData = await findActiveBookingCase(sourceId, userId, false);
+  if (!caseData) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '先にノブレスでお店かホテルを選んでくれる？ そこから予約情報を集めるね。',
+    });
+  }
+  const bookingForm = getBookingForm(caseData);
+  if (!bookingForm) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'この案件にはまだ予約対象がないみたい。お店かホテルを決めてから続けようか。',
+    });
+  }
+
+  if (intent.action === 'start') {
+    const nextField = getNextBookingField(bookingForm);
+    const updated = await updateBookingForm(caseData.caseId, {
+      awaitingField: nextField,
+      ownerUserId: userId || bookingForm.ownerUserId || '',
+      ownerName: senderName || bookingForm.ownerName || '',
+      status: nextField ? 'collecting' : 'complete',
+    });
+    return replyBookingFormFlow(client, event, caseData.caseId, updated?.bookingForm || { ...bookingForm, awaitingField: nextField });
+  }
+
+  if (intent.action === 'summary') {
+    if (isBookingFormComplete(bookingForm)) {
+      return client.replyMessage(event.replyToken, [
+        { type: 'text', text: buildBookingSummaryText(caseData.caseId, bookingForm) },
+        buildBookingReadyFlex(caseData.caseId, bookingForm),
+      ]);
+    }
+    return replyBookingFormFlow(client, event, caseData.caseId, bookingForm);
+  }
+
+  return handleBookingFieldUpdate({
+    client,
+    event,
+    caseId: caseData.caseId,
+    caseData,
+    actorName: senderName || '',
+    userId,
+    field: intent.field,
+    rawValue: intent.value,
+  });
+}
+
+async function handleBookingFieldUpdate({ client, event, caseId, caseData, actorName, userId, field, rawValue }) {
+  const bookingForm = getBookingForm(caseData);
+  if (!bookingForm) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '予約情報の土台がまだないみたい。先にお店かホテルを選ぼうか。',
+    });
+  }
+  const parsed = applyBookingFieldInput(field, rawValue, new Date(event.timestamp || Date.now()));
+  if (!parsed.ok) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: parsed.error,
+    });
+  }
+  const merged = {
+    ...bookingForm,
+    [field]: parsed.value,
+    ownerUserId: userId || bookingForm.ownerUserId || '',
+    ownerName: actorName || bookingForm.ownerName || '',
+  };
+  const nextField = getNextBookingField(merged);
+  merged.awaitingField = nextField;
+  merged.status = nextField ? 'collecting' : 'complete';
+  const updated = await updateBookingForm(caseId, merged);
+  await logCaseEvent(caseId, 'booking_field_updated', {
+    actorName,
+    field: fieldLabel(field),
+  });
+  const current = updated?.bookingForm || merged;
+
+  if (isBookingFormComplete(current)) {
+    const bookingShare = buildBookingShareText(caseId, current);
+    await rememberPreparedSend(caseId, {
+      kind: 'decision',
+      title: `${current.targetName || '予約内容'} の共有`,
+      text: bookingShare,
+      allowImmediateSend: true,
+    });
+    await logCaseEvent(caseId, 'booking_form_completed', { actorName });
+    return client.replyMessage(event.replyToken, [
+      { type: 'text', text: buildBookingSummaryText(caseId, current) },
+      buildBookingReadyFlex(caseId, current),
+    ]);
+  }
+
+  return client.replyMessage(event.replyToken, buildBookingStepMessages(caseId, current, field));
+}
+
+function buildBookingStepMessages(caseId, bookingForm, updatedField = '') {
+  const prompt = buildBookingPrompt(caseId, bookingForm);
+  const confirm = updatedField
+    ? {
+      type: 'text',
+      text: `${fieldLabel(updatedField)}、入れておいたよ。`,
+    }
+    : null;
+  return [confirm, prompt].filter(Boolean);
+}
+
+function replyBookingFormFlow(client, event, caseId, bookingForm) {
+  if (isBookingFormComplete(bookingForm)) {
+    return client.replyMessage(event.replyToken, [
+      { type: 'text', text: buildBookingSummaryText(caseId, bookingForm) },
+      buildBookingReadyFlex(caseId, bookingForm),
+    ]);
+  }
+  return client.replyMessage(event.replyToken, [
+    { type: 'text', text: buildBookingSummaryText(caseId, bookingForm) },
+    buildBookingPrompt(caseId, bookingForm),
+  ]);
+}
+
+async function findActiveBookingCase(sourceId, userId, awaitingOnly) {
+  const cases = await getNoblesseCases(sourceId, 10);
+  return cases.find(c => {
+    if (!c || c.status === 'cancelled' || !c.bookingForm?.targetName) return false;
+    if (awaitingOnly) {
+      return c.bookingForm.awaitingField
+        && (!c.bookingForm.ownerUserId || c.bookingForm.ownerUserId === userId);
+    }
+    return true;
+  }) || null;
+}
+
+function fieldLabel(field) {
+  switch (field) {
+    case 'partySize':
+      return '人数';
+    case 'reservationDateTime':
+      return '日時';
+    case 'reserverName':
+      return '予約名';
+    case 'reserverPhone':
+      return '電話';
+    default:
+      return field || '項目';
+  }
 }
 
 function resolvePreparedSendTargets(caseData, sourceId) {

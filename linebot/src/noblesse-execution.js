@@ -101,6 +101,18 @@ function buildDecisionActionFlex(caseId, kind, item) {
   }
   footerButtons.push({
     type: 'button',
+    style: 'secondary',
+    height: 'sm',
+    margin: footerButtons.length ? 'sm' : undefined,
+    action: {
+      type: 'postback',
+      label: '予約情報を入れる',
+      data: `noblesse:booking_form:${caseId}`,
+      displayText: '予約情報を入れる',
+    },
+  });
+  footerButtons.push({
+    type: 'button',
     style: 'link',
     height: 'sm',
     margin: 'sm',
@@ -235,9 +247,87 @@ function buildSendTargetFlex(caseId, title, targets = []) {
   };
 }
 
+function buildBookingReadyFlex(caseId, form) {
+  const footerButtons = [];
+  if (form?.targetPhone && form.kind === 'restaurant') {
+    footerButtons.push({
+      type: 'button',
+      style: 'secondary',
+      height: 'sm',
+      action: {
+        type: 'uri',
+        label: '電話する',
+        uri: `tel:${form.targetPhone}`,
+      },
+    });
+  }
+  if (form?.targetUrl) {
+    footerButtons.push({
+      type: 'button',
+      style: 'primary',
+      height: 'sm',
+      margin: footerButtons.length ? 'sm' : undefined,
+      action: {
+        type: 'uri',
+        label: '予約ページを開く',
+        uri: form.targetUrl,
+      },
+    });
+  }
+  footerButtons.push({
+    type: 'button',
+    style: 'link',
+    height: 'sm',
+    margin: 'sm',
+    action: {
+      type: 'postback',
+      label: '送信先を選ぶ',
+      data: `noblesse:select_send_target:${caseId}`,
+      displayText: '送信先を選ぶ',
+    },
+  });
+
+  return {
+    type: 'flex',
+    altText: `案件 ${caseId} の予約準備完了`,
+    contents: {
+      type: 'bubble',
+      size: 'kilo',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#132238',
+        contents: [
+          { type: 'text', text: '予約準備できたよ', color: '#ffffff', size: 'sm', weight: 'bold' },
+          { type: 'text', text: `案件 ${caseId}`, color: '#a7b0ba', size: 'xs', margin: 'xs' },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: 'md',
+        contents: [
+          { type: 'text', text: form?.targetName || '候補', size: 'sm', weight: 'bold', wrap: true },
+          { type: 'text', text: `人数: ${form?.partySize ? `${form.partySize}人` : '未入力'}`, size: 'xs', color: '#444444', margin: 'sm', wrap: true },
+          { type: 'text', text: `日時: ${form?.reservationDateTime || '未入力'}`, size: 'xs', color: '#444444', margin: 'sm', wrap: true },
+          { type: 'text', text: `予約名: ${form?.reserverName || '未入力'}`, size: 'xs', color: '#444444', margin: 'sm', wrap: true },
+          { type: 'text', text: `電話: ${form?.reserverPhone || '未入力'}`, size: 'xs', color: '#444444', margin: 'sm', wrap: true },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: 'sm',
+        contents: footerButtons,
+      },
+    },
+  };
+}
+
 module.exports = {
   buildPreparedSendFlex,
   buildDecisionActionFlex,
   buildDecisionShareText,
   buildSendTargetFlex,
+  buildBookingReadyFlex,
 };

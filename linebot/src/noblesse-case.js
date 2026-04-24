@@ -119,6 +119,32 @@ async function rememberPreparedSend(caseId, payload) {
   });
 }
 
+async function rememberBookingForm(caseId, bookingForm) {
+  if (!caseId || !bookingForm || typeof bookingForm !== 'object') return null;
+  return updateCase(caseId, {
+    bookingForm: {
+      ...bookingForm,
+      updatedAt: Date.now(),
+    },
+  });
+}
+
+async function updateBookingForm(caseId, patch) {
+  if (!caseId || !patch || typeof patch !== 'object') return null;
+  const existing = await getNoblesseCase(caseId);
+  if (!existing) return null;
+  const current = existing.bookingForm && typeof existing.bookingForm === 'object'
+    ? existing.bookingForm
+    : {};
+  return updateCase(caseId, {
+    bookingForm: {
+      ...current,
+      ...patch,
+      updatedAt: Date.now(),
+    },
+  });
+}
+
 async function logCaseEvent(caseId, kind, details = {}) {
   await safeAppendCaseEvent(caseId, {
     kind,
@@ -316,6 +342,11 @@ function getPreparedSend(caseData) {
   return caseData.preparedSend;
 }
 
+function getBookingForm(caseData) {
+  if (!caseData?.bookingForm?.targetName) return null;
+  return caseData.bookingForm;
+}
+
 function previewText(text, maxLen) {
   const normalized = String(text || '').replace(/\s+/g, ' ').trim();
   if (!normalized) return '';
@@ -372,6 +403,12 @@ function formatCaseEvent(event) {
       return `${ts} ${actor}日程文面を作成`;
     case 'decision_ready':
       return `${ts} ${actor}共有文面を準備${event.note ? ` (${event.note})` : ''}`;
+    case 'booking_form_started':
+      return `${ts} ${actor}予約情報の入力を開始${event.note ? ` (${event.note})` : ''}`;
+    case 'booking_field_updated':
+      return `${ts} ${actor}予約情報を更新${event.field ? ` (${event.field})` : ''}`;
+    case 'booking_form_completed':
+      return `${ts} ${actor}予約情報が揃った`;
     case 'restaurant_search':
       return `${ts} ${actor}お店候補を検索${buildSearchSuffix(event)}`;
     case 'hotel_search':
@@ -487,7 +524,10 @@ module.exports = {
   updateCase,
   rememberSelectionCandidates,
   rememberPreparedSend,
+  rememberBookingForm,
+  updateBookingForm,
   getPreparedSend,
+  getBookingForm,
   getSelectionCandidate,
   logCaseEvent,
   buildApprovalFlex,
