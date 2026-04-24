@@ -21,7 +21,9 @@ const {
   saveScreenshotCandidate,
   updateScreenshotCandidate,
   getScreenshotCandidates,
+  getMemberProfile,
 } = require('./firebase-admin');
+const { resolveRealName, autoUpdateMemo, formatProfileForContext } = require('./member-profile');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
 const { getTokyoDateParts, shiftMonth } = require('./date-utils');
 const { inspectImage, looksLikePhoneScreenshot, classifyOcrResult } = require('./image-guard');
@@ -212,7 +214,7 @@ async function getSenderName(event, client, fallback = null) {
   const userId = event.source?.userId;
   if (!userId) return fallback;
 
-  return withTimeout((async () => {
+  const lineName = await withTimeout((async () => {
     let profile;
     if (event.source.groupId && typeof client.getGroupMemberProfile === 'function') {
       profile = await client.getGroupMemberProfile(event.source.groupId, userId);
@@ -230,6 +232,9 @@ async function getSenderName(event, client, fallback = null) {
       return fallback;
     }
   });
+
+  // Firebase に実名登録があれば優先する
+  return resolveRealName(userId, lineName);
 }
 
 function withTimeout(promise, timeoutMs, fallback) {
@@ -327,9 +332,15 @@ async function handleText(event, client) {
   }
 
   if (intent === 'casual') {
+    const userId = event.source?.userId;
     const aiEnabled = shouldUseAiChat();
+    const recentConversation = sourceId ? await getRecentConversation(sourceId, 15) : [];
+
+    // メモを非同期で自動更新（返信をブロックしない）
+    autoUpdateMemo(userId, senderName, recentConversation).catch(() => {});
+
     const aiReply = aiEnabled
-      ? await formatAiChatReply(text, await buildAiConversationContext(year, month, senderName, sourceId))
+      ? await formatAiChatReply(text, await buildAiConversationContext(year, month, senderName, sourceId, userId))
       : null;
     let replyText;
     if (aiReply) {
@@ -337,7 +348,6 @@ async function handleText(event, client) {
     } else if (aiEnabled) {
       replyText = getTiredReply();
     } else {
-      const recentConversation = sourceId ? await getRecentConversation(sourceId, 15) : [];
       replyText = getCasualReplyWithContext(text, recentConversation, senderName);
     }
     return sendCasualReply(client, event, replyText, sourceId);
@@ -824,14 +834,15 @@ function trimBatchError(value) {
   return String(value || '').replace(/\s+/g, ' ').slice(0, 200);
 }
 
-async function buildAiConversationContext(year, month, senderName = null, sourceId = null) {
+async function buildAiConversationContext(year, month, senderName = null, sourceId = null, userId = null) {
   try {
     const players = await getPlayers();
-    const [monthResults, yearResults, diaries, recentConversation] = await Promise.all([
+    const [monthResults, yearResults, diaries, recentConversation, senderProfile] = await Promise.all([
       getMonthResults(year, month),
       getYearResults(year),
       getRecentDiaries(3),
       sourceId ? getRecentConversation(sourceId, 20) : Promise.resolve([]),
+      userId ? getMemberProfile(userId) : Promise.resolve(null),
     ]);
     const monthlyRows = calculateMonthlyStandings(players, monthResults);
     const annualRows = calculateAnnualStandings(players, yearResults);
@@ -843,6 +854,7 @@ async function buildAiConversationContext(year, month, senderName = null, source
       month,
       hour: getTokyoDateParts().hour,
       senderName,
+      senderProfileText: formatProfileForContext(senderProfile, senderName),
       players: playerNames,
       monthlyTop: monthlyRows[0] || null,
       annualTop: annualRows[0] || null,
