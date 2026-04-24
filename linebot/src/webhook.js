@@ -73,7 +73,7 @@ const {
 } = require('./uicolle-knowledge');
 const { shouldUseAiChat, formatAiChatReply } = require('./ai-chat');
 const { detectNoblesseIntent, formatNoblesseReply } = require('./noblesse-agent');
-const { generateCaseId, createCase, approveCase, cancelCase, buildApprovalFlex, buildExecutionReport, buildStatusText, buildSingleCaseText } = require('./noblesse-case');
+const { generateCaseId, createCase, approveCase, cancelCase, buildApprovalFlex, buildExecutionReport, buildStatusText, buildSingleCaseText, extractSearchKeyword, parseOptions: parseCaseOptions } = require('./noblesse-case');
 
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
 const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
@@ -1097,38 +1097,42 @@ async function handleNoblessePostback(event, client, data) {
       return client.replyMessage(event.replyToken, { type: 'text', text: `案件 ${caseId} が見つからなかったの。もう一度相談してくれる？` });
     }
 
-    // レストラン系なら予算選択を出す
-    if (isRestaurantRequest(caseData.request || '')) {
-      const { capacity, budgetYen } = extractRestaurantParams(caseData.request || '');
+    // 承認された案のテキストをキーワードに使う
+    const opts = parseCaseOptions(caseData.analysis || '');
+    const chosenText = opts[option] || '';
+    const searchKeyword = extractSearchKeyword(chosenText) || extractSearchKeyword(caseData.request || '') || caseData.request || '';
+
+    // ホテル・旅行系か判定（依頼文 OR 分析文のどちらかに含まれれば該当）
+    const combinedText = `${caseData.request || ''} ${caseData.analysis || ''}`;
+
+    // レストラン系
+    if (isRestaurantRequest(combinedText)) {
+      const { capacity, budgetYen } = extractRestaurantParams(combinedText);
       if (budgetYen) {
-        // 予算情報あり → 即検索
-        await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。お店を探してくるね。` });
-        const keyword = caseData.request || '';
-        const shops = await searchRestaurants({ keyword, capacity, budgetYen });
+        await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。「${searchKeyword}」でお店を探してくるね。` });
+        const shops = await searchRestaurants({ keyword: searchKeyword, capacity, budgetYen });
         const flex = shops?.length
           ? buildRestaurantCarousel(shops, caseId)
           : { type: 'text', text: '条件に合うお店が見つからなかった。キーワードを変えて再度相談してみて。' };
         if (sourceId) client.pushMessage(sourceId, flex).catch(() => {});
       } else {
-        // 予算不明 → クイックリプライで確認
-        const quickReply = buildBudgetQuickReply(caseId, caseData.request || '');
-        await client.replyMessage(event.replyToken, quickReply);
+        await client.replyMessage(event.replyToken, buildBudgetQuickReply(caseId, searchKeyword));
       }
       return;
     }
 
-    // ホテル系なら楽天トラベル検索
-    if (isHotelRequest(caseData.request || '')) {
-      const { adultNum, nights, maxCharge } = extractHotelParams(caseData.request || '');
+    // ホテル・旅行系
+    if (isHotelRequest(combinedText)) {
+      const { adultNum, nights, maxCharge } = extractHotelParams(combinedText);
       if (maxCharge) {
-        await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。ホテルを探してくるね。` });
-        const hotels = await searchHotels({ keyword: caseData.request || '', adultNum, nights, maxCharge });
+        await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。「${searchKeyword}」のホテルを探してくるね。` });
+        const hotels = await searchHotels({ keyword: searchKeyword, adultNum, nights, maxCharge });
         const flex = hotels?.length
           ? buildHotelCarousel(hotels, caseId)
           : { type: 'text', text: '条件に合うホテルが見つからなかったよ。エリアや条件を変えてみて。' };
         if (sourceId) client.pushMessage(sourceId, flex).catch(() => {});
       } else {
-        await client.replyMessage(event.replyToken, buildBudgetQuickReplyForHotel(caseId, caseData.request || ''));
+        await client.replyMessage(event.replyToken, buildBudgetQuickReplyForHotel(caseId, searchKeyword));
       }
       return;
     }
