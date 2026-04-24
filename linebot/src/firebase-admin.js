@@ -32,6 +32,11 @@ const GEO_GAME_CACHE_ROOT = 'geoGameCache';
 const OCR_AUTOMATION_ROOT = 'ocrAutomation';
 const SCREENSHOT_CANDIDATES_ROOT = 'screenshotCandidates';
 const BEAST_MODE_ROOT = 'beastMode';
+const LOCATION_MEMORY_ROOT = 'locationMemory';
+const PENDING_LOCATION_REQUEST_ROOT = 'pendingLocationRequests';
+const WAKE_ALARM_ROOT = 'wakeAlarms';
+const LOCATION_MEMORY_TTL_MS = 12 * 60 * 60 * 1000;
+const PENDING_LOCATION_REQUEST_TTL_MS = 30 * 60 * 1000;
 
 async function getPlayers() {
   if (_playersCache && Date.now() - _playersCacheTs < CACHE_TTL) return _playersCache;
@@ -240,6 +245,96 @@ async function setBeastModeEnabled(sourceId, enabled, updatedBy = null) {
     updatedAt: payload.updatedAt,
     updatedBy: payload.updatedBy,
   };
+}
+
+function buildLocationUserKey(userId) {
+  return String(userId || 'shared').replace(/[.#$/[\]]/g, '_');
+}
+
+async function saveLatestLocation(sourceId, userId, data = {}) {
+  if (!sourceId || !data) return null;
+  const now = Date.now();
+  const payload = {
+    ...data,
+    updatedAt: now,
+    updatedAtIso: new Date(now).toISOString(),
+    expiresAt: now + LOCATION_MEMORY_TTL_MS,
+  };
+  await getDb().ref(`${LOCATION_MEMORY_ROOT}/${sourceId}/${buildLocationUserKey(userId)}`).set(payload);
+  return payload;
+}
+
+async function getLatestLocation(sourceId, userId) {
+  if (!sourceId) return null;
+  const keys = [buildLocationUserKey(userId)];
+  if (keys[0] !== 'shared') keys.push('shared');
+  for (const key of keys) {
+    const snap = await getDb().ref(`${LOCATION_MEMORY_ROOT}/${sourceId}/${key}`).once('value');
+    const value = snap.val();
+    if (!value) continue;
+    if (value.expiresAt && Number(value.expiresAt) < Date.now()) {
+      await getDb().ref(`${LOCATION_MEMORY_ROOT}/${sourceId}/${key}`).remove();
+      continue;
+    }
+    return value;
+  }
+  return null;
+}
+
+async function savePendingLocationRequest(sourceId, userId, request = {}) {
+  if (!sourceId) return null;
+  const now = Date.now();
+  const payload = {
+    ...request,
+    createdAt: now,
+    createdAtIso: new Date(now).toISOString(),
+    expiresAt: now + PENDING_LOCATION_REQUEST_TTL_MS,
+  };
+  await getDb().ref(`${PENDING_LOCATION_REQUEST_ROOT}/${sourceId}/${buildLocationUserKey(userId)}`).set(payload);
+  return payload;
+}
+
+async function getPendingLocationRequest(sourceId, userId) {
+  if (!sourceId) return null;
+  const ref = getDb().ref(`${PENDING_LOCATION_REQUEST_ROOT}/${sourceId}/${buildLocationUserKey(userId)}`);
+  const snap = await ref.once('value');
+  const value = snap.val();
+  if (!value) return null;
+  if (value.expiresAt && Number(value.expiresAt) < Date.now()) {
+    await ref.remove();
+    return null;
+  }
+  return value;
+}
+
+async function clearPendingLocationRequest(sourceId, userId) {
+  if (!sourceId) return;
+  await getDb().ref(`${PENDING_LOCATION_REQUEST_ROOT}/${sourceId}/${buildLocationUserKey(userId)}`).remove();
+}
+
+async function getWakeAlarm(sourceId) {
+  if (!sourceId) return null;
+  const snap = await getDb().ref(`${WAKE_ALARM_ROOT}/${sourceId}`).once('value');
+  const value = snap.val();
+  if (!value || value.status !== 'active') return null;
+  return value;
+}
+
+async function setWakeAlarm(sourceId, alarm = {}) {
+  if (!sourceId || !alarm) return null;
+  const now = Date.now();
+  const payload = {
+    ...alarm,
+    updatedAt: now,
+    updatedAtIso: new Date(now).toISOString(),
+  };
+  await getDb().ref(`${WAKE_ALARM_ROOT}/${sourceId}`).set(payload);
+  return payload;
+}
+
+async function clearWakeAlarm(sourceId) {
+  if (!sourceId) return;
+  await getDb().ref(`${WAKE_ALARM_ROOT}/${sourceId}`).remove();
 }
 
 async function saveScreenshotCandidate(sourceId, dayKey, msgId, data = {}) {
@@ -896,6 +991,14 @@ module.exports = {
   setOcrAutoEnabled,
   getBeastModeState,
   setBeastModeEnabled,
+  saveLatestLocation,
+  getLatestLocation,
+  savePendingLocationRequest,
+  getPendingLocationRequest,
+  clearPendingLocationRequest,
+  getWakeAlarm,
+  setWakeAlarm,
+  clearWakeAlarm,
   saveScreenshotCandidate,
   updateScreenshotCandidate,
   getScreenshotCandidates,

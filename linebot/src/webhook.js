@@ -20,6 +20,14 @@ const {
   setOcrAutoEnabled,
   getBeastModeState,
   setBeastModeEnabled,
+  saveLatestLocation,
+  getLatestLocation,
+  savePendingLocationRequest,
+  getPendingLocationRequest,
+  clearPendingLocationRequest,
+  getWakeAlarm,
+  setWakeAlarm,
+  clearWakeAlarm,
   saveScreenshotCandidate,
   updateScreenshotCandidate,
   getScreenshotCandidates,
@@ -164,6 +172,19 @@ const {
   buildSearchExecutionParams,
   buildSearchIntakeSummary,
 } = require('./noblesse-search-intake');
+const {
+  detectNearbyIntent,
+  buildNearbyLocationPrompt,
+  formatLocationStoredReply,
+  findNearbyPlaces,
+  formatNearbyReply,
+} = require('./nearby-guide');
+const {
+  detectWakeAlarmIntent,
+  formatWakeAlarmSetReply,
+  formatWakeAlarmStatusReply,
+  formatWakeAlarmCancelReply,
+} = require('./wake-alarm');
 
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
 const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
@@ -174,6 +195,10 @@ async function handle(event, client) {
     return handleImage(event, client);
   }
 
+  if (event.type === 'message' && event.message.type === 'location') {
+    return handleLocation(event, client);
+  }
+
   if (event.type === 'message' && event.message.type === 'text') {
     return handleText(event, client);
   }
@@ -182,6 +207,43 @@ async function handle(event, client) {
   if (event.type === 'postback') {
     return handlePostback(event, client);
   }
+}
+
+async function handleLocation(event, client) {
+  const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
+  const userId = event.source?.userId || 'shared';
+  const senderName = await getSenderName(event, client, '不明');
+  const rawLocation = event.message || {};
+  const locationPayload = await saveLatestLocation(sourceId, userId, {
+    sourceId,
+    userId,
+    senderName,
+    title: rawLocation.title || '',
+    address: rawLocation.address || '',
+    label: rawLocation.title || rawLocation.address || '',
+    latitude: Number(rawLocation.latitude),
+    longitude: Number(rawLocation.longitude),
+    lastRequestedAt: Date.now(),
+  });
+
+  const pendingRequest = await getPendingLocationRequest(sourceId, userId);
+  if (pendingRequest?.category && Number.isFinite(locationPayload?.latitude) && Number.isFinite(locationPayload?.longitude)) {
+    await clearPendingLocationRequest(sourceId, userId).catch(() => {});
+    const result = await findNearbyPlaces({
+      latitude: locationPayload.latitude,
+      longitude: locationPayload.longitude,
+      category: pendingRequest.category,
+    });
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatNearbyReply(result),
+    });
+  }
+
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: formatLocationStoredReply(locationPayload),
+  });
 }
 
 async function handleImage(event, client) {
@@ -345,18 +407,32 @@ function withTimeout(promise, timeoutMs, fallback) {
   ]);
 }
 
+function isDirectChatSource(source = {}) {
+  return !!source.userId && !source.groupId && !source.roomId;
+}
+
+function buildEffectiveSecretaryText(text, allowBareCall, alreadyMentioned) {
+  if (!allowBareCall || alreadyMentioned) return text;
+  const normalized = String(text || '').trim();
+  if (!normalized) return text;
+  return `@秘書トラペル子 ${normalized}`;
+}
+
 async function handleText(event, client) {
   const text = event.message.text || '';
   const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
-
+  const isDirectChat = isDirectChatSource(event.source);
   const userId = event.source?.userId || null;
   const senderName = await getSenderName(event, client, null);
 
   // 全メッセージを会話メモリに保存（userId付き）
   saveConversationMessage(sourceId, senderName, text, userId).catch(() => {});
 
-  const mentionInfo = getSecretaryMentionInfo(text);
-  if (!mentionInfo.mentioned) {
+  const rawMentionInfo = getSecretaryMentionInfo(text);
+  const effectiveText = buildEffectiveSecretaryText(text, isDirectChat, rawMentionInfo.mentioned);
+  const mentionInfo = getSecretaryMentionInfo(effectiveText);
+
+  if (!rawMentionInfo.mentioned) {
     const curatedAwaitingReply = await maybeHandleCuratedAwaitingInput({
       event,
       client,
@@ -388,7 +464,7 @@ async function handleText(event, client) {
     if (bookingAwaitingReply) return bookingAwaitingReply;
   }
 
-  const intent = detectTextIntent(text);
+  const intent = detectTextIntent(effectiveText);
   if (!intent) return;
 
   // グループ全員のプロファイリング（全intent共通、fire-and-forget）
@@ -493,8 +569,7 @@ async function handleText(event, client) {
   }
 
   if (intent === 'weather') {
-    const { withoutMention } = getSecretaryMentionInfo(text);
-    const city = extractWeatherCity(withoutMention) || '東京';
+    const city = extractWeatherCity(mentionInfo.withoutMention) || '東京';
     const result = await fetchWeatherForCity(city);
     return client.replyMessage(event.replyToken, {
       type: 'text',
@@ -503,17 +578,16 @@ async function handleText(event, client) {
   }
 
   if (intent === 'transport') {
-    const { withoutMention } = getSecretaryMentionInfo(text);
-    if (isTaxiRequest(withoutMention)) {
-      const { from, to } = extractRouteParams(withoutMention);
+    if (isTaxiRequest(mentionInfo.withoutMention)) {
+      const { from, to } = extractRouteParams(mentionInfo.withoutMention);
       return client.replyMessage(event.replyToken, buildTaxiFlex(from, to));
     }
-    if (isFlightRequest(withoutMention)) {
-      const { from, to } = extractRouteParams(withoutMention);
+    if (isFlightRequest(mentionInfo.withoutMention)) {
+      const { from, to } = extractRouteParams(mentionInfo.withoutMention);
       return client.replyMessage(event.replyToken, buildFlightFlex(from, to));
     }
     // 電車・経路検索
-    const { from, to } = extractRouteParams(withoutMention);
+    const { from, to } = extractRouteParams(mentionInfo.withoutMention);
     if (!from || !to) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
@@ -521,6 +595,85 @@ async function handleText(event, client) {
       });
     }
     return client.replyMessage(event.replyToken, buildRouteFlex(from, to));
+  }
+
+  if (intent?.type === 'nearby') {
+    const latestLocation = await getLatestLocation(sourceId, userId);
+    if (!latestLocation?.latitude || !latestLocation?.longitude) {
+      await savePendingLocationRequest(sourceId, userId, {
+        category: intent.category,
+        label: intent.label,
+        text: mentionInfo.withoutMention,
+      }).catch(() => {});
+      return client.replyMessage(event.replyToken, buildNearbyLocationPrompt(intent, latestLocation));
+    }
+
+    const result = await findNearbyPlaces({
+      latitude: Number(latestLocation.latitude),
+      longitude: Number(latestLocation.longitude),
+      category: intent.category,
+    });
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatNearbyReply(result),
+    });
+  }
+
+  if (intent?.type === 'wakeAlarm') {
+    if (!isDirectChat) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '起こす約束は1対1のトークでやらせてね。グループだと朝からみんなを起こしちゃうから、個人トークで時間を言ってくれたら私が迎えに行くよ。',
+      });
+    }
+
+    if (intent.action === 'status') {
+      const alarm = await getWakeAlarm(sourceId);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatWakeAlarmStatusReply(alarm),
+      });
+    }
+
+    if (intent.action === 'cancel') {
+      const alarm = await getWakeAlarm(sourceId);
+      await clearWakeAlarm(sourceId);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatWakeAlarmCancelReply(alarm),
+      });
+    }
+
+    if (intent.action === 'missingTime') {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '何時に起こせばいいかだけ教えてね。\n例:「朝7時に起こして」「明日7:30に起こして」「毎朝6時半に起こして」',
+      });
+    }
+
+    if (intent.action === 'invalidTime') {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '時間の読み取りがうまくいかなかったの。\n0時〜23時の形で、もう一回だけ教えてね。',
+      });
+    }
+
+    const alarm = await setWakeAlarm(sourceId, {
+      sourceId,
+      userId,
+      senderName,
+      hour: intent.hour,
+      minute: intent.minute,
+      dueAt: intent.dueAt,
+      recurring: intent.recurring === true,
+      status: 'active',
+      createdAt: Date.now(),
+      createdAtIso: new Date().toISOString(),
+    });
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatWakeAlarmSetReply(alarm, senderName),
+    });
   }
 
   if (intent === 'noblesse:status') {
@@ -531,8 +684,7 @@ async function handleText(event, client) {
         text: formatBeastModeLockedReply(),
       });
     }
-    const { withoutMention } = getSecretaryMentionInfo(text);
-    const caseIdMatch = withoutMention.match(/NB-\d{8}-\d+/);
+    const caseIdMatch = mentionInfo.withoutMention.match(/NB-\d{8}-\d+/);
     if (caseIdMatch) {
       const [caseData, caseEvents, caseExecutions] = await Promise.all([
         getNoblesseCase(caseIdMatch[0]),
@@ -559,19 +711,17 @@ async function handleText(event, client) {
         text: formatBeastModeLockedReply(),
       });
     }
-    const { withoutMention } = getSecretaryMentionInfo(text);
-    const userId = event.source?.userId;
     const { date: dateStr } = getTokyoDateParts();
 
     const [analysis, caseId] = await Promise.all([
-      formatNoblesseReply(withoutMention, senderName),
+      formatNoblesseReply(mentionInfo.withoutMention, senderName),
       generateCaseId(dateStr),
     ]);
 
     // 案件をFirebaseに保存（fire-and-forget）
-    createCase({ caseId, userId, sourceId, senderName, request: withoutMention, analysis }).catch(() => {});
+    createCase({ caseId, userId, sourceId, senderName, request: mentionInfo.withoutMention, analysis }).catch(() => {});
 
-    return sendNoblesseReply(client, event, caseId, analysis, withoutMention, sourceId);
+    return sendNoblesseReply(client, event, caseId, analysis, mentionInfo.withoutMention, sourceId);
   }
 
   if (intent?.type === 'booking') {
@@ -601,7 +751,7 @@ async function handleText(event, client) {
     const recentConversation = sourceId ? await getRecentConversation(sourceId, 15) : [];
 
     const aiReply = aiEnabled
-      ? await formatAiChatReply(text, await buildAiConversationContext(year, month, senderName, sourceId, userId))
+      ? await formatAiChatReply(effectiveText, await buildAiConversationContext(year, month, senderName, sourceId, userId))
       : null;
     let replyText;
     if (aiReply) {
@@ -609,7 +759,7 @@ async function handleText(event, client) {
     } else if (aiEnabled) {
       replyText = getTiredReply();
     } else {
-      replyText = getCasualReplyWithContext(text, recentConversation, senderName);
+      replyText = getCasualReplyWithContext(effectiveText, recentConversation, senderName);
     }
     return sendCasualReply(client, event, replyText, sourceId);
   }
@@ -1154,6 +1304,12 @@ function detectTextIntent(text) {
 
   const ocrControlIntent = detectOcrControlIntent(targetText);
   if (ocrControlIntent) return ocrControlIntent;
+
+  const nearbyIntent = detectNearbyIntent(targetText);
+  if (nearbyIntent) return nearbyIntent;
+
+  const wakeAlarmIntent = detectWakeAlarmIntent(targetText);
+  if (wakeAlarmIntent) return wakeAlarmIntent;
 
   const conciergeIntent = detectConciergeIntent(targetText);
   if (conciergeIntent) return conciergeIntent;
