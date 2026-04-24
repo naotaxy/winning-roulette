@@ -955,9 +955,12 @@ async function showTypingIndicator(sourceId) {
   if (!sourceId || sourceId === 'unknown') return;
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   if (!token) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2500); // 返信ブロックを防ぐため短めにタイムアウト
   try {
     await fetch('https://api.line.me/v2/bot/chat/loading/start', {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
@@ -965,7 +968,11 @@ async function showTypingIndicator(sourceId) {
       body: JSON.stringify({ chatId: sourceId, loadingSeconds: 5 }),
     });
   } catch (err) {
-    console.error('[typing-indicator] failed', err?.message || err);
+    if (err?.name !== 'AbortError') {
+      console.error('[typing-indicator] failed', err?.message || err);
+    }
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -1020,12 +1027,12 @@ function splitCasualReply(text) {
 }
 
 async function sendCasualReply(client, event, replyText, sourceId) {
-  // タイピングインジケーターを開始しつつ、人間らしい入力待ちを並列で走らせる
+  // タイピングインジケーターは fire-and-forget（待たない）
+  // Promise.all で待つと LINE API が遅い時に replyToken が期限切れになる
+  showTypingIndicator(sourceId).catch(() => {});
+
   const typingDelay = 1200 + Math.floor(Math.random() * 800);
-  await Promise.all([
-    showTypingIndicator(sourceId),
-    new Promise(r => setTimeout(r, typingDelay)),
-  ]);
+  await new Promise(r => setTimeout(r, typingDelay));
 
   const { first, second } = splitCasualReply(replyText);
   await client.replyMessage(event.replyToken, { type: 'text', text: first });
