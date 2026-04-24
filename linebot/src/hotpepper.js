@@ -77,7 +77,7 @@ async function searchRestaurants({ keyword, capacity, budgetYen, count = 3 }) {
 function buildRestaurantCarousel(shops, caseId) {
   if (!shops?.length) return null;
 
-  const bubbles = shops.slice(0, 3).map(shop => {
+  const bubbles = shops.slice(0, 3).map((shop, index) => {
     const budget = shop.budget?.average || shop.budget?.name || '要確認';
     const address = (shop.address || '').slice(0, 30);
     const genre = shop.genre?.name || '';
@@ -107,7 +107,7 @@ function buildRestaurantCarousel(shops, caseId) {
         action: {
           type: 'postback',
           label: 'ここに決める',
-          data: `noblesse:restaurant_select:${caseId}:${encodeURIComponent(name)}`,
+          data: `noblesse:restaurant_select:${caseId}:${index}`,
           displayText: `${name} に決める`,
         },
         style: 'link', height: 'sm', margin: 'sm',

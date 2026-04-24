@@ -61,7 +61,7 @@ async function searchHotels({ keyword, adultNum = 1, checkinDate, checkoutDate, 
 function buildHotelCarousel(hotels, caseId) {
   if (!hotels?.length) return null;
 
-  const bubbles = hotels.slice(0, 3).map(hotel => {
+  const bubbles = hotels.slice(0, 3).map((hotel, index) => {
     const name = (hotel.hotelName || '').slice(0, 30);
     const address = ((hotel.address1 || '') + (hotel.address2 || '')).slice(0, 30);
     const price = hotel.hotelMinCharge
@@ -91,7 +91,7 @@ function buildHotelCarousel(hotels, caseId) {
         action: {
           type: 'postback',
           label: 'ここに決める',
-          data: `noblesse:hotel_select:${caseId}:${encodeURIComponent(name)}`,
+          data: `noblesse:hotel_select:${caseId}:${index}`,
           displayText: `${name} に決める`,
         },
         style: 'link', height: 'sm', margin: 'sm',
