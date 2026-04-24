@@ -792,6 +792,37 @@ async function getNoblesseCaseEvents(caseId, limit = 8) {
     .slice(0, limit);
 }
 
+async function createNoblesseExecution(caseId, data) {
+  if (!caseId) return null;
+  const ref = getDb().ref(`noblesse/executions/${caseId}`).push();
+  await ref.set({
+    ...data,
+    executionId: ref.key,
+    createdAt: admin.database.ServerValue.TIMESTAMP,
+    updatedAt: admin.database.ServerValue.TIMESTAMP,
+  });
+  return ref.key;
+}
+
+async function updateNoblesseExecution(caseId, executionId, patch) {
+  if (!caseId || !executionId || !patch || typeof patch !== 'object') return;
+  await getDb().ref(`noblesse/executions/${caseId}/${executionId}`).update({
+    ...patch,
+    updatedAt: admin.database.ServerValue.TIMESTAMP,
+  });
+}
+
+async function getNoblesseExecutions(caseId, limit = 6) {
+  if (!caseId) return [];
+  const snap = await getDb().ref(`noblesse/executions/${caseId}`).once('value');
+  const raw = snap.val();
+  if (!raw) return [];
+  return Object.entries(raw)
+    .map(([executionId, execution]) => ({ executionId, ...execution }))
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .slice(0, limit);
+}
+
 // ── メンバープロファイル（LINE名→実名・人物メモ） ────────────────────────────
 let _profilesCache = null;
 let _profilesCacheTs = 0;
@@ -883,4 +914,7 @@ module.exports = {
   getNoblesseCases,
   appendNoblesseCaseEvent,
   getNoblesseCaseEvents,
+  createNoblesseExecution,
+  updateNoblesseExecution,
+  getNoblesseExecutions,
 };

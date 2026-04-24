@@ -26,6 +26,11 @@ async function createCase({ caseId, userId, sourceId, senderName, request, analy
     request,
     analysis,
     status: 'pending',
+    executionPolicy: {
+      maxLevel: 3,
+      finalReservationAllowed: false,
+      finalPurchaseAllowed: false,
+    },
     createdAt: Date.now(),
   });
   await safeAppendCaseEvent(caseId, {
@@ -278,7 +283,7 @@ function buildStatusText(cases) {
   return lines.join('\n').trim();
 }
 
-function buildSingleCaseText(caseId, c, events = []) {
+function buildSingleCaseText(caseId, c, events = [], executions = []) {
   if (!c) return `案件 ${caseId} は見つからなかったよ。IDを確認して。`;
   const label = STATUS_LABEL[c.status] || c.status;
   const option = c.approvedOption ? `\n承認案: ${formatApprovalLabel(c.approvedOption)}` : '';
@@ -293,6 +298,7 @@ function buildSingleCaseText(caseId, c, events = []) {
     `依頼: ${req}`,
     `作成: ${createdAt}`,
     c.senderName ? `依頼者: ${c.senderName}` : '',
+    ...(executions.length ? ['最近の実行:', ...executions.map(execution => `・${formatCaseExecution(execution)}`)] : []),
     ...(events.length ? ['最近の動き:', ...events.map(event => `・${formatCaseEvent(event)}`)] : []),
   ].filter(Boolean).join('\n');
 }
@@ -381,6 +387,29 @@ function formatCaseEvent(event) {
   }
 }
 
+function formatCaseExecution(execution) {
+  const ts = execution?.updatedAt || execution?.createdAt
+    ? new Date(execution.updatedAt || execution.createdAt).toLocaleString('ja-JP', {
+      timeZone: 'Asia/Tokyo',
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    : '時刻不明';
+  const label = formatExecutionType(execution?.type);
+  const status = formatExecutionStatus(execution?.status);
+  const provider = execution?.provider ? ` / ${execution.provider}` : '';
+  const note = execution?.blockedReason
+    ? ` (${formatBlockedReason(execution.blockedReason)})`
+    : execution?.payload?.title
+      ? ` (${execution.payload.title})`
+      : execution?.payload?.name
+        ? ` (${execution.payload.name})`
+        : '';
+  return `${ts} ${label}${provider} ${status}${note}`;
+}
+
 function buildSearchSuffix(event) {
   const parts = [];
   if (event?.keyword) parts.push(event.keyword);
@@ -399,6 +428,55 @@ function buildTransportLabel(event) {
       : '経路情報を提示';
   const route = [event?.from, event?.to].filter(Boolean).join(' → ');
   return route ? `${mode} (${route})` : mode;
+}
+
+function formatExecutionType(type) {
+  switch (type) {
+    case 'line_send':
+      return 'LINE送信';
+    case 'booking_handoff':
+      return '予約導線準備';
+    case 'mail_send':
+      return 'メール送信';
+    case 'booking_finalize':
+      return '予約確定';
+    case 'purchase_attempt':
+      return '購入処理';
+    default:
+      return type || '実行';
+  }
+}
+
+function formatExecutionStatus(status) {
+  switch (status) {
+    case 'planned':
+      return '準備済み';
+    case 'running':
+      return '実行中';
+    case 'done':
+      return '完了';
+    case 'failed':
+      return '失敗';
+    case 'blocked':
+      return '停止';
+    case 'cancelled':
+      return '取消';
+    default:
+      return status || '不明';
+  }
+}
+
+function formatBlockedReason(reason) {
+  switch (reason) {
+    case 'policy_max_level':
+      return '実行レベル上限';
+    case 'reservation_final_confirmation_required':
+      return '最終予約は別確認';
+    case 'purchase_final_confirmation_required':
+      return '購入は別系統';
+    default:
+      return reason || '制限あり';
+  }
 }
 
 module.exports = {

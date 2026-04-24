@@ -27,6 +27,7 @@ const {
   getNoblesseCase,
   getNoblesseCases,
   getNoblesseCaseEvents,
+  getNoblesseExecutions,
   initMemberProfileStub,
 } = require('./firebase-admin');
 const { resolveRealName, updateGroupProfiles, formatProfileForContext } = require('./member-profile');
@@ -107,6 +108,13 @@ const {
   buildDecisionActionFlex,
   buildDecisionShareText,
 } = require('./noblesse-execution');
+const {
+  planNoblesseExecution,
+  markExecutionRunning,
+  completeNoblesseExecution,
+  failNoblesseExecution,
+  formatExecutionBlockedReply,
+} = require('./noblesse-planner');
 
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
 const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
@@ -444,13 +452,14 @@ async function handleText(event, client) {
     const { withoutMention } = getSecretaryMentionInfo(text);
     const caseIdMatch = withoutMention.match(/NB-\d{8}-\d+/);
     if (caseIdMatch) {
-      const [caseData, caseEvents] = await Promise.all([
+      const [caseData, caseEvents, caseExecutions] = await Promise.all([
         getNoblesseCase(caseIdMatch[0]),
         getNoblesseCaseEvents(caseIdMatch[0], 8),
+        getNoblesseExecutions(caseIdMatch[0], 6),
       ]);
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: buildSingleCaseText(caseIdMatch[0], caseData, caseEvents),
+        text: buildSingleCaseText(caseIdMatch[0], caseData, caseEvents, caseExecutions),
       });
     }
     const cases = await getNoblesseCases(sourceId, 5);
@@ -1334,14 +1343,47 @@ async function handleNoblessePostback(event, client, data) {
 
   if (action === 'hotel_select') {
     const caseData = await getNoblesseCase(caseId);
+    if (!caseData) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `案件 ${caseId} が見つからなかったの。もう一度相談してくれる？`,
+      });
+    }
     const hotel = getSelectionCandidate(caseData, parts[3]);
     const hotelName = hotel?.name || decodeURIComponent(parts.slice(3).join(':'));
     await approveCase(caseId, 'hotel', { actorName, note: hotelName });
-    if (!hotel) {
+    const handoffPlan = await planNoblesseExecution({
+      caseId,
+      caseData,
+      sourceId,
+      actorName,
+      type: 'booking_handoff',
+      provider: 'rakuten',
+      payload: {
+        kind: 'hotel',
+        name: hotelName,
+        url: hotel?.url || '',
+      },
+    });
+    if (!handoffPlan.allowed) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: `「${hotelName}」に決めるね。\n案件 ${caseId} を承認済みにしたよ。\n予約ページから確定させてね。`,
+        text: formatExecutionBlockedReply(handoffPlan),
       });
+    }
+    if (!hotel) {
+      try {
+        await markExecutionRunning(handoffPlan, { note: 'hotel handoff fallback reply' });
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: `「${hotelName}」に決めるね。\n案件 ${caseId} を承認済みにしたよ。\n予約ページから確定させてね。`,
+        });
+        await completeNoblesseExecution(handoffPlan, { handoff: 'fallback_reply' });
+        return;
+      } catch (err) {
+        await failNoblesseExecution(handoffPlan, err, { handoff: 'fallback_reply' });
+        throw err;
+      }
     }
     const shareText = buildDecisionShareText(caseId, 'hotel', hotel);
     await rememberPreparedSend(caseId, {
@@ -1352,10 +1394,21 @@ async function handleNoblessePostback(event, client, data) {
     });
     await logCaseEvent(caseId, 'hotel_selected', { actorName, name: hotelName });
     await logCaseEvent(caseId, 'decision_ready', { actorName, note: hotelName });
-    return client.replyMessage(event.replyToken, [
-      { type: 'text', text: `「${hotelName}」で寄せるね。予約導線と共有送信を出すよ。` },
-      buildDecisionActionFlex(caseId, 'hotel', hotel),
-    ]);
+    try {
+      await markExecutionRunning(handoffPlan, { note: 'hotel handoff panel' });
+      await client.replyMessage(event.replyToken, [
+        { type: 'text', text: `「${hotelName}」で寄せるね。予約導線と共有送信を出すよ。` },
+        buildDecisionActionFlex(caseId, 'hotel', hotel),
+      ]);
+      await completeNoblesseExecution(handoffPlan, {
+        handoff: 'decision_panel',
+        preparedSendTitle: `${hotelName} の共有`,
+      });
+      return;
+    } catch (err) {
+      await failNoblesseExecution(handoffPlan, err, { handoff: 'decision_panel' });
+      throw err;
+    }
   }
 
   if (action === 'search') {
@@ -1385,14 +1438,48 @@ async function handleNoblessePostback(event, client, data) {
 
   if (action === 'restaurant_select') {
     const caseData = await getNoblesseCase(caseId);
+    if (!caseData) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `案件 ${caseId} が見つからなかったの。もう一度相談してくれる？`,
+      });
+    }
     const shop = getSelectionCandidate(caseData, parts[3]);
     const shopName = shop?.name || decodeURIComponent(parts.slice(3).join(':'));
     await approveCase(caseId, 'restaurant', { actorName, note: shopName });
-    if (!shop) {
+    const handoffPlan = await planNoblesseExecution({
+      caseId,
+      caseData,
+      sourceId,
+      actorName,
+      type: 'booking_handoff',
+      provider: 'hotpepper',
+      payload: {
+        kind: 'restaurant',
+        name: shopName,
+        url: shop?.url || '',
+        phone: shop?.phone || '',
+      },
+    });
+    if (!handoffPlan.allowed) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: `「${shopName}」に決めるね。\n案件 ${caseId} を承認済みにしたよ。\n予約ページか電話から確定させてね。私が段取りのたたき台を作ることもできるよ。`,
+        text: formatExecutionBlockedReply(handoffPlan),
       });
+    }
+    if (!shop) {
+      try {
+        await markExecutionRunning(handoffPlan, { note: 'restaurant handoff fallback reply' });
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: `「${shopName}」に決めるね。\n案件 ${caseId} を承認済みにしたよ。\n予約ページか電話から確定させてね。私が段取りのたたき台を作ることもできるよ。`,
+        });
+        await completeNoblesseExecution(handoffPlan, { handoff: 'fallback_reply' });
+        return;
+      } catch (err) {
+        await failNoblesseExecution(handoffPlan, err, { handoff: 'fallback_reply' });
+        throw err;
+      }
     }
     const shareText = buildDecisionShareText(caseId, 'restaurant', shop);
     await rememberPreparedSend(caseId, {
@@ -1403,14 +1490,31 @@ async function handleNoblessePostback(event, client, data) {
     });
     await logCaseEvent(caseId, 'restaurant_selected', { actorName, name: shopName });
     await logCaseEvent(caseId, 'decision_ready', { actorName, note: shopName });
-    return client.replyMessage(event.replyToken, [
-      { type: 'text', text: `「${shopName}」に寄せるね。予約導線と共有送信を出すよ。` },
-      buildDecisionActionFlex(caseId, 'restaurant', shop),
-    ]);
+    try {
+      await markExecutionRunning(handoffPlan, { note: 'restaurant handoff panel' });
+      await client.replyMessage(event.replyToken, [
+        { type: 'text', text: `「${shopName}」に寄せるね。予約導線と共有送信を出すよ。` },
+        buildDecisionActionFlex(caseId, 'restaurant', shop),
+      ]);
+      await completeNoblesseExecution(handoffPlan, {
+        handoff: 'decision_panel',
+        preparedSendTitle: `${shopName} の共有`,
+      });
+      return;
+    } catch (err) {
+      await failNoblesseExecution(handoffPlan, err, { handoff: 'decision_panel' });
+      throw err;
+    }
   }
 
   if (action === 'send_prepared') {
     const caseData = await getNoblesseCase(caseId);
+    if (!caseData) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `案件 ${caseId} が見つからなかったの。もう一度相談してくれる？`,
+      });
+    }
     const prepared = getPreparedSend(caseData);
     if (!prepared) {
       return client.replyMessage(event.replyToken, {
@@ -1424,16 +1528,51 @@ async function handleNoblessePostback(event, client, data) {
         text: 'まだ未入力のところが残ってるから、そのまま送るのは止めておくね。必要な情報を埋めたら、また私に見せて。',
       });
     }
+    const sendPlan = await planNoblesseExecution({
+      caseId,
+      caseData,
+      sourceId,
+      actorName,
+      type: 'line_send',
+      provider: 'line',
+      payload: {
+        kind: prepared.kind || '',
+        title: prepared.title || '',
+      },
+    });
+    if (!sendPlan.allowed) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatExecutionBlockedReply(sendPlan),
+      });
+    }
     const eventKind = prepared.kind === 'schedule'
       ? 'schedule_sent'
       : prepared.kind === 'decision'
         ? 'decision_sent'
         : 'message_sent';
     await logCaseEvent(caseId, eventKind, { actorName, note: prepared.title || '' });
-    return client.replyMessage(event.replyToken, [
-      { type: 'text', text: prepared.text },
-      { type: 'text', text: `案件 ${caseId} の送信を反映したよ。` },
-    ]);
+    try {
+      await markExecutionRunning(sendPlan, {
+        destination: sourceId,
+        note: prepared.kind || '',
+      });
+      await client.replyMessage(event.replyToken, [
+        { type: 'text', text: prepared.text },
+        { type: 'text', text: `案件 ${caseId} の送信を反映したよ。` },
+      ]);
+      await completeNoblesseExecution(sendPlan, {
+        destination: sourceId,
+        sentTitle: prepared.title || '',
+      });
+      return;
+    } catch (err) {
+      await failNoblesseExecution(sendPlan, err, {
+        destination: sourceId,
+        sentTitle: prepared.title || '',
+      });
+      throw err;
+    }
   }
 
   if (action === 'noop') {
