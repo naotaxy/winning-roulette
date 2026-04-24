@@ -841,6 +841,7 @@ async function buildAiConversationContext(year, month, senderName = null, source
     return {
       year,
       month,
+      hour: getTokyoDateParts().hour,
       senderName,
       players: playerNames,
       monthlyTop: monthlyRows[0] || null,
@@ -853,7 +854,7 @@ async function buildAiConversationContext(year, month, senderName = null, source
     };
   } catch (err) {
     console.error('[ai-chat] context failed', err?.message || err);
-    return { year, month, senderName };
+    return { year, month, hour: getTokyoDateParts().hour, senderName };
   }
 }
 

@@ -8,6 +8,8 @@ function getTokyoDateParts(date = new Date()) {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
+    hour: '2-digit',
+    hour12: false,
   }).formatToParts(date).reduce((acc, part) => {
     if (part.type !== 'literal') acc[part.type] = part.value;
     return acc;
@@ -17,6 +19,7 @@ function getTokyoDateParts(date = new Date()) {
     year: Number(parts.year),
     month: Number(parts.month),
     day: Number(parts.day),
+    hour: Number(parts.hour),
     date: `${parts.year}-${parts.month}-${parts.day}`,
   };
 }
