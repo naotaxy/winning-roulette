@@ -4,7 +4,7 @@ const CATEGORY_DEFS = [
   {
     key: 'schedule',
     label: '日程',
-    matcher: /(日程|日時|いつ|何日|何時|候補日|空いて|空い|都合|来週|今週|週末|夜|昼|開始)/,
+    matcher: /(日程|日時|いつ|何日|何時|候補日|空いて|空い|都合|来週|今週|週末|夜|昼|開始|\d+[\/月]\d+)/,
     nextAction: '候補日を2つまでに絞って、可否だけ返してもらう',
   },
   {
@@ -330,27 +330,43 @@ function buildArrangeTemplateReply(scenarioKey, stageKey) {
   );
 }
 
+const CATEGORY_PRIORITY = ['schedule', 'attendance', 'place', 'budget', 'owner', 'deadline'];
+
 function analyzeConversation(messages) {
-  const latestByCategory = new Map();
+  // resolved と pending を別々に最新インデックスで追跡する
+  // 「決まった後に再燃」を検出するため、前後関係を index で比較する
+  const categoryState = new Map();
 
   messages.forEach((message, index) => {
     const raw = String(message?.text || '').trim();
     if (!raw) return;
     const normalized = normalize(raw);
+    const sender = String(message?.senderName || '誰か').slice(0, 20);
 
     CATEGORY_DEFS.forEach(def => {
-      if (!def.matcher.test(normalized)) return;
-      const event = classifyConversationEvent(raw, normalized);
-      if (!event) return;
+      if (!def.matcher.test(normalized) && !def.matcher.test(raw)) return;
 
-      latestByCategory.set(def.key, {
-        type: event,
-        label: def.label,
-        sender: String(message?.senderName || '誰か').slice(0, 20),
-        text: raw,
-        index,
-        nextAction: def.nextAction,
-      });
+      // 文末に疑問符があれば疑問文として扱い、決定とみなさない
+      const endsWithQuestion = /[？?]\s*$/.test(raw);
+      const isResolved = !endsWithQuestion && DECISION_PATTERN.test(raw);
+      const isPending = (endsWithQuestion && PENDING_PATTERN.test(raw)) || (!isResolved && PENDING_PATTERN.test(raw));
+      if (!isResolved && !isPending) return;
+
+      const state = categoryState.get(def.key) || {
+        resolvedIdx: -1, pendingIdx: -1,
+        resolvedMsg: null, pendingMsg: null,
+      };
+
+      if (isResolved && index > state.resolvedIdx) {
+        state.resolvedIdx = index;
+        state.resolvedMsg = { text: raw, sender };
+      }
+      if (isPending && index > state.pendingIdx) {
+        state.pendingIdx = index;
+        state.pendingMsg = { text: raw, sender };
+      }
+
+      categoryState.set(def.key, state);
     });
   });
 
@@ -358,36 +374,79 @@ function analyzeConversation(messages) {
   const pending = [];
 
   CATEGORY_DEFS.forEach(def => {
-    const item = latestByCategory.get(def.key);
-    if (!item) return;
-    const summary = summarizeConversationItem(item);
-    if (item.type === 'resolved') resolved.push({ label: def.label, summary, nextAction: def.nextAction });
-    if (item.type === 'pending') pending.push({ label: def.label, summary, nextAction: def.nextAction, sender: item.sender });
+    const state = categoryState.get(def.key);
+    if (!state) return;
+
+    const hasResolved = state.resolvedIdx >= 0;
+    const hasPending = state.pendingIdx >= 0;
+
+    if (hasResolved && (!hasPending || state.resolvedIdx > state.pendingIdx)) {
+      // 最後に resolved が来ている → 確定扱い
+      resolved.push({
+        label: def.label,
+        summary: buildResolvedSummary(state.resolvedMsg, def),
+        nextAction: def.nextAction,
+      });
+    } else if (hasPending) {
+      // pending が resolved より後、または resolved がない → まだ浮いている
+      const isReopened = hasResolved && state.pendingIdx > state.resolvedIdx;
+      pending.push({
+        label: def.label,
+        summary: buildPendingSummary(state.pendingMsg, def, isReopened),
+        nextAction: def.nextAction,
+        sender: state.pendingMsg.sender,
+        priorityKey: def.key,
+      });
+    }
   });
 
-  const nextActions = pending.length
-    ? pending.map(item => item.sender && item.sender !== '誰か'
-      ? `${item.label}は${item.sender}さん周りの返事を先に固める`
-      : item.nextAction)
-    : resolved.length
-      ? ['今の決定事項を1本のまとめ文で流して固定する']
-      : ['まずは日程か参加可否のどちらかを先に聞く'];
-
+  const nextActions = buildNextActions(pending, resolved);
   return { resolved, pending, nextActions };
 }
 
-function classifyConversationEvent(raw, normalized) {
-  if (DECISION_PATTERN.test(raw) || DECISION_PATTERN.test(normalized)) return 'resolved';
-  if (PENDING_PATTERN.test(raw) || PENDING_PATTERN.test(normalized)) return 'pending';
+function buildResolvedSummary(msg, def) {
+  const key = extractKeyContent(msg.text);
+  if (key) return `${msg.sender}さんが「${key}」で確定を出した`;
+  return `${msg.sender}さんの「${trimText(msg.text.replace(/\s+/g, ' '), 35)}」が固まりそう`;
+}
+
+function buildPendingSummary(msg, def, isReopened) {
+  const key = extractKeyContent(msg.text);
+  const prefix = isReopened ? '一旦決まったけど' : '';
+  if (key) return `${prefix}${msg.sender}さんが「${key}」を提案中（未確定）`;
+  return `${prefix}${msg.sender}さん発の「${trimText(msg.text.replace(/\s+/g, ' '), 35)}」がまだ浮いてる`;
+}
+
+function extractKeyContent(text) {
+  const dateMatch = text.match(/(\d{1,2})[\/月](\d{1,2})/);
+  if (dateMatch) return `${dateMatch[1]}/${dateMatch[2]}`;
+  const amountMatch = text.match(/(\d[\d,]+)\s*円/);
+  if (amountMatch) return `${amountMatch[1]}円`;
+  const placeMatch = text.match(/(吉祥寺|新宿|渋谷|池袋|銀座|恵比寿|六本木|品川|秋葉原|上野|浅草|原宿|表参道|オンライン|リモート|現地)/);
+  if (placeMatch) return placeMatch[1];
   return null;
 }
 
-function summarizeConversationItem(item) {
-  const snippet = trimText(item.text.replace(/\s+/g, ' '), 42);
-  if (item.type === 'resolved') {
-    return `${item.sender}さんの「${snippet}」が今はいちばん固そう`;
+function buildNextActions(pending, resolved) {
+  if (!pending.length && !resolved.length) {
+    return ['まずは日程か参加可否のどちらかを先に聞く'];
   }
-  return `${item.sender}さん発の「${snippet}」がまだ浮いてそう`;
+  if (!pending.length) {
+    return ['決定事項をまとめて一本流し、「これで確定」と宣言する'];
+  }
+
+  // 優先度順にソートして上位3件のアクションを返す
+  const sorted = [...pending].sort((a, b) => {
+    const ai = CATEGORY_PRIORITY.indexOf(a.priorityKey);
+    const bi = CATEGORY_PRIORITY.indexOf(b.priorityKey);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+
+  return sorted.slice(0, 3).map(item =>
+    item.sender && item.sender !== '誰か'
+      ? `${item.label}は${item.sender}さんへの確認を先に`
+      : item.nextAction
+  );
 }
 
 function detectScenario(text) {

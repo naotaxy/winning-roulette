@@ -787,7 +787,7 @@ async function generateDiary(dateLabel, inputs) {
 
   const musicBlock = music.items.length
     ? music.items.map(n => `・${n.title}${n.desc ? '　' + n.desc : ''}${n.source ? `（${n.source}）` : ''}`).join('\n')
-    : `（${music.note}）`;
+    : '【音楽の話は今日書かない】過去の日記と同じか似た内容のため、音楽・曲名・アーティスト・音楽シーンについて一切触れないこと。';
 
   const ninetiesBlock = nineties?.title
     ? [
@@ -842,14 +842,15 @@ ${ninetiesBlock}
 条件：
 - 800〜1200文字の長文
 - 人間が書いた日記らしく、4〜8個の自然な段落に分ける。段落と段落の間は必ず空行を入れる。
-- 1段落は2〜4文まで。画面で読んだ時に息継ぎできる文面にする。
+- 1段落は1〜3文まで。1文ごとに改行する（「。」「！」「？」の後で必ず改行）。短い感情の一文は単独の段落にしてよい。
+- 段落の長さを意図的に変える。長めの段落（3文）と短め（1〜2文）を交互に混ぜ、リズムを作る。
 - 本物の人間が書いた日記のように、生活感のある描写を交える。ただしコーヒーなど同じ日常描写を毎回くり返さない。
 - ニュースや動画を「自分なりに解釈・感想・予測」で膨らませる。単なる要約にしない。
 - YouTube検索結果が前回と同じ、または過去日記の動画話題と似ている場合、無理に動画の話を書かない。他の話題、学びのヒント、連載ストーリーを広げる。
 - ゲームではないFIFAワールドカップが開催中で、新情報がある場合だけ、以前の日記になかった情報として自然に混ぜる。
-- 音楽ネタが過去日記と同じ、または似ている場合は、曲紹介をしない。歌詞は引用しない。
-- 音楽ネタがある場合も一つだけ短く扱う。音楽ネタがない場合や既出の場合は、無理に音楽へ触れない。
-- 音楽ネタを書かない日は、1990年代に流行っていたものを、25歳の私が後から見た世界観で自然に紹介する。懐古しすぎず、「知らない時代だけど空気を想像する」距離感にする。
+- 音楽ネタ欄に「【音楽の話は今日書かない】」とある場合、音楽・曲名・アーティスト・音楽シーンについて一切触れない。「音楽の話は省略」という旨も書かない。他の話題（90年代カルチャー・学び・連載ストーリー）を自然に広げる。
+- 音楽ネタがある場合のみ、一つだけ短く扱う。歌詞は引用しない。
+- 音楽について書かない日は、1990年代に流行っていたものを、25歳の私が後から見た世界観で自然に紹介する。懐古しすぎず、「知らない時代だけど空気を想像する」距離感にする。
 - AI関連ニュースやAI活用術は書かない。収益化系の話題も扱わない。
 - JMOOC開講中講座がある場合は、その講座を一つだけ選び、講座名・提供機関・講師・開講日を踏まえて深掘りする。なぜ今学ぶ価値があるか、どんな人に向くか、最初に何を見るとよいかを日記の中で自然に紹介する。
 - JMOOC講座が取得できなかった場合だけ、100均アイディア商品かIKEA新作を生活の観察として書く。
@@ -969,9 +970,10 @@ function humanizeDiaryText(text) {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
+  // 段落内の改行は保持する（スペースに潰さない）
   const paragraphs = cleaned
     .split(/\n{2,}/)
-    .map(p => p.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim())
+    .map(p => p.replace(/ {2,}/g, ' ').trim())
     .filter(Boolean);
 
   const breathingParagraphs = paragraphs.flatMap(p => splitParagraphForBreathing(p));
@@ -979,6 +981,7 @@ function humanizeDiaryText(text) {
     return breathingParagraphs.join('\n\n');
   }
 
+  // フォールバック: 文単位で改行しながら段落を再構築
   const sentences = cleaned
     .replace(/\n+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -994,20 +997,43 @@ function humanizeDiaryText(text) {
   for (const sentence of sentences) {
     current.push(sentence);
     currentLength += sentence.length;
-    if (currentLength >= 140 || current.length >= 3) {
-      rebuilt.push(current.join(''));
+    if (currentLength >= 130 || current.length >= 3) {
+      rebuilt.push(current.join('\n'));
       current = [];
       currentLength = 0;
     }
   }
-  if (current.length) rebuilt.push(current.join(''));
+  if (current.length) rebuilt.push(current.join('\n'));
 
   return rebuilt.flatMap(p => splitParagraphForBreathing(p)).join('\n\n');
 }
 
 function splitParagraphForBreathing(paragraph) {
-  const text = String(paragraph || '').replace(/\s+/g, ' ').trim();
-  if (text.length <= 240) return [text].filter(Boolean);
+  const text = String(paragraph || '').trim();
+
+  // Geminiが段落内に改行を入れていればそのまま尊重する
+  if (text.includes('\n')) {
+    if (text.length <= 300) return [text];
+    // 長すぎる場合のみ途中で段落を分割
+    const lines = text.split('\n').filter(Boolean);
+    const chunks = [];
+    let chunk = [];
+    let len = 0;
+    for (const line of lines) {
+      chunk.push(line);
+      len += line.length;
+      if (len >= 200 && chunk.length >= 2) {
+        chunks.push(chunk.join('\n'));
+        chunk = [];
+        len = 0;
+      }
+    }
+    if (chunk.length) chunks.push(chunk.join('\n'));
+    return chunks.filter(Boolean);
+  }
+
+  // 改行なしの長い段落: 文単位で改行を入れる
+  if (text.length <= 180) return [text].filter(Boolean);
 
   const sentences = text
     .split(/(?<=[。！？])/)
@@ -1021,13 +1047,13 @@ function splitParagraphForBreathing(paragraph) {
   for (const sentence of sentences) {
     current.push(sentence);
     length += sentence.length;
-    if (length >= 170 || current.length >= 3) {
-      chunks.push(current.join(''));
+    if (length >= 160 || current.length >= 3) {
+      chunks.push(current.join('\n'));
       current = [];
       length = 0;
     }
   }
-  if (current.length) chunks.push(current.join(''));
+  if (current.length) chunks.push(current.join('\n'));
 
   return chunks.filter(Boolean);
 }
@@ -1044,6 +1070,26 @@ function attachDiaryPhoto(diaryText, photo) {
   ].join('\n');
 }
 
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function diaryTextToHtml(text) {
+  return String(text || '')
+    .split(/\n{2,}/)
+    .map(p => {
+      const lines = p.trim().split('\n').map(l => escapeHtml(l.trim())).filter(Boolean);
+      if (!lines.length) return '';
+      return `<p>${lines.join('<br>')}</p>`;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
 // ── はてなブログ AtomPub 投稿 ───────────────────────────
 async function postToHatenaBlog(date, dateLabel, diaryText) {
   if (!HATENA_ID || !HATENA_BLOG_ID || !HATENA_API_KEY) {
@@ -1052,13 +1098,13 @@ async function postToHatenaBlog(date, dateLabel, diaryText) {
   }
 
   const title = `${dateLabel}の日記`;
-  const content = diaryText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const content = diaryTextToHtml(diaryText);
 
   const atom = `<?xml version="1.0" encoding="utf-8"?>
 <entry xmlns="http://www.w3.org/2005/Atom"
        xmlns:app="http://www.w3.org/2007/app">
   <title>${title}</title>
-  <content type="text">${content}</content>
+  <content type="text/html">${content}</content>
   <category term="ウイコレ" />
   <category term="eFootball" />
   <category term="日記" />

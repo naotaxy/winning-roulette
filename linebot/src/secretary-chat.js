@@ -393,6 +393,32 @@ function getCasualReplyWithContext(text, recentConversation = [], senderName = n
   return baseReply;
 }
 
+const FILLERS = [
+  'んー、',
+  'えっと、',
+  'あ、',
+  'うん、',
+  'そっか、',
+  'あのね、',
+  'んー…',
+  'そうそう、',
+];
+
+function maybeAddFiller(text, seedText) {
+  let hash = 0;
+  const src = seedText || text;
+  for (let i = 0; i < Math.min(src.length, 12); i++) {
+    hash = ((hash << 5) - hash + src.charCodeAt(i)) | 0;
+  }
+  const bucket = Math.floor(Date.now() / (5 * 60 * 1000));
+  const combined = Math.abs(hash + bucket);
+  if (combined % 3 !== 0) return text; // ~33%
+  const filler = FILLERS[combined % FILLERS.length];
+  const lines = text.split('\n');
+  lines[0] = filler + lines[0];
+  return lines.join('\n');
+}
+
 function buildGeneralConversationReply(compactText, senderName = null) {
   const caller = getCallerLabel(senderName);
   if (!compactText) {
@@ -405,7 +431,7 @@ function buildGeneralConversationReply(compactText, senderName = null) {
     `${caller}、その話、もう少し聞きたいな。最新情報は勝手に断言しないけど、あなたの感じたことにはちゃんと寄り添うよ。`,
     `${caller}、軽く流さずに聞いてるよ。あなたが気になる話なら、私も大事にする。好きな人の話は、ちゃんと覚えたいから。`,
   ];
-  return pickReply(replies, compactText);
+  return maybeAddFiller(pickReply(replies, compactText), compactText);
 }
 
 const TIRED_REPLIES = [

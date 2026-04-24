@@ -333,7 +333,7 @@ async function handleText(event, client) {
       const recentConversation = sourceId ? await getRecentConversation(sourceId, 15) : [];
       replyText = getCasualReplyWithContext(text, recentConversation, senderName);
     }
-    return client.replyMessage(event.replyToken, { type: 'text', text: replyText });
+    return sendCasualReply(client, event, replyText, sourceId);
   }
 
   if (intent.startsWith('system:')) {
@@ -939,6 +939,95 @@ async function handlePostback(event, client) {
       type: 'text',
       text: 'わかった、キャンセルにするね。\nまた送ってくれたら、私ちゃんと見るから。頼ってくれるの、うれしいな。\nhttps://naotaxy.github.io/winning-roulette/',
     });
+  }
+}
+
+// ── タイピングインジケーター（LINE showLoadingAnimation API） ──────────────
+async function showTypingIndicator(sourceId) {
+  if (!sourceId || sourceId === 'unknown') return;
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token) return;
+  try {
+    await fetch('https://api.line.me/v2/bot/chat/loading/start', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ chatId: sourceId, loadingSeconds: 5 }),
+    });
+  } catch (err) {
+    console.error('[typing-indicator] failed', err?.message || err);
+  }
+}
+
+// ── 誤送信→自己訂正パターン ──────────────────────────────────────────────
+const MISSEND_FRAGMENTS = [
+  'あ、',
+  'ちょっと待って、',
+  'なんか、',
+  'えっと…',
+  'ちょっと気になって',
+];
+const MISSEND_RECOVERIES = [
+  'ごめん、変な送り方した。',
+  'ごめん早まった。ちゃんと言い直すね。',
+  '…さっきのは無視して。',
+];
+
+function maybeMissendSplit(text) {
+  if (text.length < 16) return null; // 短すぎると不自然
+  let hash = 0;
+  for (let i = 0; i < Math.min(text.length, 16); i++) {
+    hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+  }
+  const bucket = Math.floor(Date.now() / (10 * 60 * 1000)); // 10分バケット
+  const combined = Math.abs(hash + bucket);
+  if (combined % 8 !== 0) return null; // ~12.5%
+  const fragment = MISSEND_FRAGMENTS[combined % MISSEND_FRAGMENTS.length];
+  const recovery = MISSEND_RECOVERIES[combined % MISSEND_RECOVERIES.length];
+  return { first: fragment, second: `${recovery}\n${text}` };
+}
+
+function splitCasualReply(text) {
+  const cleaned = String(text || '').trim();
+
+  // ~12%の確率で誤送信→自己訂正パターン
+  const missend = maybeMissendSplit(cleaned);
+  if (missend) return missend;
+
+  // 改行があれば1行目を「短い感情反応」、残りを「本文」として分割
+  const byNewline = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
+  if (byNewline.length >= 2) {
+    return { first: byNewline[0], second: byNewline.slice(1).join('\n') };
+  }
+
+  // 改行なし: 文末記号で最初の1文を切り出す
+  const sentences = cleaned.split(/(?<=[。！？])/).map(s => s.trim()).filter(Boolean);
+  if (sentences.length >= 2) {
+    return { first: sentences[0], second: sentences.slice(1).join('') };
+  }
+
+  return { first: cleaned, second: null };
+}
+
+async function sendCasualReply(client, event, replyText, sourceId) {
+  // タイピングインジケーターを開始しつつ、人間らしい入力待ちを並列で走らせる
+  const typingDelay = 1200 + Math.floor(Math.random() * 800);
+  await Promise.all([
+    showTypingIndicator(sourceId),
+    new Promise(r => setTimeout(r, typingDelay)),
+  ]);
+
+  const { first, second } = splitCasualReply(replyText);
+  await client.replyMessage(event.replyToken, { type: 'text', text: first });
+
+  if (second && sourceId) {
+    const delayMs = 2000 + Math.floor(Math.random() * 1500);
+    setTimeout(() => {
+      client.pushMessage(sourceId, { type: 'text', text: second })
+        .catch(err => console.error('[split-reply] push failed', err?.message || err));
+    }, delayMs);
   }
 }
 
