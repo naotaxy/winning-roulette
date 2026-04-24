@@ -710,6 +710,43 @@ async function saveResult(pending) {
   await ref.push(entry);
 }
 
+// ── メンバープロファイル（LINE名→実名・人物メモ） ────────────────────────────
+let _profilesCache = null;
+let _profilesCacheTs = 0;
+const PROFILES_CACHE_TTL = 5 * 60 * 1000; // 5分
+
+async function getMemberProfiles() {
+  if (_profilesCache && Date.now() - _profilesCacheTs < PROFILES_CACHE_TTL) return _profilesCache;
+  try {
+    const snap = await getDb().ref('config/memberProfiles').once('value');
+    _profilesCache = snap.val() || {};
+    _profilesCacheTs = Date.now();
+    return _profilesCache;
+  } catch (err) {
+    console.error('[firebase] getMemberProfiles failed', err?.message || err);
+    return {};
+  }
+}
+
+async function getMemberProfile(userId) {
+  if (!userId) return null;
+  const profiles = await getMemberProfiles();
+  return profiles[userId] || null;
+}
+
+async function saveMemberProfile(userId, data) {
+  if (!userId) return;
+  try {
+    await getDb().ref(`config/memberProfiles/${userId}`).update({
+      ...data,
+      updatedAt: new Date().toISOString().slice(0, 10),
+    });
+    _profilesCache = null; // キャッシュ破棄
+  } catch (err) {
+    console.error('[firebase] saveMemberProfile failed', err?.message || err);
+  }
+}
+
 module.exports = {
   getPlayers,
   savePending,
@@ -744,4 +781,7 @@ module.exports = {
   recordAiChatUsage,
   disableAiChatForBillingRisk,
   saveResult,
+  getMemberProfiles,
+  getMemberProfile,
+  saveMemberProfile,
 };
