@@ -28,6 +28,8 @@ const {
 } = require('./firebase-admin');
 const { resolveRealName, updateGroupProfiles, formatProfileForContext } = require('./member-profile');
 const { searchRestaurants, extractRestaurantParams, isRestaurantRequest, buildRestaurantCarousel, buildBudgetQuickReply } = require('./hotpepper');
+const { isHotelRequest, extractHotelParams, searchHotels, buildHotelCarousel, buildBudgetQuickReplyForHotel } = require('./rakuten-travel');
+const { isWeatherRequest, extractWeatherCity, fetchWeatherForCity, formatWeatherReply } = require('./weather');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
 const { getTokyoDateParts, shiftMonth } = require('./date-utils');
 const { inspectImage, looksLikePhoneScreenshot, classifyOcrResult } = require('./image-guard');
@@ -339,6 +341,16 @@ async function handleText(event, client) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: formatProjectGuideReply(),
+    });
+  }
+
+  if (intent === 'weather') {
+    const { withoutMention } = getSecretaryMentionInfo(text);
+    const city = extractWeatherCity(withoutMention) || '東京';
+    const result = await fetchWeatherForCity(city);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatWeatherReply(result, city),
     });
   }
 
@@ -965,6 +977,8 @@ function detectTextIntent(text) {
   if (/NB-\d{8}-\d+/.test(targetText)) return 'noblesse:status';
   if (/(案件|ノブレス).*(確認|状況|どうなった|一覧|見せて|教えて|リスト|まとめ)/.test(targetText)) return 'noblesse:status';
 
+  if (isWeatherRequest(targetText)) return 'weather';
+
   if (detectNoblesseIntent(targetText)) return 'noblesse';
 
   return 'casual';
@@ -1103,9 +1117,50 @@ async function handleNoblessePostback(event, client, data) {
       return;
     }
 
+    // ホテル系なら楽天トラベル検索
+    if (isHotelRequest(caseData.request || '')) {
+      const { adultNum, nights, maxCharge } = extractHotelParams(caseData.request || '');
+      if (maxCharge) {
+        await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。ホテルを探してくるね。` });
+        const hotels = await searchHotels({ keyword: caseData.request || '', adultNum, nights, maxCharge });
+        const flex = hotels?.length
+          ? buildHotelCarousel(hotels, caseId)
+          : { type: 'text', text: '条件に合うホテルが見つからなかったよ。エリアや条件を変えてみて。' };
+        if (sourceId) client.pushMessage(sourceId, flex).catch(() => {});
+      } else {
+        await client.replyMessage(event.replyToken, buildBudgetQuickReplyForHotel(caseId, caseData.request || ''));
+      }
+      return;
+    }
+
     const report = buildExecutionReport(caseId, option, caseData);
     await client.replyMessage(event.replyToken, { type: 'text', text: report });
     return;
+  }
+
+  if (action === 'hotel_search') {
+    const paramStr = parts.slice(3).join(':');
+    const searchParams = new URLSearchParams(paramStr);
+    const keyword = decodeURIComponent(searchParams.get('keyword') || '');
+    const maxCharge = Number(searchParams.get('budget') || 0);
+    const { adultNum, nights } = extractHotelParams(keyword);
+
+    await client.replyMessage(event.replyToken, { type: 'text', text: `${maxCharge ? `${maxCharge.toLocaleString()}円以内` : ''}で探してくるね。少し待って。` });
+    const hotels = await searchHotels({ keyword, adultNum, nights, maxCharge: maxCharge || null });
+    const flex = hotels?.length
+      ? buildHotelCarousel(hotels, caseId)
+      : { type: 'text', text: '条件に合うホテルが見つからなかったよ。エリアや条件を変えてみて。' };
+    if (sourceId) client.pushMessage(sourceId, flex).catch(() => {});
+    return;
+  }
+
+  if (action === 'hotel_select') {
+    const hotelName = decodeURIComponent(parts.slice(3).join(':'));
+    await approveCase(caseId, 'hotel');
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `「${hotelName}」に決めるね。\n案件 ${caseId} を承認済みにしたよ。\n予約ページから確定させてね。`,
+    });
   }
 
   if (action === 'search') {
