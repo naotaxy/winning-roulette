@@ -1027,9 +1027,10 @@ function splitCasualReply(text) {
 }
 
 async function sendCasualReply(client, event, replyText, sourceId) {
-  // タイピングインジケーターは fire-and-forget（待たない）
-  // Promise.all で待つと LINE API が遅い時に replyToken が期限切れになる
-  showTypingIndicator(sourceId).catch(() => {});
+  // chatId には userId が必要（groupId は受け付けない LINE API 仕様）
+  // fire-and-forget で replyToken をブロックしない
+  const userId = event?.source?.userId;
+  if (userId) showTypingIndicator(userId).catch(() => {});
 
   const typingDelay = 1200 + Math.floor(Math.random() * 800);
   await new Promise(r => setTimeout(r, typingDelay));
