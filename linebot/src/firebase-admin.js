@@ -710,6 +710,26 @@ async function saveResult(pending) {
   await ref.push(entry);
 }
 
+// ── ノブレス案件ログ ──────────────────────────────────────────────────────────
+async function incrementNoblesseCaseCounter(dateStr) {
+  const ref = getDb().ref(`meta/noblesse/counter/${dateStr}`);
+  const result = await ref.transaction(n => (n || 0) + 1);
+  return String(result.snapshot.val()).padStart(3, '0');
+}
+
+async function saveNoblesseCase(caseId, data) {
+  await getDb().ref(`noblesse/cases/${caseId}`).set({
+    ...data,
+    caseId,
+    updatedAt: admin.database.ServerValue.TIMESTAMP,
+  });
+}
+
+async function getNoblesseCase(caseId) {
+  const snap = await getDb().ref(`noblesse/cases/${caseId}`).once('value');
+  return snap.val() || null;
+}
+
 // ── メンバープロファイル（LINE名→実名・人物メモ） ────────────────────────────
 let _profilesCache = null;
 let _profilesCacheTs = 0;
@@ -784,4 +804,7 @@ module.exports = {
   getMemberProfiles,
   getMemberProfile,
   saveMemberProfile,
+  incrementNoblesseCaseCounter,
+  saveNoblesseCase,
+  getNoblesseCase,
 };

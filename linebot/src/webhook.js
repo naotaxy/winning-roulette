@@ -22,6 +22,7 @@ const {
   updateScreenshotCandidate,
   getScreenshotCandidates,
   getMemberProfile,
+  getNoblesseCase,
 } = require('./firebase-admin');
 const { resolveRealName, autoUpdateMemo, formatProfileForContext } = require('./member-profile');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
@@ -67,6 +68,7 @@ const {
 } = require('./uicolle-knowledge');
 const { shouldUseAiChat, formatAiChatReply } = require('./ai-chat');
 const { detectNoblesseIntent, formatNoblesseReply } = require('./noblesse-agent');
+const { generateCaseId, createCase, approveCase, cancelCase, buildApprovalFlex, buildExecutionReport } = require('./noblesse-case');
 
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
 const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
@@ -327,8 +329,18 @@ async function handleText(event, client) {
 
   if (intent === 'noblesse') {
     const { withoutMention } = getSecretaryMentionInfo(text);
-    const replyText = await formatNoblesseReply(withoutMention, senderName);
-    return sendCasualReply(client, event, replyText, sourceId);
+    const userId = event.source?.userId;
+    const { date: dateStr } = getTokyoDateParts();
+
+    const [analysis, caseId] = await Promise.all([
+      formatNoblesseReply(withoutMention, senderName),
+      generateCaseId(dateStr),
+    ]);
+
+    // 案件をFirebaseに保存（fire-and-forget）
+    createCase({ caseId, userId, sourceId, senderName, request: withoutMention, analysis }).catch(() => {});
+
+    return sendNoblesseReply(client, event, caseId, analysis, withoutMention, sourceId);
   }
 
   if (intent === 'casual') {
@@ -929,6 +941,10 @@ function detectTextIntent(text) {
 async function handlePostback(event, client) {
   const data = event.postback.data;
 
+  if (data.startsWith('noblesse:')) {
+    return handleNoblessePostback(event, client, data);
+  }
+
   if (data.startsWith('concierge:')) {
     return client.replyMessage(event.replyToken, handleConciergePostback(data));
   }
@@ -985,6 +1001,66 @@ async function showTypingIndicator(sourceId) {
     }
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// ── ノブレス専用送信（受理一言 → 分析テキスト → 承認Flex） ─────────────────
+async function sendNoblesseReply(client, event, caseId, analysis, request, sourceId) {
+  const userId = event?.source?.userId;
+  if (userId) showTypingIndicator(userId).catch(() => {});
+  await new Promise(r => setTimeout(r, 1200 + Math.floor(Math.random() * 600)));
+
+  // 1st: 短い受理一言
+  await client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: 'うん、わかった。整理するね。',
+  });
+
+  // 2nd: 分析テキスト
+  if (sourceId) {
+    setTimeout(() => {
+      client.pushMessage(sourceId, { type: 'text', text: analysis })
+        .catch(err => console.error('[noblesse] push analysis failed', err?.message || err));
+    }, 2000 + Math.floor(Math.random() * 800));
+  }
+
+  // 3rd: 承認Flex（案件ボタン）
+  if (sourceId) {
+    setTimeout(() => {
+      client.pushMessage(sourceId, buildApprovalFlex(caseId, analysis, request))
+        .catch(err => console.error('[noblesse] push flex failed', err?.message || err));
+    }, 4200 + Math.floor(Math.random() * 800));
+  }
+}
+
+// ── ノブレスpostbackハンドラ ──────────────────────────────────────────────────
+async function handleNoblessePostback(event, client, data) {
+  const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
+  const parts = data.split(':'); // noblesse:approve:NB-xxx:A  or  noblesse:cancel:NB-xxx
+  const action = parts[1];
+  const caseId = parts[2];
+
+  if (!caseId) {
+    return client.replyMessage(event.replyToken, { type: 'text', text: 'データが見つからなかった。もう一度試してね。' });
+  }
+
+  if (action === 'approve') {
+    const option = parts[3] || 'C';
+    const caseData = await approveCase(caseId, option);
+    if (!caseData) {
+      return client.replyMessage(event.replyToken, { type: 'text', text: `案件 ${caseId} が見つからなかったの。もう一度相談してくれる？` });
+    }
+    const report = buildExecutionReport(caseId, option, caseData);
+    await client.replyMessage(event.replyToken, { type: 'text', text: report });
+    return;
+  }
+
+  if (action === 'cancel') {
+    await cancelCase(caseId);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `わかった、${caseId} はキャンセルにするね。\nまた相談したくなったら、いつでも言って。`,
+    });
   }
 }
 
