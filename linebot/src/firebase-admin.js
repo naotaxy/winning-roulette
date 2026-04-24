@@ -672,13 +672,15 @@ function sanitizeGuardDetails(details) {
 /* グループ会話メモリ */
 const CONVERSATION_ROOT = 'conversations';
 
-async function saveConversationMessage(sourceId, senderName, text) {
+async function saveConversationMessage(sourceId, senderName, text, userId = null) {
   if (!sourceId || !text) return;
-  await getDb().ref(`${CONVERSATION_ROOT}/${sourceId}/messages`).push({
+  const entry = {
     senderName: String(senderName || '不明').slice(0, 50),
     text: String(text).slice(0, 500),
     timestamp: Date.now(),
-  });
+  };
+  if (userId) entry.userId = userId;
+  await getDb().ref(`${CONVERSATION_ROOT}/${sourceId}/messages`).push(entry);
 }
 
 async function getRecentConversation(sourceId, limit = 100) {

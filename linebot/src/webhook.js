@@ -24,7 +24,8 @@ const {
   getMemberProfile,
   getNoblesseCase,
 } = require('./firebase-admin');
-const { resolveRealName, autoUpdateMemo, formatProfileForContext } = require('./member-profile');
+const { resolveRealName, updateGroupProfiles, formatProfileForContext } = require('./member-profile');
+const { searchRestaurants, extractRestaurantParams, isRestaurantRequest, buildRestaurantCarousel, buildBudgetQuickReply } = require('./hotpepper');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
 const { getTokyoDateParts, shiftMonth } = require('./date-utils');
 const { inspectImage, looksLikePhoneScreenshot, classifyOcrResult } = require('./image-guard');
@@ -250,13 +251,21 @@ async function handleText(event, client) {
   const text = event.message.text || '';
   const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
 
+  const userId = event.source?.userId || null;
   const senderName = await getSenderName(event, client, null);
 
-  // 全メッセージを会話メモリに保存（話者名付き）
-  saveConversationMessage(sourceId, senderName, text).catch(() => {});
+  // 全メッセージを会話メモリに保存（userId付き）
+  saveConversationMessage(sourceId, senderName, text, userId).catch(() => {});
 
   const intent = detectTextIntent(text);
   if (!intent) return;
+
+  // グループ全員のプロファイリング（全intent共通、fire-and-forget）
+  if (sourceId && sourceId !== 'unknown') {
+    getRecentConversation(sourceId, 30)
+      .then(msgs => updateGroupProfiles(msgs))
+      .catch(() => {});
+  }
 
   const { year, month } = getTokyoDateParts();
 
@@ -344,12 +353,8 @@ async function handleText(event, client) {
   }
 
   if (intent === 'casual') {
-    const userId = event.source?.userId;
     const aiEnabled = shouldUseAiChat();
     const recentConversation = sourceId ? await getRecentConversation(sourceId, 15) : [];
-
-    // メモを非同期で自動更新（返信をブロックしない）
-    autoUpdateMemo(userId, senderName, recentConversation).catch(() => {});
 
     const aiReply = aiEnabled
       ? await formatAiChatReply(text, await buildAiConversationContext(year, month, senderName, sourceId, userId))
@@ -1051,9 +1056,56 @@ async function handleNoblessePostback(event, client, data) {
     if (!caseData) {
       return client.replyMessage(event.replyToken, { type: 'text', text: `案件 ${caseId} が見つからなかったの。もう一度相談してくれる？` });
     }
+
+    // レストラン系なら予算選択を出す
+    if (isRestaurantRequest(caseData.request || '')) {
+      const { capacity, budgetYen } = extractRestaurantParams(caseData.request || '');
+      if (budgetYen) {
+        // 予算情報あり → 即検索
+        await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。お店を探してくるね。` });
+        const keyword = caseData.request || '';
+        const shops = await searchRestaurants({ keyword, capacity, budgetYen });
+        const flex = shops?.length
+          ? buildRestaurantCarousel(shops, caseId)
+          : { type: 'text', text: '条件に合うお店が見つからなかった。キーワードを変えて再度相談してみて。' };
+        if (sourceId) client.pushMessage(sourceId, flex).catch(() => {});
+      } else {
+        // 予算不明 → クイックリプライで確認
+        const quickReply = buildBudgetQuickReply(caseId, caseData.request || '');
+        await client.replyMessage(event.replyToken, quickReply);
+      }
+      return;
+    }
+
     const report = buildExecutionReport(caseId, option, caseData);
     await client.replyMessage(event.replyToken, { type: 'text', text: report });
     return;
+  }
+
+  if (action === 'search') {
+    // noblesse:search:{caseId}:keyword=xxx&budget=5000
+    const paramStr = parts.slice(3).join(':');
+    const searchParams = new URLSearchParams(paramStr);
+    const keyword = decodeURIComponent(searchParams.get('keyword') || '');
+    const budgetYen = Number(searchParams.get('budget') || 0);
+    const { capacity } = extractRestaurantParams(keyword);
+
+    await client.replyMessage(event.replyToken, { type: 'text', text: `${budgetYen ? `${budgetYen.toLocaleString()}円以内` : ''}で探してくるね。少し待って。` });
+    const shops = await searchRestaurants({ keyword, capacity, budgetYen: budgetYen || null });
+    const flex = shops?.length
+      ? buildRestaurantCarousel(shops, caseId)
+      : { type: 'text', text: '条件に合うお店が見つからなかった。エリアやジャンルを変えてみて。' };
+    if (sourceId) client.pushMessage(sourceId, flex).catch(() => {});
+    return;
+  }
+
+  if (action === 'restaurant_select') {
+    const shopName = decodeURIComponent(parts.slice(3).join(':'));
+    await approveCase(caseId, 'restaurant');
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `「${shopName}」に決めるね。\n案件 ${caseId} を承認済みにしたよ。\n予約ページか電話から確定させてね。私が段取りのたたき台を作ることもできるよ。`,
+    });
   }
 
   if (action === 'cancel') {
