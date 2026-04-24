@@ -30,6 +30,7 @@ const { resolveRealName, updateGroupProfiles, formatProfileForContext } = requir
 const { searchRestaurants, extractRestaurantParams, isRestaurantRequest, buildRestaurantCarousel, buildBudgetQuickReply } = require('./hotpepper');
 const { isHotelRequest, extractHotelParams, searchHotels, buildHotelCarousel, buildBudgetQuickReplyForHotel } = require('./rakuten-travel');
 const { isWeatherRequest, extractWeatherCity, fetchWeatherForCity, formatWeatherReply } = require('./weather');
+const { isTransportRequest, isTaxiRequest, isFlightRequest, extractRouteParams, searchRoute, formatRouteReply, buildTaxiFlex, buildFlightFlex } = require('./transport');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
 const { getTokyoDateParts, shiftMonth } = require('./date-utils');
 const { inspectImage, looksLikePhoneScreenshot, classifyOcrResult } = require('./image-guard');
@@ -351,6 +352,31 @@ async function handleText(event, client) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: formatWeatherReply(result, city),
+    });
+  }
+
+  if (intent === 'transport') {
+    const { withoutMention } = getSecretaryMentionInfo(text);
+    if (isTaxiRequest(withoutMention)) {
+      const { from, to } = extractRouteParams(withoutMention);
+      return client.replyMessage(event.replyToken, buildTaxiFlex(from, to));
+    }
+    if (isFlightRequest(withoutMention)) {
+      const { from, to } = extractRouteParams(withoutMention);
+      return client.replyMessage(event.replyToken, buildFlightFlex(from, to));
+    }
+    // 電車・経路検索
+    const { from, to, tomorrow, hour, minute } = extractRouteParams(withoutMention);
+    if (!from || !to) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '出発地と目的地を教えてくれる？\n例:「新宿から渋谷の行き方は？」',
+      });
+    }
+    const routes = await searchRoute({ from, to, tomorrow, hour, minute });
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatRouteReply(routes, from, to),
     });
   }
 
@@ -981,6 +1007,8 @@ function detectTextIntent(text) {
 
   if (detectNoblesseIntent(targetText)) return 'noblesse';
 
+  if (isTransportRequest(targetText)) return 'transport';
+
   return 'casual';
 }
 
@@ -1133,6 +1161,24 @@ async function handleNoblessePostback(event, client, data) {
         if (sourceId) client.pushMessage(sourceId, flex).catch(() => {});
       } else {
         await client.replyMessage(event.replyToken, buildBudgetQuickReplyForHotel(caseId, searchKeyword));
+      }
+      return;
+    }
+
+    // 交通系
+    if (isTransportRequest(combinedText)) {
+      const routeParams = extractRouteParams(chosenText || caseData.request || '');
+      if (isTaxiRequest(combinedText)) {
+        await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。タクシー情報を出すね。` });
+        if (sourceId) client.pushMessage(sourceId, buildTaxiFlex(routeParams.from, routeParams.to)).catch(() => {});
+      } else if (isFlightRequest(combinedText)) {
+        await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。フライト情報を出すね。` });
+        if (sourceId) client.pushMessage(sourceId, buildFlightFlex(routeParams.from, routeParams.to)).catch(() => {});
+      } else {
+        await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。ルートを調べてくるね。` });
+        const routes = await searchRoute(routeParams);
+        const replyText = formatRouteReply(routes, routeParams.from, routeParams.to);
+        if (sourceId) client.pushMessage(sourceId, { type: 'text', text: replyText }).catch(() => {});
       }
       return;
     }
