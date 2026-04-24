@@ -167,4 +167,44 @@ function buildApprovalFlex(caseId, analysis, request) {
   };
 }
 
-module.exports = { generateCaseId, createCase, approveCase, cancelCase, buildApprovalFlex, buildExecutionReport, parseOptions };
+// ── 案件ステータス表示 ────────────────────────────────────────────────────────
+const STATUS_LABEL = {
+  pending:   '⏳ 承認待ち',
+  approved:  '✅ 承認済み',
+  cancelled: '❌ キャンセル',
+};
+
+function buildStatusText(cases) {
+  if (!cases.length) {
+    return '案件の記録はまだないみたい。何か依頼があれば言って。';
+  }
+  const lines = [`直近${cases.length}件の案件状況だよ。`, ''];
+  for (const c of cases) {
+    const label = STATUS_LABEL[c.status] || c.status;
+    const option = c.approvedOption ? `（案${c.approvedOption}）` : '';
+    const req = String(c.request || '').slice(0, 28);
+    const reqLabel = req ? `「${req}${req.length >= 28 ? '…' : ''}」` : '';
+    lines.push(`${c.caseId}  ${label}${option}`);
+    if (reqLabel) lines.push(reqLabel);
+    lines.push('');
+  }
+  return lines.join('\n').trim();
+}
+
+function buildSingleCaseText(caseId, c) {
+  if (!c) return `案件 ${caseId} は見つからなかったよ。IDを確認して。`;
+  const label = STATUS_LABEL[c.status] || c.status;
+  const option = c.approvedOption ? `\n承認案: 案${c.approvedOption}` : '';
+  const req = String(c.request || '').slice(0, 80);
+  const createdAt = c.createdAt ? new Date(c.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '不明';
+  return [
+    `案件 ${caseId} の詳細`,
+    '',
+    `状態: ${label}${option}`,
+    `依頼: ${req}`,
+    `作成: ${createdAt}`,
+    c.senderName ? `依頼者: ${c.senderName}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+module.exports = { generateCaseId, createCase, approveCase, cancelCase, buildApprovalFlex, buildExecutionReport, parseOptions, buildStatusText, buildSingleCaseText };
