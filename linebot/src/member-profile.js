@@ -1,13 +1,19 @@
 'use strict';
 
-const { getMemberProfile, saveMemberProfile } = require('./firebase-admin');
+const { getMemberProfile, saveMemberProfile, getLineNameRealNames } = require('./firebase-admin');
 
-// ── 実名解決 ────────────────────────────────────────────────────────────────
+// ── 実名解決（userId→Firebase profile → lineNameルックアップ → lineName の順） ──
 async function resolveRealName(userId, lineName) {
-  if (!userId) return lineName || null;
   try {
-    const profile = await getMemberProfile(userId);
-    return profile?.realName || lineName || null;
+    if (userId) {
+      const profile = await getMemberProfile(userId);
+      if (profile?.realName) return profile.realName;
+    }
+    if (lineName) {
+      const map = await getLineNameRealNames();
+      if (map[lineName]) return map[lineName];
+    }
+    return lineName || null;
   } catch (_) {
     return lineName || null;
   }

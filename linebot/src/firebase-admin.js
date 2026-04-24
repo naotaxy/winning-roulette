@@ -737,6 +737,24 @@ let _profilesCache = null;
 let _profilesCacheTs = 0;
 const PROFILES_CACHE_TTL = 5 * 60 * 1000; // 5分
 
+let _lineNameRealNamesCache = null;
+let _lineNameRealNamesCacheTs = 0;
+
+async function getLineNameRealNames() {
+  if (_lineNameRealNamesCache && Date.now() - _lineNameRealNamesCacheTs < PROFILES_CACHE_TTL) {
+    return _lineNameRealNamesCache;
+  }
+  try {
+    const snap = await getDb().ref('config/lineNameRealNames').once('value');
+    _lineNameRealNamesCache = snap.val() || {};
+    _lineNameRealNamesCacheTs = Date.now();
+    return _lineNameRealNamesCache;
+  } catch (err) {
+    console.error('[firebase] getLineNameRealNames failed', err?.message || err);
+    return {};
+  }
+}
+
 async function getMemberProfiles() {
   if (_profilesCache && Date.now() - _profilesCacheTs < PROFILES_CACHE_TTL) return _profilesCache;
   try {
@@ -815,6 +833,7 @@ module.exports = {
   getMemberProfile,
   saveMemberProfile,
   initMemberProfileStub,
+  getLineNameRealNames,
   incrementNoblesseCaseCounter,
   saveNoblesseCase,
   getNoblesseCase,
