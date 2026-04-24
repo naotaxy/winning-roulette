@@ -11,6 +11,7 @@ const LINE_NAME_TO_REAL_NAME = {
   'うしおだ の だいすけ':  '潮田',
   'DKJPN':               '児玉取締役',
   '佐竹良友':             '佐竹良友',
+  'ヨ':                  '米澤',
 };
 
 async function main() {
