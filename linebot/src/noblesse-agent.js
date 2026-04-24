@@ -154,6 +154,36 @@ function buildStaticRequestProfile(userText) {
   const kind = detectRequestKind(text);
 
   const presets = {
+    outing: {
+      accept: `${subject}のおでかけ、私が組むね。`,
+      purpose: `${subject}を、移動負担と気分に合う形で気持ちよく回る`,
+      priority: '中。出発地と使える時間を押さえると外しにくい',
+      assumption: 'まだ出発地と所要時間は仮置き。候補比較から始める想定',
+      missingInfo: ['出発地', '使える時間', '歩く量'],
+      tasks: ['出発地と使える時間を確認する', '雰囲気に合う候補を3つまで絞る', 'しおりと途中変更の動線を作る'],
+      options: [
+        { label: '案A（最速）', summary: '今の文面から近い候補をすぐ3つに絞る', cost: '低', time: '短', risk: '歩く量や雨の相性がずれることがある', approval: '要。候補提示を進める確認が必要' },
+        { label: '案B（最安）', summary: '近場優先で交通費を抑えた小旅に寄せる', cost: '低', time: '中', risk: '景色の強さが少し落ちることがある', approval: '要。近場優先で探す確認が必要' },
+        { label: '案C（確実）', summary: '出発地と時間を埋めてから、しおりまで作る', cost: '低', time: '中', risk: '最初の確認項目が少し増える', approval: '要。条件確認と候補整理を進める確認が必要' },
+      ],
+      recommended: '案C',
+      recommendedReason: '移動でだれにくくて、途中変更にも強いから。',
+    },
+    shopping: {
+      accept: `${subject}探し、私が付き添うね。`,
+      purpose: `${subject}を、予算と好みに合わせて外しにくく選ぶ`,
+      priority: '中。エリアと価格帯を固めると迷いが減る',
+      assumption: 'まだ予算や寄せたい方向は仮置き',
+      missingInfo: ['出発地', '予算', '寄せたい方向'],
+      tasks: ['出発地と予算を整理する', '候補エリアや店のタイプを3つまで絞る', '回り方と選び方メモを作る'],
+      options: [
+        { label: '案A（最速）', summary: '駅近で比較しやすいエリアからすぐ回る', cost: '中', time: '短', risk: 'こだわりが薄いと似た候補に寄りやすい', approval: '要。駅近候補の提示を進める確認が必要' },
+        { label: '案B（最安）', summary: '価格重視の街を優先して探す', cost: '低', time: '中', risk: '雰囲気や品揃えに偏りが出やすい', approval: '要。安さ優先で探す確認が必要' },
+        { label: '案C（確実）', summary: '好みと予算を埋めてから、外しにくい巡り方を作る', cost: '中', time: '中', risk: '最初の確認が少し増える', approval: '要。条件確認と候補整理を進める確認が必要' },
+      ],
+      recommended: '案C',
+      recommendedReason: '後悔しにくくて、買い回りの順番まで整えやすいから。',
+    },
     travel: {
       accept: `${subject}の段取り、私が整理するね。`,
       purpose: `${subject}を、予算と移動負担を見ながら現実に決める`,
@@ -239,6 +269,8 @@ function buildStaticRequestProfile(userText) {
 }
 
 function detectRequestKind(text) {
+  if (/(神社|公園|自然|緑|庭園|散歩|日帰り|おでかけ|出かけ|森林|小旅)/.test(text)) return 'outing';
+  if (/(スニーカー|靴|シューズ|器|うつわ|食器|皿|マグ|茶碗|鉢|プレート|花瓶)/.test(text)) return 'shopping';
   if (/(旅行|宿|ホテル|泊まり|旅館|温泉|観光|出張)/.test(text)) return 'travel';
   if (/(飲み会|店|レストラン|居酒屋|ランチ|ディナー|食事|会食|焼肉|寿司)/.test(text)) return 'food';
   if (/(電車|新幹線|飛行機|フライト|タクシー|移動|行き方|経路|ルート)/.test(text)) return 'transport';

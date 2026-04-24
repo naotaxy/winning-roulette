@@ -88,11 +88,14 @@ const {
   rememberPreparedSend,
   rememberBookingForm,
   rememberSearchIntake,
+  rememberCuratedPlan,
   updateBookingForm,
   updateSearchIntake,
+  updateCuratedPlan,
   getPreparedSend,
   getBookingForm,
   getSearchIntake,
+  getCuratedPlan,
   getSelectionCandidate,
   logCaseEvent,
   buildApprovalFlex,
@@ -133,6 +136,23 @@ const {
   buildBookingShareText,
   applyBookingFieldInput,
 } = require('./noblesse-booking');
+const {
+  detectOutingRequest,
+  detectShoppingRequest,
+  detectCuratedPlanCommand,
+  createCuratedPlanState,
+  getNextCuratedField,
+  buildCuratedPrompt,
+  buildCuratedSummary,
+  applyCuratedFieldInput,
+  rankCuratedCandidates,
+  buildCuratedCandidatesFlex,
+  buildCuratedGuideText,
+  buildCuratedItinerary,
+  buildCuratedAdjustmentReply,
+  buildCuratedRouteFlex,
+  buildCuratedShareText,
+} = require('./noblesse-curated');
 const {
   createSearchIntake,
   isSearchKeywordUsable,
@@ -337,6 +357,16 @@ async function handleText(event, client) {
 
   const mentionInfo = getSecretaryMentionInfo(text);
   if (!mentionInfo.mentioned) {
+    const curatedAwaitingReply = await maybeHandleCuratedAwaitingInput({
+      event,
+      client,
+      sourceId,
+      userId,
+      senderName,
+      text,
+    });
+    if (curatedAwaitingReply) return curatedAwaitingReply;
+
     const searchAwaitingReply = await maybeHandleSearchIntakeAwaitingInput({
       event,
       client,
@@ -553,6 +583,17 @@ async function handleText(event, client) {
       });
     }
     return handleBookingTextIntent({ event, client, sourceId, userId, senderName, intent });
+  }
+
+  if (intent?.type === 'curatedPlan') {
+    const beastMode = await getBeastModeState(sourceId);
+    if (!beastMode.enabled) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatBeastModeLockedReply(),
+      });
+    }
+    return handleCuratedPlanTextIntent({ event, client, sourceId, userId, senderName, intent });
   }
 
   if (intent === 'casual') {
@@ -1152,6 +1193,9 @@ function detectTextIntent(text) {
   const bookingCommand = detectBookingCommand(targetText);
   if (bookingCommand) return bookingCommand;
 
+  const curatedPlanCommand = detectCuratedPlanCommand(targetText);
+  if (curatedPlanCommand) return curatedPlanCommand;
+
   if (detectNoblesseIntent(targetText)) return 'noblesse';
 
   if (isTransportRequest(targetText)) return 'transport';
@@ -1310,6 +1354,34 @@ async function handleNoblessePostback(event, client, data) {
       ]);
     }
 
+    if (detectOutingRequest(combinedText)) {
+      return handleCuratedApprovalFlow({
+        client,
+        event,
+        sourceId,
+        actorName,
+        userId: event.source?.userId || '',
+        caseId,
+        caseData,
+        option,
+        kind: 'outing',
+      });
+    }
+
+    if (detectShoppingRequest(combinedText)) {
+      return handleCuratedApprovalFlow({
+        client,
+        event,
+        sourceId,
+        actorName,
+        userId: event.source?.userId || '',
+        caseId,
+        caseData,
+        option,
+        kind: 'shopping',
+      });
+    }
+
     if (isRestaurantRequest(combinedText)) {
       return handleRestaurantApprovalFlow({
         client,
@@ -1424,6 +1496,32 @@ async function handleNoblessePostback(event, client, data) {
       actorName,
       caseId,
       intake,
+    });
+  }
+
+  if (action === 'curated_pick') {
+    const caseData = await getNoblesseCase(caseId);
+    if (!caseData) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `案件 ${caseId} が見つからなかったの。もう一度相談してくれる？`,
+      });
+    }
+    const plan = getCuratedPlan(caseData);
+    if (!plan?.kind || !Array.isArray(plan.candidates) || !plan.candidates.length) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'しおりを作る前の候補がまだないみたい。先に候補を出し直そうか。',
+      });
+    }
+    return handleCuratedCandidatePick({
+      client,
+      event,
+      sourceId,
+      actorName,
+      caseId,
+      caseData,
+      candidateIndex: parts[3],
     });
   }
 
@@ -1821,6 +1919,240 @@ function normalizeRestaurantCandidates(shops) {
     address: shop?.address || '',
     budget: shop?.budget?.average || shop?.budget?.name || '',
   }));
+}
+
+async function handleCuratedApprovalFlow({ client, event, sourceId, actorName, userId, caseId, caseData, option, kind }) {
+  const plan = createCuratedPlanState({
+    kind,
+    requestText: caseData.request || '',
+    actorName,
+    ownerUserId: userId,
+    option,
+  });
+  await rememberCuratedPlan(caseId, plan);
+  await logCaseEvent(caseId, 'curated_plan_started', { actorName, kind });
+  return continueCuratedPlanOrRun({ client, event, sourceId, actorName, caseId, plan });
+}
+
+async function maybeHandleCuratedAwaitingInput({ event, client, sourceId, userId, senderName, text }) {
+  if (!sourceId || sourceId === 'unknown' || !userId || !String(text || '').trim()) return null;
+  const caseData = await findActiveCuratedCase(sourceId, userId, true);
+  const plan = getCuratedPlan(caseData);
+  if (!caseData || !plan?.awaitingField) return null;
+  return handleCuratedFieldUpdate({
+    client,
+    event,
+    sourceId,
+    caseId: caseData.caseId,
+    caseData,
+    plan,
+    actorName: senderName || '',
+    userId,
+    rawValue: text,
+  });
+}
+
+async function handleCuratedPlanTextIntent({ event, client, sourceId, userId, senderName, intent }) {
+  const caseData = await findActiveCuratedCase(sourceId, userId, false);
+  if (!caseData) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '先にノブレスでおでかけか買い物の相談を始めてくれる？ そこからしおりや途中変更まで面倒みるね。',
+    });
+  }
+  const plan = getCuratedPlan(caseData);
+  if (!plan) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '今つながってるおでかけ/買い物の計画が見つからなかったの。もう一回相談内容を教えてくれる？',
+    });
+  }
+
+  if (intent.action === 'itinerary') {
+    if (plan.itineraryText && Number.isInteger(plan.selectedIndex) && plan.candidates?.[plan.selectedIndex]) {
+      const candidate = plan.candidates[plan.selectedIndex];
+      return client.replyMessage(event.replyToken, [
+        { type: 'text', text: plan.itineraryText },
+        buildCuratedRouteFlex(plan, candidate),
+        buildPreparedSendFlex(caseData.caseId, plan.kind === 'outing' ? 'この旅のしおり' : 'この買い物しおり', true),
+      ]);
+    }
+    if (Array.isArray(plan.candidates) && plan.candidates.length) {
+      return client.replyMessage(event.replyToken, [
+        { type: 'text', text: buildCuratedGuideText(caseData.caseId, plan, plan.candidates) },
+        buildCuratedCandidatesFlex(caseData.caseId, plan, plan.candidates),
+      ]);
+    }
+    return continueCuratedPlanOrRun({
+      client,
+      event,
+      sourceId,
+      actorName: senderName || '',
+      caseId: caseData.caseId,
+      plan,
+    });
+  }
+
+  const adjusted = buildCuratedAdjustmentReply(caseData.caseId, plan, intent.text || '');
+  if (!adjusted.ok) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: adjusted.error,
+    });
+  }
+  await updateCuratedPlan(caseData.caseId, adjusted.state);
+  await logCaseEvent(caseData.caseId, 'curated_plan_adjusted', {
+    actorName: senderName || '',
+    note: adjusted.note,
+  });
+  return runCuratedCandidates({
+    client,
+    event,
+    sourceId,
+    actorName: senderName || '',
+    caseId: caseData.caseId,
+    plan: adjusted.state,
+    intro: `了解、${adjusted.note}で組み直すね。`,
+  });
+}
+
+async function handleCuratedFieldUpdate({ client, event, sourceId, caseId, plan, actorName, userId, rawValue }) {
+  const parsed = applyCuratedFieldInput(plan, rawValue);
+  if (!parsed.ok) {
+    return client.replyMessage(event.replyToken, [
+      { type: 'text', text: parsed.error },
+      buildCuratedPrompt(caseId, plan),
+    ]);
+  }
+
+  const merged = {
+    ...plan,
+    ...parsed.patch,
+    ownerUserId: userId || plan.ownerUserId || '',
+    ownerName: actorName || plan.ownerName || '',
+  };
+  const nextField = getNextCuratedField(merged);
+  merged.awaitingField = nextField;
+  merged.status = nextField ? 'collecting' : 'ready';
+
+  await updateCuratedPlan(caseId, merged);
+  await logCaseEvent(caseId, 'curated_plan_updated', {
+    actorName,
+    field: curatedFieldLabel(Object.keys(parsed.patch)[0]),
+  });
+
+  if (!nextField) {
+    return runCuratedCandidates({ client, event, sourceId, actorName, caseId, plan: merged });
+  }
+
+  return client.replyMessage(event.replyToken, [
+    { type: 'text', text: `${curatedFieldLabel(Object.keys(parsed.patch)[0])}、受け取ったよ。` },
+    buildCuratedPrompt(caseId, merged),
+  ]);
+}
+
+async function continueCuratedPlanOrRun({ client, event, sourceId, actorName, caseId, plan }) {
+  const nextField = getNextCuratedField(plan);
+  if (!nextField) {
+    return runCuratedCandidates({ client, event, sourceId, actorName, caseId, plan });
+  }
+  const updated = {
+    ...plan,
+    awaitingField: nextField,
+    status: 'collecting',
+  };
+  await updateCuratedPlan(caseId, updated);
+  return client.replyMessage(event.replyToken, [
+    { type: 'text', text: buildCuratedSummary(caseId, updated) },
+    buildCuratedPrompt(caseId, updated),
+  ]);
+}
+
+async function runCuratedCandidates({ client, event, sourceId, actorName, caseId, plan, intro = '' }) {
+  const candidates = rankCuratedCandidates(plan);
+  const updated = {
+    ...plan,
+    candidates,
+    awaitingField: '',
+    status: candidates.length ? 'candidates' : 'collecting',
+    selectedIndex: null,
+    itineraryText: '',
+  };
+  await updateCuratedPlan(caseId, updated);
+  await logCaseEvent(caseId, 'curated_candidates_ready', { actorName, kind: plan.kind });
+
+  if (!candidates.length) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `${intro ? `${intro}\n` : ''}${plan.kind === 'outing' ? 'いまの条件だと、しっくりくるおでかけ先がまだ出し切れなかったの。少し条件を変えようか。' : 'いまの条件だと、しっくりくる買い物先がまだ出し切れなかったの。少し条件を変えようか。'}`,
+    });
+  }
+
+  return client.replyMessage(event.replyToken, [
+    { type: 'text', text: [intro, buildCuratedGuideText(caseId, updated, candidates)].filter(Boolean).join('\n') },
+    buildCuratedCandidatesFlex(caseId, updated, candidates),
+  ]);
+}
+
+async function handleCuratedCandidatePick({ client, event, sourceId, actorName, caseId, caseData, candidateIndex }) {
+  const plan = getCuratedPlan(caseData);
+  const index = Number(candidateIndex);
+  const candidate = Array.isArray(plan?.candidates) ? plan.candidates[index] : null;
+  if (!candidate) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'その候補が見つからなかったの。もう一回候補を出し直そうか。',
+    });
+  }
+
+  const itineraryText = buildCuratedItinerary(caseId, plan, candidate);
+  const shareText = buildCuratedShareText(caseId, plan, candidate, itineraryText);
+  await updateCuratedPlan(caseId, {
+    ...plan,
+    selectedIndex: index,
+    itineraryText,
+    status: 'selected',
+  });
+  await rememberPreparedSend(caseId, {
+    kind: 'decision',
+    title: plan.kind === 'outing' ? '旅のしおり' : '買い物しおり',
+    text: shareText,
+    allowImmediateSend: true,
+  });
+  await logCaseEvent(caseId, 'curated_plan_selected', { actorName, name: candidate.name });
+  await logCaseEvent(caseId, 'curated_itinerary_ready', { actorName, name: candidate.name });
+  await logCaseEvent(caseId, 'decision_ready', { actorName, note: candidate.name });
+
+  return client.replyMessage(event.replyToken, [
+    { type: 'text', text: itineraryText },
+    buildCuratedRouteFlex(plan, candidate),
+    buildPreparedSendFlex(caseId, plan.kind === 'outing' ? 'この旅のしおり' : 'この買い物しおり', true),
+  ]);
+}
+
+async function findActiveCuratedCase(sourceId, userId, awaitingOnly) {
+  const cases = await getNoblesseCases(sourceId, 10);
+  return cases.find(c => {
+    if (!c || c.status === 'cancelled' || !c.curatedPlan?.kind) return false;
+    if (awaitingOnly) {
+      return c.curatedPlan.awaitingField
+        && (!c.curatedPlan.ownerUserId || c.curatedPlan.ownerUserId === userId);
+    }
+    return true;
+  }) || null;
+}
+
+function curatedFieldLabel(field) {
+  switch (field) {
+    case 'origin':
+      return '出発地';
+    case 'durationHours':
+      return '使える時間';
+    case 'budgetYen':
+      return '予算';
+    default:
+      return field || '条件';
+  }
 }
 
 function normalizeHotelCandidates(hotels) {

@@ -155,6 +155,16 @@ async function rememberSearchIntake(caseId, searchIntake) {
   });
 }
 
+async function rememberCuratedPlan(caseId, curatedPlan) {
+  if (!caseId || !curatedPlan || typeof curatedPlan !== 'object') return null;
+  return updateCase(caseId, {
+    curatedPlan: {
+      ...curatedPlan,
+      updatedAt: Date.now(),
+    },
+  });
+}
+
 async function updateSearchIntake(caseId, patch) {
   if (!caseId || !patch || typeof patch !== 'object') return null;
   const existing = await getNoblesseCase(caseId);
@@ -164,6 +174,22 @@ async function updateSearchIntake(caseId, patch) {
     : {};
   return updateCase(caseId, {
     searchIntake: {
+      ...current,
+      ...patch,
+      updatedAt: Date.now(),
+    },
+  });
+}
+
+async function updateCuratedPlan(caseId, patch) {
+  if (!caseId || !patch || typeof patch !== 'object') return null;
+  const existing = await getNoblesseCase(caseId);
+  if (!existing) return null;
+  const current = existing.curatedPlan && typeof existing.curatedPlan === 'object'
+    ? existing.curatedPlan
+    : {};
+  return updateCase(caseId, {
+    curatedPlan: {
       ...current,
       ...patch,
       updatedAt: Date.now(),
@@ -378,6 +404,11 @@ function getSearchIntake(caseData) {
   return caseData.searchIntake;
 }
 
+function getCuratedPlan(caseData) {
+  if (!caseData?.curatedPlan?.kind) return null;
+  return caseData.curatedPlan;
+}
+
 function previewText(text, maxLen) {
   const normalized = String(text || '').replace(/\s+/g, ' ').trim();
   if (!normalized) return '';
@@ -448,6 +479,18 @@ function formatCaseEvent(event) {
       return `${ts} ${actor}検索条件を更新${event.field ? ` (${event.field})` : ''}`;
     case 'search_intake_completed':
       return `${ts} ${actor}検索条件が揃った`;
+    case 'curated_plan_started':
+      return `${ts} ${actor}${event.kind === 'shopping' ? '買い物' : 'おでかけ'}プラン開始`;
+    case 'curated_plan_updated':
+      return `${ts} ${actor}プラン条件を更新${event.field ? ` (${event.field})` : ''}`;
+    case 'curated_candidates_ready':
+      return `${ts} ${actor}候補を提示${event.kind ? ` (${event.kind})` : ''}`;
+    case 'curated_plan_selected':
+      return `${ts} ${actor}候補を選択${event.name ? ` (${event.name})` : ''}`;
+    case 'curated_plan_adjusted':
+      return `${ts} ${actor}途中変更を反映${event.note ? ` (${event.note})` : ''}`;
+    case 'curated_itinerary_ready':
+      return `${ts} ${actor}しおりを作成${event.name ? ` (${event.name})` : ''}`;
     case 'restaurant_search':
       return `${ts} ${actor}お店候補を検索${buildSearchSuffix(event)}`;
     case 'hotel_search':
@@ -565,11 +608,14 @@ module.exports = {
   rememberPreparedSend,
   rememberBookingForm,
   rememberSearchIntake,
+  rememberCuratedPlan,
   updateBookingForm,
   updateSearchIntake,
+  updateCuratedPlan,
   getPreparedSend,
   getBookingForm,
   getSearchIntake,
+  getCuratedPlan,
   getSelectionCandidate,
   logCaseEvent,
   buildApprovalFlex,
