@@ -732,6 +732,16 @@ async function getNoblesseCase(caseId) {
   return snap.val() || null;
 }
 
+async function getNoblesseCases(sourceId, limit = 5) {
+  const snap = await getDb().ref('noblesse/cases').once('value');
+  const raw = snap.val();
+  if (!raw) return [];
+  return Object.values(raw)
+    .filter(c => !sourceId || c.sourceId === sourceId)
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .slice(0, limit);
+}
+
 // ── メンバープロファイル（LINE名→実名・人物メモ） ────────────────────────────
 let _profilesCache = null;
 let _profilesCacheTs = 0;
@@ -837,4 +847,5 @@ module.exports = {
   incrementNoblesseCaseCounter,
   saveNoblesseCase,
   getNoblesseCase,
+  getNoblesseCases,
 };

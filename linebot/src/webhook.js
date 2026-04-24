@@ -23,6 +23,7 @@ const {
   getScreenshotCandidates,
   getMemberProfile,
   getNoblesseCase,
+  getNoblesseCases,
   initMemberProfileStub,
 } = require('./firebase-admin');
 const { resolveRealName, updateGroupProfiles, formatProfileForContext } = require('./member-profile');
@@ -70,7 +71,7 @@ const {
 } = require('./uicolle-knowledge');
 const { shouldUseAiChat, formatAiChatReply } = require('./ai-chat');
 const { detectNoblesseIntent, formatNoblesseReply } = require('./noblesse-agent');
-const { generateCaseId, createCase, approveCase, cancelCase, buildApprovalFlex, buildExecutionReport } = require('./noblesse-case');
+const { generateCaseId, createCase, approveCase, cancelCase, buildApprovalFlex, buildExecutionReport, buildStatusText, buildSingleCaseText } = require('./noblesse-case');
 
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
 const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
@@ -338,6 +339,23 @@ async function handleText(event, client) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: formatProjectGuideReply(),
+    });
+  }
+
+  if (intent === 'noblesse:status') {
+    const { withoutMention } = getSecretaryMentionInfo(text);
+    const caseIdMatch = withoutMention.match(/NB-\d{8}-\d+/);
+    if (caseIdMatch) {
+      const caseData = await getNoblesseCase(caseIdMatch[0]);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: buildSingleCaseText(caseIdMatch[0], caseData),
+      });
+    }
+    const cases = await getNoblesseCases(sourceId, 5);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: buildStatusText(cases),
     });
   }
 
@@ -943,6 +961,9 @@ function detectTextIntent(text) {
   if (/(進捗|しんちょく|やってない|まだ.*試合|試合.*まだ|残り.*試合|試合.*残り|誰がまだ|だれがまだ|やった.*誰|誰.*やった|片方|1試合|未消化)/.test(targetText)) return 'progress';
 
   if (/(状況|戦況|成績|調子|まとめ|誰が強い|だれが強い|勝ってる)/.test(targetText)) return 'status';
+
+  if (/NB-\d{8}-\d+/.test(targetText)) return 'noblesse:status';
+  if (/(案件|ノブレス).*(確認|状況|どうなった|一覧|見せて|教えて|リスト|まとめ)/.test(targetText)) return 'noblesse:status';
 
   if (detectNoblesseIntent(targetText)) return 'noblesse';
 
