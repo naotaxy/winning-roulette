@@ -31,6 +31,7 @@ const GEO_GAME_USAGE_ROOT = 'geoGameUsage';
 const GEO_GAME_CACHE_ROOT = 'geoGameCache';
 const OCR_AUTOMATION_ROOT = 'ocrAutomation';
 const SCREENSHOT_CANDIDATES_ROOT = 'screenshotCandidates';
+const BEAST_MODE_ROOT = 'beastMode';
 
 async function getPlayers() {
   if (_playersCache && Date.now() - _playersCacheTs < CACHE_TTL) return _playersCache;
@@ -211,6 +212,34 @@ async function setOcrAutoEnabled(sourceId, enabled, updatedBy = null) {
   };
   await getDb().ref(`${OCR_AUTOMATION_ROOT}/${sourceId}`).update(payload);
   return normalizeOcrAutomationState(payload);
+}
+
+async function getBeastModeState(sourceId) {
+  if (!sourceId) return { enabled: false, updatedAt: null, updatedBy: null };
+  const snap = await getDb().ref(`${BEAST_MODE_ROOT}/${sourceId}`).once('value');
+  const value = snap.val() || {};
+  return {
+    enabled: value.enabled === true,
+    updatedAt: value.updatedAt || null,
+    updatedBy: value.updatedBy || null,
+  };
+}
+
+async function setBeastModeEnabled(sourceId, enabled, updatedBy = null) {
+  if (!sourceId) return { enabled: !!enabled };
+  const now = Date.now();
+  const payload = {
+    enabled: enabled === true,
+    updatedAt: now,
+    updatedAtIso: new Date(now).toISOString(),
+    updatedBy: String(updatedBy || '不明').slice(0, 50),
+  };
+  await getDb().ref(`${BEAST_MODE_ROOT}/${sourceId}`).update(payload);
+  return {
+    enabled: payload.enabled,
+    updatedAt: payload.updatedAt,
+    updatedBy: payload.updatedBy,
+  };
 }
 
 async function saveScreenshotCandidate(sourceId, dayKey, msgId, data = {}) {
@@ -813,6 +842,8 @@ module.exports = {
   saveGeoGameGeocodeCache,
   getOcrAutomationState,
   setOcrAutoEnabled,
+  getBeastModeState,
+  setBeastModeEnabled,
   saveScreenshotCandidate,
   updateScreenshotCandidate,
   getScreenshotCandidates,

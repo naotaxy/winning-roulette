@@ -18,6 +18,8 @@ const {
   getRecentConversation,
   getOcrAutomationState,
   setOcrAutoEnabled,
+  getBeastModeState,
+  setBeastModeEnabled,
   saveScreenshotCandidate,
   updateScreenshotCandidate,
   getScreenshotCandidates,
@@ -54,6 +56,7 @@ const { formatMemberFlavorReply, formatAnonymousDiaryHighlights } = require('./g
 const { detectGeoGameIntent, handleGeoGameIntent } = require('./geo-game');
 const { detectDiceGameIntent, formatDiceGameReply } = require('./dice-games');
 const { detectOcrControlIntent } = require('./ocr-control');
+const { detectBeastModeIntent, formatBeastModeReply, formatBeastModeLockedReply } = require('./beast-mode');
 const { detectProjectGuideIntent, formatProjectGuideReply } = require('./project-guide');
 const {
   detectConciergeIntent,
@@ -327,6 +330,31 @@ async function handleText(event, client) {
     return handleOcrControlIntent({ event, client, sourceId, senderName, intent });
   }
 
+  if (intent?.type === 'beastMode') {
+    if (intent.action === 'status') {
+      const state = await getBeastModeState(sourceId);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatBeastModeReply(state.enabled, 'status'),
+      });
+    }
+
+    if (intent.action === 'disable') {
+      await setBeastModeEnabled(sourceId, false, senderName);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatBeastModeReply(false, 'disable'),
+      });
+    }
+
+    const previous = await getBeastModeState(sourceId);
+    await setBeastModeEnabled(sourceId, true, senderName);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatBeastModeReply(previous.enabled, 'enable'),
+    });
+  }
+
   if (intent?.type === 'concierge') {
     if (intent.action === 'pending') {
       const messages = await getRecentConversation(sourceId, 120);
@@ -377,6 +405,13 @@ async function handleText(event, client) {
   }
 
   if (intent === 'noblesse:status') {
+    const beastMode = await getBeastModeState(sourceId);
+    if (!beastMode.enabled) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatBeastModeLockedReply(),
+      });
+    }
     const { withoutMention } = getSecretaryMentionInfo(text);
     const caseIdMatch = withoutMention.match(/NB-\d{8}-\d+/);
     if (caseIdMatch) {
@@ -394,6 +429,13 @@ async function handleText(event, client) {
   }
 
   if (intent === 'noblesse') {
+    const beastMode = await getBeastModeState(sourceId);
+    if (!beastMode.enabled) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatBeastModeLockedReply(),
+      });
+    }
     const { withoutMention } = getSecretaryMentionInfo(text);
     const userId = event.source?.userId;
     const { date: dateStr } = getTokyoDateParts();
@@ -955,6 +997,9 @@ function detectTextIntent(text) {
   if (directSystemStatusKind) return `system:${directSystemStatusKind}`;
 
   const targetText = withoutMention;
+
+  const beastModeIntent = detectBeastModeIntent(targetText);
+  if (beastModeIntent) return beastModeIntent;
 
   const geoGameIntent = detectGeoGameIntent(targetText);
   if (geoGameIntent) return geoGameIntent;
