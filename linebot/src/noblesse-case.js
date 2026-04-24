@@ -167,6 +167,14 @@ function buildApprovalFlex(caseId, analysis, request) {
   };
 }
 
+// ── 承認案からキーワード抽出 ─────────────────────────────────────────────────
+function extractSearchKeyword(optionText) {
+  if (!optionText) return '';
+  // 最初の句読点・改行の前だけ取る（場所名が先頭にくることが多い）
+  const first = optionText.split(/[。、・\n]/)[0];
+  return first.slice(0, 20).trim();
+}
+
 // ── 案件ステータス表示 ────────────────────────────────────────────────────────
 const STATUS_LABEL = {
   pending:   '⏳ 承認待ち',
@@ -207,4 +215,4 @@ function buildSingleCaseText(caseId, c) {
   ].filter(Boolean).join('\n');
 }
 
-module.exports = { generateCaseId, createCase, approveCase, cancelCase, buildApprovalFlex, buildExecutionReport, parseOptions, buildStatusText, buildSingleCaseText };
+module.exports = { generateCaseId, createCase, approveCase, cancelCase, buildApprovalFlex, buildExecutionReport, parseOptions, buildStatusText, buildSingleCaseText, extractSearchKeyword };
