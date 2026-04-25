@@ -530,11 +530,13 @@ function buildEffectiveSecretaryText(text, allowBareCall, alreadyMentioned) {
   return `@秘書トラペル子 ${normalized}`;
 }
 
+const HELP_ONLY_PATTERN = /^(ヘルプ|help)[!！?？。、．.]*$/i;
+
 function isExplicitHelpRequest(mentionInfo, isDirectChat = false) {
   const compact = String(mentionInfo?.compact || '');
   const withoutMention = String(mentionInfo?.withoutMention || '');
-  if (/^(ヘルプ|help)$/i.test(compact)) return true;
-  if (mentionInfo?.mentioned && (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention))) {
+  if (HELP_ONLY_PATTERN.test(compact)) return true;
+  if (mentionInfo?.mentioned && (!withoutMention || HELP_ONLY_PATTERN.test(withoutMention) || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention))) {
     return true;
   }
   return isDirectChat && /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(compact);

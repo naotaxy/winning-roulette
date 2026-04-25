@@ -1,6 +1,6 @@
 'use strict';
 
-const HELP_MESSAGE_MAX_LENGTH = 4300;
+const HELP_MESSAGE_MAX_LENGTH = 1500;
 
 function formatSecretaryHelp() {
   return [
