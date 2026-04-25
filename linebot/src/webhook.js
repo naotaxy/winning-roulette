@@ -49,6 +49,7 @@ const {
   extractWeatherCity,
   fetchWeatherForCity,
   formatWeatherReply,
+  geocodePlace,
 } = require('./weather');
 const { isTransportRequest, isTaxiRequest, isFlightRequest, extractRouteParams, buildRouteFlex, buildTaxiFlex, buildFlightFlex } = require('./transport');
 const { fetchYahooWeather, searchYahooLocalSpots, buildWeatherLine } = require('./yahoo-api');
@@ -2667,6 +2668,20 @@ async function runCuratedCandidates({ client, event, sourceId, actorName, caseId
       if ((weather.isRaining || weather.willRain) && plan.weatherMode !== 'indoor') {
         activePlan = { ...plan, weatherMode: 'indoor' };
         weatherIntro += '\n屋内・屋根付きを優先候補に調整しました。';
+      }
+    }
+  } else if (plan.kind === 'outing' && plan.weatherMode === 'weather-check' && plan.origin) {
+    // GPS なし + weather-check: テキスト出発地をジオコードして天気を確認
+    const loc = await geocodePlace(plan.origin).catch(() => null);
+    if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
+      const weather = await fetchYahooWeather(loc.latitude, loc.longitude).catch(() => null);
+      if (weather) {
+        const line = buildWeatherLine(weather);
+        if (line) weatherIntro = line;
+        if (weather.isRaining || weather.willRain) {
+          activePlan = { ...plan, weatherMode: 'indoor' };
+          weatherIntro = [weatherIntro, '今日の天気を確認したら雨よりだったから、屋根付きを優先候補に調整したよ。'].filter(Boolean).join('\n');
+        }
       }
     }
   }
