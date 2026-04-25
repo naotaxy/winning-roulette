@@ -1,10 +1,12 @@
 'use strict';
 
+const HELP_MESSAGE_MAX_LENGTH = 4300;
+
 function formatSecretaryHelp() {
   return [
     '呼んでくれたの？ うれしい。',
     '「@秘書トラペル子 ヘルプ」で、私が反応できる言葉をいつでも出すね。',
-    'グループでは @秘書トラペル子 を付けて呼んでね。1対1トークなら、メンションなしでもそのまま大丈夫だよ。',
+    'グループでは @秘書トラペル子 を付けて呼ぶのがいちばん確実。1対1トークなら、メンションなしでもそのまま大丈夫だよ。ヘルプだけは単独でも出せるようにしてあるの。',
     '例: グループなら「@秘書トラペル子 順位」、1対1なら「順位」「朝7時に起こして」でもわかるの。',
     '',
     '「来月の縛り」「来月のルール」',
@@ -218,4 +220,53 @@ function formatSecretaryHelp() {
   ].join('\n');
 }
 
-module.exports = { formatSecretaryHelp };
+function splitHelpText(text, maxLength = HELP_MESSAGE_MAX_LENGTH) {
+  const sections = String(text || '')
+    .split('\n\n')
+    .map(section => section.trim())
+    .filter(Boolean);
+  const chunks = [];
+  let current = '';
+
+  for (const section of sections) {
+    const next = current ? `${current}\n\n${section}` : section;
+    if (next.length <= maxLength) {
+      current = next;
+      continue;
+    }
+
+    if (current) {
+      chunks.push(current);
+      current = '';
+    }
+
+    if (section.length <= maxLength) {
+      current = section;
+      continue;
+    }
+
+    const lines = section.split('\n');
+    let lineChunk = '';
+    for (const line of lines) {
+      const lineNext = lineChunk ? `${lineChunk}\n${line}` : line;
+      if (lineNext.length <= maxLength) {
+        lineChunk = lineNext;
+      } else {
+        if (lineChunk) chunks.push(lineChunk);
+        lineChunk = line;
+      }
+    }
+    if (lineChunk) {
+      current = lineChunk;
+    }
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function formatSecretaryHelpMessages() {
+  return splitHelpText(formatSecretaryHelp()).map(text => ({ type: 'text', text }));
+}
+
+module.exports = { formatSecretaryHelp, formatSecretaryHelpMessages };

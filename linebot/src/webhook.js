@@ -68,7 +68,7 @@ const {
   formatMissingMatchups,
 } = require('./standings');
 const { formatRuleReply } = require('./rule-message');
-const { formatSecretaryHelp } = require('./help-message');
+const { formatSecretaryHelpMessages } = require('./help-message');
 const { getSecretaryMentionInfo, getCasualReply, getCasualReplyWithContext, buildCasualQuickReply, getTiredReply } = require('./secretary-chat');
 const { detectSystemStatusKind, safeFormatSystemStatusReply } = require('./system-status');
 const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-risk');
@@ -530,6 +530,16 @@ function buildEffectiveSecretaryText(text, allowBareCall, alreadyMentioned) {
   return `@秘書トラペル子 ${normalized}`;
 }
 
+function isExplicitHelpRequest(mentionInfo, isDirectChat = false) {
+  const compact = String(mentionInfo?.compact || '');
+  const withoutMention = String(mentionInfo?.withoutMention || '');
+  if (/^(ヘルプ|help)$/i.test(compact)) return true;
+  if (mentionInfo?.mentioned && (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention))) {
+    return true;
+  }
+  return isDirectChat && /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(compact);
+}
+
 async function handleText(event, client) {
   const text = event.message.text || '';
   const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
@@ -562,6 +572,10 @@ async function handleText(event, client) {
   const rawMentionInfo = getSecretaryMentionInfo(text);
   const effectiveText = buildEffectiveSecretaryText(text, isDirectChat, rawMentionInfo.mentioned);
   const mentionInfo = getSecretaryMentionInfo(effectiveText);
+
+  if (isExplicitHelpRequest(rawMentionInfo, isDirectChat) || isExplicitHelpRequest(mentionInfo, isDirectChat)) {
+    return client.replyMessage(event.replyToken, formatSecretaryHelpMessages());
+  }
 
   if (!rawMentionInfo.mentioned) {
     const curatedAwaitingReply = await maybeHandleCuratedAwaitingInput({
@@ -608,10 +622,7 @@ async function handleText(event, client) {
   const { year, month } = getTokyoDateParts();
 
   if (intent === 'help') {
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: formatSecretaryHelp(),
-    });
+    return client.replyMessage(event.replyToken, formatSecretaryHelpMessages());
   }
 
   if (intent === 'summary') {
@@ -866,8 +877,14 @@ async function handleText(event, client) {
         {
           type: 'text',
           text: formatWakeNewsModeReply(alarm.newsMode, senderName),
+          quickReply: {
+            items: [
+              { type: 'action', action: { type: 'message', label: 'ニュース設定確認', text: '起床ニュース 状態' } },
+              { type: 'action', action: { type: 'message', label: '起床状態', text: '起床状態' } },
+              { type: 'action', action: { type: 'message', label: 'キャンセル', text: '起こすのやめて' } },
+            ],
+          },
         },
-        buildWakeNewsChoiceMessage(alarm),
       ]);
     }
 
