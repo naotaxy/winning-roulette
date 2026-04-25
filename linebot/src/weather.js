@@ -99,8 +99,7 @@ async function fetchWeatherByCoords(latitude, longitude) {
       hourly: 'weathercode,temperature_2m,precipitation_probability',
       current: 'weathercode,temperature_2m',
       timezone: 'Asia/Tokyo',
-      forecast_days: '2',
-      past_days: '1',
+      forecast_days: '3',
     });
     const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`, { signal: controller.signal });
     const data = await res.json();

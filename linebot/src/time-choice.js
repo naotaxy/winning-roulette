@@ -8,10 +8,10 @@ const DAY_PARTS = {
 
 const WAKE_TIME_OPTIONS = {
   morning: [
+    { label: '5:00', command: '5時に起こして' },
+    { label: '6:00', command: '6時に起こして' },
     { label: '6:30', command: '6時半に起こして' },
     { label: '7:00', command: '7時に起こして' },
-    { label: '7:30', command: '7時半に起こして' },
-    { label: '8:00', command: '8時に起こして' },
   ],
   daytime: [
     { label: '11:00', command: '11時に起こして' },
@@ -29,10 +29,10 @@ const WAKE_TIME_OPTIONS = {
 
 const REMINDER_TIME_OPTIONS = {
   morning: [
-    { label: '8:00', command: '8時にリマインドして' },
-    { label: '9:00', command: '9時にリマインドして' },
-    { label: '10:00', command: '10時にリマインドして' },
-    { label: '11:00', command: '11時にリマインドして' },
+    { label: '5:00', command: '5時にリマインドして' },
+    { label: '6:00', command: '6時にリマインドして' },
+    { label: '6:30', command: '6時半にリマインドして' },
+    { label: '7:00', command: '7時にリマインドして' },
   ],
   daytime: [
     { label: '12:00', command: '12時にリマインドして' },

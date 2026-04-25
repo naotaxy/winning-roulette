@@ -900,10 +900,14 @@ async function handleText(event, client) {
       createdAt: Date.now(),
       createdAtIso: new Date().toISOString(),
     });
-    const messages = [{
-      type: 'text',
-      text: formatWakeAlarmSetReply(alarm, senderName),
-    }];
+    const confirmQuickReply = {
+      items: [
+        { type: 'action', action: { type: 'message', label: '設定確認', text: '起床状態' } },
+        { type: 'action', action: { type: 'message', label: 'キャンセル', text: '起こすのやめて' } },
+      ],
+    };
+    const setTextMsg = { type: 'text', text: formatWakeAlarmSetReply(alarm, senderName), quickReply: confirmQuickReply };
+    const messages = [setTextMsg];
     if (isMorningAlarm(alarm)) {
       messages.push(buildWakeNewsChoiceMessage(alarm));
     }
@@ -1551,10 +1555,12 @@ async function buildAiConversationContext(year, month, senderName = null, source
 }
 
 function detectTextIntent(text, options = {}) {
-  const allowBareHelp = options.allowBareHelp === true;
   const { compact, mentioned, withoutMention } = getSecretaryMentionInfo(text);
   if (!compact) return null;
-  if (allowBareHelp && /^(ヘルプ|help)$/i.test(compact)) return 'help';
+  // ヘルプ・モード系はメンションなしでも反応させる（group/1-on-1共通）
+  if (/^(ヘルプ|help)$/i.test(compact)) return 'help';
+  const beastBare = detectBeastModeIntent(withoutMention || compact);
+  if (beastBare) return beastBare;
   if (!mentioned) return null;
 
   if (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention)) return 'help';
@@ -3511,6 +3517,12 @@ async function handleEventReminderIntent({ event, client, sourceId, userId, send
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: formatReminderSetReply(enrichedIntent, senderName),
+      quickReply: {
+        items: [
+          { type: 'action', action: { type: 'message', label: '一覧確認', text: 'リマインド一覧' } },
+          { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'リマインドキャンセル' } },
+        ],
+      },
     });
   }
 

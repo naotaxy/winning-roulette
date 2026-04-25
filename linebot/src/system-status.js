@@ -14,7 +14,7 @@ function detectSystemStatusKind(text) {
   if (/(render|レンダー|れんだー)/.test(t)) return 'render';
   if (/(firebase|ファイアベース|ファイヤーベース|データベース|database|\bdb\b)/.test(t)) return 'firebase';
   if (/(github|git hub|ギットハブ|リポジトリ|repo|ブランチ|コミット)/.test(t)) return 'github';
-  if (/(システム|system|ステータス|稼働|ヘルス|health|全体|全部)/.test(t)) return 'system';
+  if (/(システム|system|ステータス|稼働|ヘルス|health|全体)/.test(t)) return 'system';
   return null;
 }
 
