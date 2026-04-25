@@ -68,7 +68,7 @@ const {
 } = require('./standings');
 const { formatRuleReply } = require('./rule-message');
 const { formatSecretaryHelp } = require('./help-message');
-const { getSecretaryMentionInfo, getCasualReply, getCasualReplyWithContext, getTiredReply } = require('./secretary-chat');
+const { getSecretaryMentionInfo, getCasualReply, getCasualReplyWithContext, buildCasualQuickReply, getTiredReply } = require('./secretary-chat');
 const { detectSystemStatusKind, safeFormatSystemStatusReply } = require('./system-status');
 const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-risk');
 const { formatMemberFlavorReply, formatAnonymousDiaryHighlights } = require('./group-insights');
@@ -959,7 +959,10 @@ async function handleText(event, client) {
     } else {
       replyText = getCasualReplyWithContext(effectiveText, recentConversation, senderName, profileHint);
     }
-    return sendCasualReply(client, event, replyText, sourceId);
+    return sendCasualReply(client, event, {
+      text: replyText,
+      quickReply: buildCasualQuickReply(effectiveText),
+    }, sourceId);
   }
 
   if (intent.startsWith('system:')) {
@@ -3341,8 +3344,19 @@ async function sendCasualReply(client, event, replyText, sourceId) {
   const typingDelay = 1200 + Math.floor(Math.random() * 800);
   await new Promise(r => setTimeout(r, typingDelay));
 
-  const { first, second } = splitCasualReply(replyText);
-  await client.replyMessage(event.replyToken, { type: 'text', text: first });
+  const payload = typeof replyText === 'string'
+    ? { text: replyText, quickReply: null }
+    : {
+      text: String(replyText?.text || ''),
+      quickReply: replyText?.quickReply || null,
+    };
+
+  const { first, second } = splitCasualReply(payload.text);
+  const firstMessage = { type: 'text', text: first };
+  if (payload.quickReply?.items?.length) {
+    firstMessage.quickReply = payload.quickReply;
+  }
+  await client.replyMessage(event.replyToken, firstMessage);
 
   if (second && sourceId) {
     const delayMs = 2000 + Math.floor(Math.random() * 1500);
