@@ -346,8 +346,19 @@ function buildCuratedPrompt(caseId, state) {
     return {
       type: 'text',
       text: state.kind === 'outing'
-        ? 'どこから動き始めるか教えてね。\n例: 中野区の東橋バス停 / 新宿駅 / 今ここは吉祥寺'
-        : 'どの街から回り始めたいか教えてね。\n例: 新宿駅 / 中野 / 今ここは渋谷',
+        ? 'どこから動き始めるか教えてね。\n例: 中野区の東橋バス停 / 新宿駅\n\nGPSで現在地を送ることもできるよ📍'
+        : 'どの街から回り始めたいか教えてね。\n例: 新宿駅 / 中野\n\nGPSで現在地を送ることもできるよ📍',
+      quickReply: {
+        items: [
+          {
+            type: 'action',
+            action: {
+              type: 'location',
+              label: '📍 現在地を送る',
+            },
+          },
+        ],
+      },
     };
   }
 

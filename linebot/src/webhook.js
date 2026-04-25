@@ -208,6 +208,30 @@ const {
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
 const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
 
+async function reverseGeocode(lat, lon) {
+  const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=ja&zoom=14`;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'TraperSubot/1.0 (LINE Bot)' },
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const a = data.address || {};
+    return (
+      a.neighbourhood || a.suburb || a.quarter ||
+      a.village || a.town || a.city_district ||
+      a.city || a.county ||
+      (data.display_name || '').split(',')[0].trim() || null
+    );
+  } catch {
+    return null;
+  }
+}
+
 async function handle(event, client) {
   /* ── 画像メッセージ → OCR → 確認FlexMessage ── */
   if (event.type === 'message' && event.message.type === 'image') {
@@ -260,6 +284,31 @@ async function handleLocation(event, client) {
       profile: privateProfile,
     });
     return client.replyMessage(event.replyToken, messages);
+  }
+
+  if (pendingRequest?.type === 'noblesse:curated' && pendingRequest?.caseId && Number.isFinite(locationPayload?.latitude) && Number.isFinite(locationPayload?.longitude)) {
+    await clearPendingLocationRequest(sourceId, userId).catch(() => {});
+    const areaName = await reverseGeocode(locationPayload.latitude, locationPayload.longitude);
+    const originLabel = areaName || locationPayload.label || `${locationPayload.latitude.toFixed(4)}, ${locationPayload.longitude.toFixed(4)}`;
+    const caseData = await getNoblesseCase(pendingRequest.caseId).catch(() => null);
+    const plan = getCuratedPlan(caseData);
+    if (!caseData || !plan) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '案件が見つからなかったの。もう一度ノブレスで相談を始めてみてね。',
+      });
+    }
+    return handleCuratedFieldUpdate({
+      client,
+      event,
+      sourceId,
+      caseId: pendingRequest.caseId,
+      caseData,
+      plan,
+      actorName: senderName,
+      userId,
+      rawValue: originLabel,
+    });
   }
 
   if (pendingRequest?.category && Number.isFinite(locationPayload?.latitude) && Number.isFinite(locationPayload?.longitude)) {
@@ -2290,6 +2339,10 @@ async function handleCuratedPlanTextIntent({ event, client, sourceId, userId, se
 async function handleCuratedFieldUpdate({ client, event, sourceId, caseId, plan, actorName, userId, rawValue }) {
   const parsed = applyCuratedFieldInput(plan, rawValue);
   if (!parsed.ok) {
+    const currentField = getNextCuratedField(plan);
+    if (currentField === 'origin' && sourceId && userId) {
+      await savePendingLocationRequest(sourceId, userId, { type: 'noblesse:curated', caseId }).catch(() => {});
+    }
     return client.replyMessage(event.replyToken, [
       { type: 'text', text: parsed.error },
       buildCuratedPrompt(caseId, plan),
@@ -2333,6 +2386,10 @@ async function continueCuratedPlanOrRun({ client, event, sourceId, actorName, ca
     status: 'collecting',
   };
   await updateCuratedPlan(caseId, updated);
+  const userId = event?.source?.userId || '';
+  if (nextField === 'origin' && sourceId && userId) {
+    await savePendingLocationRequest(sourceId, userId, { type: 'noblesse:curated', caseId }).catch(() => {});
+  }
   return client.replyMessage(event.replyToken, [
     { type: 'text', text: buildCuratedSummary(caseId, updated) },
     buildCuratedPrompt(caseId, updated),
