@@ -992,6 +992,42 @@ async function handleText(event, client) {
     return handleBookingTextIntent({ event, client, sourceId, userId, senderName, intent });
   }
 
+  if (intent?.type === 'curatedPlan' && intent?.action === 'start') {
+    const beastMode = await getBeastModeState(sourceId);
+    if (!beastMode.enabled) {
+      const caller = senderName ? `${senderName}、` : '';
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `${caller}おでかけ秘書で動くね。\nただ今はマネージャーモードがOFFなの。先にONにしてくれると候補を出せるよ。`,
+        quickReply: {
+          items: [
+            { type: 'action', action: { type: 'message', label: 'モードON', text: 'マネージャーモードON' } },
+          ],
+        },
+      });
+    }
+    const { date: dateStr } = getTokyoDateParts();
+    const caseId = await generateCaseId(dateStr);
+    const kindLabel = intent.kind === 'shopping' ? '買い物' : 'おでかけ';
+    await createCase({
+      caseId,
+      userId: userId || '',
+      sourceId: sourceId || '',
+      senderName: senderName || '',
+      request: intent.text || `${kindLabel}したい`,
+      analysis: `${kindLabel}秘書（casual chat）`,
+    });
+    const plan = createCuratedPlanState({
+      kind: intent.kind,
+      requestText: intent.text || `${kindLabel}したい`,
+      actorName: senderName || '',
+      ownerUserId: userId,
+    });
+    await rememberCuratedPlan(caseId, plan);
+    await logCaseEvent(caseId, 'curated_plan_started', { actorName: senderName || '', kind: intent.kind });
+    return continueCuratedPlanOrRun({ client, event, sourceId, actorName: senderName || '', caseId, plan });
+  }
+
   if (intent?.type === 'curatedPlan') {
     const beastMode = await getBeastModeState(sourceId);
     if (!beastMode.enabled) {

@@ -370,6 +370,12 @@ function detectCuratedPlanCommand(text) {
   if (/(途中変更|ルート変更|予定変更|再提案|別案|雨|屋内|歩くの減ら|疲れた|時間なくな|時間ない|もっと安|予算下げ|駅近|今ここ|現在地|黒系|白系|ギフト|普段使い|作家もの)/.test(t)) {
     return { type: 'curatedPlan', action: 'adjust', text: t };
   }
+  if (/(近場で自然がほしい|神社っぽい場所がいい|天気も踏まえて|軽くしおりみたいに)/.test(t)) {
+    return { type: 'curatedPlan', action: 'start', kind: 'outing', text: t };
+  }
+  if (/(スニーカー.*(近くで見たい|良い店だけ知りたい|気軽に寄りたい)|器.*(近くで見たい|良い店だけ知りたい|気軽に寄りたい)|おいしいもの.*(近くで食べたい|良い店だけ知りたい|気軽に寄りたい))/.test(t)) {
+    return { type: 'curatedPlan', action: 'start', kind: 'shopping', text: t };
+  }
   return null;
 }
 
