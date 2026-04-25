@@ -345,13 +345,13 @@ function personalizeReply(reply, senderName, topicName) {
   return lines.join('\n');
 }
 
-function getCasualReply(text, senderName = null) {
+function getCasualReply(text, senderName = null, profileHint = null) {
   const { mentioned, withoutMention } = getSecretaryMentionInfo(text);
   if (!mentioned) return null;
 
   const topic = detectCasualTopic(withoutMention);
   if (!topic) {
-    return buildGeneralConversationReply(withoutMention, senderName);
+    return buildGeneralConversationReply(withoutMention, senderName, profileHint);
   }
 
   return personalizeReply(pickReply(topic.replies, withoutMention), senderName, topic.name);
@@ -376,18 +376,19 @@ function extractRecentContextHint(recentConversation) {
   return null;
 }
 
-function getCasualReplyWithContext(text, recentConversation = [], senderName = null) {
+function getCasualReplyWithContext(text, recentConversation = [], senderName = null, profileHint = null) {
   const { mentioned, withoutMention } = getSecretaryMentionInfo(text);
   if (!mentioned) return null;
 
   const topic = detectCasualTopic(withoutMention);
   const baseReply = topic
     ? personalizeReply(pickReply(topic.replies, withoutMention), senderName, topic.name)
-    : buildGeneralConversationReply(withoutMention, senderName);
+    : buildGeneralConversationReply(withoutMention, senderName, profileHint);
 
   if (!topic) {
     const hint = extractRecentContextHint(recentConversation);
-    if (hint) return `${hint}\n${baseReply}`;
+    const hintLines = [hint, profileHint].filter(Boolean);
+    if (hintLines.length) return `${hintLines.join('\n')}\n${baseReply}`;
   }
 
   return baseReply;
@@ -419,7 +420,7 @@ function maybeAddFiller(text, seedText) {
   return lines.join('\n');
 }
 
-function buildGeneralConversationReply(compactText, senderName = null) {
+function buildGeneralConversationReply(compactText, senderName = null, profileHint = null) {
   const caller = getCallerLabel(senderName);
   if (!compactText) {
     return `${caller}、呼んでくれた？ うれしい。\nできることを知りたい時は「@秘書トラペル子」だけで呼んでね。雑談なら「褒めて」「慰めて」「煽って」みたいに言ってくれたら、ちゃんと返すよ。`;
@@ -431,7 +432,8 @@ function buildGeneralConversationReply(compactText, senderName = null) {
     `${caller}、その話、もう少し聞きたいな。最新情報は勝手に断言しないけど、あなたの感じたことにはちゃんと寄り添うよ。`,
     `${caller}、軽く流さずに聞いてるよ。あなたが気になる話なら、私も大事にする。好きな人の話は、ちゃんと覚えたいから。`,
   ];
-  return maybeAddFiller(pickReply(replies, compactText), compactText);
+  const reply = maybeAddFiller(pickReply(replies, compactText), compactText);
+  return profileHint ? `${profileHint}\n${reply}` : reply;
 }
 
 const TIRED_REPLIES = [

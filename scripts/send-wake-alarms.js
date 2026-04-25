@@ -5,6 +5,10 @@ const {
   computeNextRecurringDueAt,
   formatWakeAlarmPushText,
 } = require('../linebot/src/wake-alarm');
+const {
+  fetchWakeWeather,
+  formatWakeWeatherSummary,
+} = require('../linebot/src/weather');
 
 const WAKE_ALARM_ROOT = 'wakeAlarms';
 const LOOKBACK_MS = 15 * 60 * 1000;
@@ -51,7 +55,16 @@ async function processWakeAlarm(sourceId, alarm, now) {
   if (!sourceId || !alarm || alarm.status !== 'active' || !Number.isFinite(dueAt)) return false;
   if (dueAt > now || dueAt < now - LOOKBACK_MS) return false;
 
-  await pushLineText(sourceId, formatWakeAlarmPushText(alarm));
+  const weatherLatitude = parseStoredNumber(alarm.weatherLatitude);
+  const weatherLongitude = parseStoredNumber(alarm.weatherLongitude);
+  const weather = await fetchWakeWeather(
+    alarm.weatherPlace || '',
+    weatherLatitude,
+    weatherLongitude,
+  ).catch(() => null);
+  const weatherLine = formatWakeWeatherSummary(weather);
+  const text = [formatWakeAlarmPushText(alarm), weatherLine].filter(Boolean).join('\n');
+  await pushLineText(sourceId, text);
 
   const ref = getDb().ref(`${WAKE_ALARM_ROOT}/${sourceId}`);
   const update = {
@@ -71,6 +84,12 @@ async function processWakeAlarm(sourceId, alarm, now) {
 
   await ref.update(update);
   return true;
+}
+
+function parseStoredNumber(value) {
+  if (value == null || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 async function main() {

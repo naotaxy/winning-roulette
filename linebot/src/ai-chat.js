@@ -412,6 +412,7 @@ function formatContext(context = {}) {
   const lines = [];
   if (context.senderName) lines.push(`話しかけてきた相手の名前: ${context.senderName}`);
   if (context.senderProfileText) lines.push(`相手のプロファイル: ${context.senderProfileText}`);
+  if (context.privateProfileText) lines.push(`本人用の内部メモ(本人にだけ使う): ${context.privateProfileText}`);
   if (context.year && context.month) lines.push(`${context.year}年${context.month}月`);
   if (context.hour != null) lines.push(`現在時刻: ${context.hour}時台（${getTimeLabel(context.hour)}）`);
   if (context.players?.length) lines.push(`メンバー: ${context.players.join('、')}`);

@@ -41,7 +41,12 @@ const {
 const { resolveRealName, updateGroupProfiles, formatProfileForContext } = require('./member-profile');
 const { searchRestaurants, extractRestaurantParams, isRestaurantRequest, buildRestaurantCarousel } = require('./hotpepper');
 const { isHotelRequest, extractHotelParams, searchHotels, sortHotelsForConcierge, buildHotelCarousel } = require('./rakuten-travel');
-const { isWeatherRequest, extractWeatherCity, fetchWeatherForCity, formatWeatherReply } = require('./weather');
+const {
+  isWeatherRequest,
+  extractWeatherCity,
+  fetchWeatherForCity,
+  formatWeatherReply,
+} = require('./weather');
 const { isTransportRequest, isTaxiRequest, isFlightRequest, extractRouteParams, buildRouteFlex, buildTaxiFlex, buildFlightFlex } = require('./transport');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
 const { getTokyoDateParts, shiftMonth } = require('./date-utils');
@@ -185,6 +190,20 @@ const {
   formatWakeAlarmStatusReply,
   formatWakeAlarmCancelReply,
 } = require('./wake-alarm');
+const {
+  getResolvedPrivateProfile,
+  buildPrivateProfileContextText,
+  formatOwnPrivateProfileReply,
+  buildProfileAwareHint,
+  detectPrivateProfileIntent,
+  extractPrivateProfileUpdate,
+  savePrivateProfileUpdate,
+} = require('./private-profile');
+const {
+  detectLocationStoryIntent,
+  buildLocationStoryPrompt,
+  generateLocationStoryMessages,
+} = require('./location-story');
 
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
 const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
@@ -227,6 +246,22 @@ async function handleLocation(event, client) {
   });
 
   const pendingRequest = await getPendingLocationRequest(sourceId, userId);
+  if (pendingRequest?.type === 'locationStory' && Number.isFinite(locationPayload?.latitude) && Number.isFinite(locationPayload?.longitude)) {
+    await clearPendingLocationRequest(sourceId, userId).catch(() => {});
+    const privateProfile = await getResolvedPrivateProfile({
+      userId,
+      lineName: event.source?.userId ? null : senderName,
+      realName: senderName,
+    }).catch(() => null);
+    const messages = await generateLocationStoryMessages({
+      latitude: locationPayload.latitude,
+      longitude: locationPayload.longitude,
+      label: locationPayload.label,
+      profile: privateProfile,
+    });
+    return client.replyMessage(event.replyToken, messages);
+  }
+
   if (pendingRequest?.category && Number.isFinite(locationPayload?.latitude) && Number.isFinite(locationPayload?.longitude)) {
     await clearPendingLocationRequest(sourceId, userId).catch(() => {});
     const result = await findNearbyPlaces({
@@ -428,6 +463,25 @@ async function handleText(event, client) {
   // 全メッセージを会話メモリに保存（userId付き）
   saveConversationMessage(sourceId, senderName, text, userId).catch(() => {});
 
+  const profileUpdateBody = isDirectChat ? extractPrivateProfileUpdate(text) : null;
+  if (profileUpdateBody && userId) {
+    const updatedProfile = await savePrivateProfileUpdate({
+      userId,
+      realName: senderName || '',
+      rawText: profileUpdateBody,
+    });
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: updatedProfile
+        ? [
+          'うん、本人用のプロファイルとして預かったよ。',
+          'これからはこのメモを前提に、好みや生活リズムを少し察して返すね。',
+          formatOwnPrivateProfileReply(updatedProfile),
+        ].join('\n\n')
+        : 'ごめん、今はプロフィール更新の保存でつまずいちゃった。少し時間を置いてもう一回送ってね。',
+    });
+  }
+
   const rawMentionInfo = getSecretaryMentionInfo(text);
   const effectiveText = buildEffectiveSecretaryText(text, isDirectChat, rawMentionInfo.mentioned);
   const mentionInfo = getSecretaryMentionInfo(effectiveText);
@@ -568,6 +622,26 @@ async function handleText(event, client) {
     });
   }
 
+  if (intent?.type === 'privateProfile') {
+    if (intent.action === 'guard') {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '本人用のプロファイルは、本人との会話にだけ使うよ。ほかの人に聞かれても出さないの。そこはちゃんと守るね。',
+      });
+    }
+    if (!isDirectChat) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '本人用のプロファイル確認は1対1でだけ見せるね。グループでは出さないようにしてるの。',
+      });
+    }
+    const privateProfile = await getResolvedPrivateProfile({ userId, realName: senderName });
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatOwnPrivateProfileReply(privateProfile),
+    });
+  }
+
   if (intent === 'weather') {
     const city = extractWeatherCity(mentionInfo.withoutMention) || '東京';
     const result = await fetchWeatherForCity(city);
@@ -595,6 +669,26 @@ async function handleText(event, client) {
       });
     }
     return client.replyMessage(event.replyToken, buildRouteFlex(from, to));
+  }
+
+  if (intent?.type === 'locationStory') {
+    const latestLocation = await getLatestLocation(sourceId, userId);
+    if (!latestLocation?.latitude || !latestLocation?.longitude) {
+      await savePendingLocationRequest(sourceId, userId, {
+        type: 'locationStory',
+        text: mentionInfo.withoutMention,
+      }).catch(() => {});
+      return client.replyMessage(event.replyToken, buildLocationStoryPrompt(!!latestLocation));
+    }
+
+    const privateProfile = await getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null);
+    const messages = await generateLocationStoryMessages({
+      latitude: Number(latestLocation.latitude),
+      longitude: Number(latestLocation.longitude),
+      label: latestLocation.label || latestLocation.address || '',
+      profile: privateProfile,
+    });
+    return client.replyMessage(event.replyToken, messages);
   }
 
   if (intent?.type === 'nearby') {
@@ -658,6 +752,12 @@ async function handleText(event, client) {
       });
     }
 
+    const latestLocation = await getLatestLocation(sourceId, userId);
+    const privateProfile = await getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null);
+    const weatherPlace = latestLocation?.label
+      || latestLocation?.address
+      || privateProfile?.defaultWakePlace
+      || '東京';
     const alarm = await setWakeAlarm(sourceId, {
       sourceId,
       userId,
@@ -666,6 +766,9 @@ async function handleText(event, client) {
       minute: intent.minute,
       dueAt: intent.dueAt,
       recurring: intent.recurring === true,
+      weatherPlace,
+      weatherLatitude: Number.isFinite(Number(latestLocation?.latitude)) ? Number(latestLocation.latitude) : null,
+      weatherLongitude: Number.isFinite(Number(latestLocation?.longitude)) ? Number(latestLocation.longitude) : null,
       status: 'active',
       createdAt: Date.now(),
       createdAtIso: new Date().toISOString(),
@@ -748,7 +851,11 @@ async function handleText(event, client) {
 
   if (intent === 'casual') {
     const aiEnabled = shouldUseAiChat();
-    const recentConversation = sourceId ? await getRecentConversation(sourceId, 15) : [];
+    const [recentConversation, privateProfile] = await Promise.all([
+      sourceId ? getRecentConversation(sourceId, 15) : Promise.resolve([]),
+      getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null),
+    ]);
+    const profileHint = buildProfileAwareHint(mentionInfo.withoutMention, privateProfile);
 
     const aiReply = aiEnabled
       ? await formatAiChatReply(effectiveText, await buildAiConversationContext(year, month, senderName, sourceId, userId))
@@ -759,7 +866,7 @@ async function handleText(event, client) {
     } else if (aiEnabled) {
       replyText = getTiredReply();
     } else {
-      replyText = getCasualReplyWithContext(effectiveText, recentConversation, senderName);
+      replyText = getCasualReplyWithContext(effectiveText, recentConversation, senderName, profileHint);
     }
     return sendCasualReply(client, event, replyText, sourceId);
   }
@@ -1248,12 +1355,13 @@ function trimBatchError(value) {
 async function buildAiConversationContext(year, month, senderName = null, sourceId = null, userId = null) {
   try {
     const players = await getPlayers();
-    const [monthResults, yearResults, diaries, recentConversation, senderProfile] = await Promise.all([
+    const [monthResults, yearResults, diaries, recentConversation, senderProfile, privateProfile] = await Promise.all([
       getMonthResults(year, month),
       getYearResults(year),
       getRecentDiaries(3),
       sourceId ? getRecentConversation(sourceId, 20) : Promise.resolve([]),
       userId ? getMemberProfile(userId) : Promise.resolve(null),
+      getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null),
     ]);
     const monthlyRows = calculateMonthlyStandings(players, monthResults);
     const annualRows = calculateAnnualStandings(players, yearResults);
@@ -1266,6 +1374,7 @@ async function buildAiConversationContext(year, month, senderName = null, source
       hour: getTokyoDateParts().hour,
       senderName,
       senderProfileText: formatProfileForContext(senderProfile, senderName),
+      privateProfileText: buildPrivateProfileContextText(privateProfile),
       players: playerNames,
       monthlyTop: monthlyRows[0] || null,
       annualTop: annualRows[0] || null,
@@ -1293,6 +1402,9 @@ function detectTextIntent(text) {
 
   const targetText = withoutMention;
 
+  const privateProfileIntent = detectPrivateProfileIntent(targetText);
+  if (privateProfileIntent) return privateProfileIntent;
+
   const beastModeIntent = detectBeastModeIntent(targetText);
   if (beastModeIntent) return beastModeIntent;
 
@@ -1304,6 +1416,9 @@ function detectTextIntent(text) {
 
   const ocrControlIntent = detectOcrControlIntent(targetText);
   if (ocrControlIntent) return ocrControlIntent;
+
+  const locationStoryIntent = detectLocationStoryIntent(targetText);
+  if (locationStoryIntent) return locationStoryIntent;
 
   const nearbyIntent = detectNearbyIntent(targetText);
   if (nearbyIntent) return nearbyIntent;

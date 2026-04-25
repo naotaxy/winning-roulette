@@ -35,6 +35,7 @@ const BEAST_MODE_ROOT = 'beastMode';
 const LOCATION_MEMORY_ROOT = 'locationMemory';
 const PENDING_LOCATION_REQUEST_ROOT = 'pendingLocationRequests';
 const WAKE_ALARM_ROOT = 'wakeAlarms';
+const PRIVATE_PROFILE_ROOT = 'privateProfiles';
 const LOCATION_MEMORY_TTL_MS = 12 * 60 * 60 * 1000;
 const PENDING_LOCATION_REQUEST_TTL_MS = 30 * 60 * 1000;
 
@@ -335,6 +336,33 @@ async function setWakeAlarm(sourceId, alarm = {}) {
 async function clearWakeAlarm(sourceId) {
   if (!sourceId) return;
   await getDb().ref(`${WAKE_ALARM_ROOT}/${sourceId}`).remove();
+}
+
+async function getPrivateUserProfile(userId) {
+  if (!userId) return null;
+  try {
+    const snap = await getDb().ref(`${PRIVATE_PROFILE_ROOT}/${userId}`).once('value');
+    return snap.val() || null;
+  } catch (err) {
+    console.error('[firebase] getPrivateUserProfile failed', err?.message || err);
+    return null;
+  }
+}
+
+async function savePrivateUserProfile(userId, data) {
+  if (!userId || !data) return null;
+  try {
+    const payload = {
+      ...data,
+      updatedAt: Date.now(),
+      updatedAtIso: new Date().toISOString(),
+    };
+    await getDb().ref(`${PRIVATE_PROFILE_ROOT}/${userId}`).update(payload);
+    return payload;
+  } catch (err) {
+    console.error('[firebase] savePrivateUserProfile failed', err?.message || err);
+    return null;
+  }
 }
 
 async function saveScreenshotCandidate(sourceId, dayKey, msgId, data = {}) {
@@ -999,6 +1027,8 @@ module.exports = {
   getWakeAlarm,
   setWakeAlarm,
   clearWakeAlarm,
+  getPrivateUserProfile,
+  savePrivateUserProfile,
   saveScreenshotCandidate,
   updateScreenshotCandidate,
   getScreenshotCandidates,
