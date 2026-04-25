@@ -593,7 +593,7 @@ async function handleText(event, client) {
     if (bookingAwaitingReply) return bookingAwaitingReply;
   }
 
-  const intent = detectTextIntent(effectiveText);
+  const intent = detectTextIntent(effectiveText, { allowBareHelp: isDirectChat });
   if (!intent) return;
 
   // グループ全員のプロファイリング（全intent共通、fire-and-forget）
@@ -1550,10 +1550,11 @@ async function buildAiConversationContext(year, month, senderName = null, source
   }
 }
 
-function detectTextIntent(text) {
+function detectTextIntent(text, options = {}) {
+  const allowBareHelp = options.allowBareHelp === true;
   const { compact, mentioned, withoutMention } = getSecretaryMentionInfo(text);
   if (!compact) return null;
-  if (/^(ヘルプ|help)$/i.test(compact)) return 'help';
+  if (allowBareHelp && /^(ヘルプ|help)$/i.test(compact)) return 'help';
   if (!mentioned) return null;
 
   if (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention)) return 'help';
