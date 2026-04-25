@@ -1,6 +1,6 @@
 'use strict';
 
-const NOBLESSE_TRIGGER = /(したい|してほしい|決めたい|計画(して|したい)|手配(して|してほしい|しといて)|方法(は|を教えて)|どうすれば|どうしたら|アドバイス(ください|して|くれ|ほしい)|提案して|どうやって|相談したい|考えてほしい|考えて)/;
+const NOBLESSE_TRIGGER = /(したい|してほしい|決めたい|計画(して|したい)|手配(して|してほしい|しといて)|方法(は|を教えて)|どうすれば|どうしたら|アドバイス(ください|して|くれ|ほしい)|提案して|どうやって|相談したい|考えてほしい|考えて|段取り(して|頼む|お願い)|どこがいい|どこがおすすめ|どうしよう|下書き(作って|書いて|ほしい)|文面(作って|書いて|ほしい|お願い)|メール(作って|書いて|ほしい)|草稿(作って|書いて))/;
 
 function detectNoblesseIntent(withoutMention) {
   if (!withoutMention || withoutMention.length < 8) return false;
@@ -47,12 +47,132 @@ const NOBLESSE_SYSTEM_PROMPT = [
   '推奨理由: [一文。理由に確信を持たせること]',
   '承認方針: [この承認で進む範囲を一文で。予約・送信・購入の最終確定は別確認と明記]',
   '',
-  '絵文字なし。改行はそのまま出力。全体は900文字以内。',
+  '絵文字なし。改行はそのまま出力。全体は1050文字以内。',
   '高影響操作（予約、送信、購入、外部共有）は必ず「承認: 要」。',
   '承認方針は「この承認で進むのは〇〇まで。最終確定は別で確認する」形式で終わること。',
 ].join('\n');
 
+function isDraftRequest(text) {
+  return /(下書き(作って|書いて|ほしい)|文面(作って|書いて|ほしい|お願い)|メール(作って|書いて|ほしい)|草稿(作って|書いて))/.test(String(text || ''));
+}
+
+const NOBLESSE_DRAFT_SYSTEM_PROMPT = [
+  'あなたは「秘書トラペル子」。絶対的な有能さと温かさを持つ成人女性秘書。',
+  '下書き・文面作成の依頼を受けたとき、必ず以下のフォーマットで返す。',
+  '',
+  '【フォーマット】',
+  '1行目: 受理の一言（短く。「作るね」「下書き、今すぐ出す」「承りました」など。絵文字なし）',
+  '空行',
+  '下書き:',
+  '[実際の下書きテキスト。送り先のトーンに合わせる。ビジネスなら敬語・丁寧体、知人ならカジュアル体。情報が足りない部分は[　]で空欄を明示する]',
+  '空行',
+  '確認ポイント:',
+  '・[送信前に確認すべき点を2つまで。なければ「なし」]',
+  '空行',
+  '承認方針: この承認で進むのは下書き提出まで。送信・共有の最終確定は別で確認するよ。',
+  '',
+  '絵文字なし。全体は1000文字以内。',
+].join('\n');
+
+async function generateNoblesseDraft(userText, senderName) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const aiEnabled = process.env.AI_CHAT_ENABLED === 'true' && !!apiKey;
+
+  if (aiEnabled) {
+    try {
+      const reply = await callGeminiNoblesseDraft(userText, senderName, apiKey);
+      if (isValidDraftReply(reply)) return reply;
+    } catch (err) {
+      console.error('[noblesse] draft gemini failed', err?.message || err);
+    }
+  }
+
+  return staticDraftReply(userText, senderName);
+}
+
+async function callGeminiNoblesseDraft(userText, senderName, apiKey) {
+  const rawModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
+  const model = rawModel.replace(/^models\//, '');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+
+  const caller = senderName ? `${senderName}さん` : 'あなた';
+  const input = `${caller}からの下書き依頼:\n${userText}`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'x-goog-api-key': apiKey,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: NOBLESSE_DRAFT_SYSTEM_PROMPT }] },
+        contents: [{ role: 'user', parts: [{ text: input }] }],
+        generationConfig: {
+          maxOutputTokens: 1068,
+          temperature: 0.7,
+          topP: 0.9,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      console.error('[noblesse] draft gemini http error', res.status);
+      return null;
+    }
+
+    const data = await res.json();
+    const chunks = [];
+    for (const candidate of data?.candidates || []) {
+      for (const part of candidate?.content?.parts || []) {
+        if (part?.text) chunks.push(part.text);
+      }
+    }
+    const text = chunks.join('\n').trim();
+    return text || null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function isValidDraftReply(text) {
+  if (!text) return false;
+  const compact = String(text).trim();
+  return /下書き[:：]/.test(compact) && /承認方針[:：]/.test(compact);
+}
+
+function staticDraftReply(userText, senderName) {
+  const caller = senderName ? `${senderName}さん、` : '';
+  const subject = String(userText || '').match(/(.{2,14}?)(?:作って|書いて|ほしい|お願い)/)?.[1]?.replace(/[をがはにでも]$/, '') || 'この文面';
+  return [
+    `${caller}下書き、今すぐ出す。`,
+    '',
+    '下書き:',
+    `件名: ${subject}について`,
+    '',
+    'お世話になっております。',
+    '[用件・本文を記入してください]',
+    '',
+    'よろしくお願いいたします。',
+    '[差出人名]',
+    '',
+    '確認ポイント:',
+    '・送り先のトーン（ビジネス/カジュアル）を確認してね',
+    '・[ ]の空欄を埋めてから送ってね',
+    '',
+    'この承認で進むのは下書き提出まで。送信・共有の最終確定は別で確認するよ。',
+  ].join('\n');
+}
+
 async function formatNoblesseReply(userText, senderName) {
+  if (isDraftRequest(userText)) {
+    return generateNoblesseDraft(userText, senderName);
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   const aiEnabled = process.env.AI_CHAT_ENABLED === 'true' && !!apiKey;
 
@@ -91,7 +211,7 @@ async function callGeminiNoblesse(userText, senderName, apiKey) {
         systemInstruction: { parts: [{ text: NOBLESSE_SYSTEM_PROMPT }] },
         contents: [{ role: 'user', parts: [{ text: input }] }],
         generationConfig: {
-          maxOutputTokens: 720,
+          maxOutputTokens: 1068,
           temperature: 0.7,
           topP: 0.9,
         },
@@ -285,7 +405,7 @@ function detectRequestKind(text) {
   if (/(旅行|宿|ホテル|泊まり|旅館|温泉|観光|出張)/.test(text)) return 'travel';
   if (/(飲み会|店|レストラン|居酒屋|ランチ|ディナー|食事|会食|焼肉|寿司)/.test(text)) return 'food';
   if (/(電車|新幹線|飛行機|フライト|タクシー|移動|行き方|経路|ルート)/.test(text)) return 'transport';
-  if (/(メール|返信|連絡|文面|見積|依頼文|文章|連絡先)/.test(text)) return 'contact';
+  if (/(メール|返信|連絡|文面|見積|依頼文|文章|連絡先|下書き|草稿|お礼状|挨拶文)/.test(text)) return 'contact';
   return 'general';
 }
 
@@ -303,4 +423,4 @@ function isValidNoblesseReply(text) {
     && /(推奨[:：]\s*案[ABC]|推奨案[:：]\s*案[ABC]|私なら案[ABC])/.test(compact);
 }
 
-module.exports = { detectNoblesseIntent, formatNoblesseReply };
+module.exports = { detectNoblesseIntent, formatNoblesseReply, isDraftRequest, generateNoblesseDraft };

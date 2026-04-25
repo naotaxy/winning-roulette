@@ -39,6 +39,7 @@ jobs:
           DIARY_PHOTO_CAPTION:      ${{ secrets.DIARY_PHOTO_CAPTION }}
           DIARY_GEMINI_MODEL:       ${{ vars.DIARY_GEMINI_MODEL }}
           DIARY_GEMINI_FALLBACK_MODELS: ${{ vars.DIARY_GEMINI_FALLBACK_MODELS }}
+          DIARY_GROUP_SOURCE_ID:    ${{ secrets.DIARY_GROUP_SOURCE_ID }}
         run: node scripts/generate-diary.js
 
       - name: Commit blog archive

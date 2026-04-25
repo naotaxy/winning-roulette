@@ -51,6 +51,7 @@ const {
   formatWeatherReply,
 } = require('./weather');
 const { isTransportRequest, isTaxiRequest, isFlightRequest, extractRouteParams, buildRouteFlex, buildTaxiFlex, buildFlightFlex } = require('./transport');
+const { fetchYahooWeather, searchYahooLocalSpots, buildWeatherLine } = require('./yahoo-api');
 const { buildConfirmFlex, buildCompleteFlex } = require('./flex-message');
 const { getTokyoDateParts, shiftMonth } = require('./date-utils');
 const { inspectImage, looksLikePhoneScreenshot, classifyOcrResult } = require('./image-guard');
@@ -209,6 +210,7 @@ const {
 } = require('./location-story');
 const {
   detectReminderIntent,
+  detectReminderSuggestionIntent,
   detectNoblesseReminderHint,
   buildNoblesseReminderProposal,
   formatReminderSetReply,
@@ -321,6 +323,7 @@ async function handleLocation(event, client) {
       actorName: senderName,
       userId,
       rawValue: originLabel,
+      locationCoords: { lat: locationPayload.latitude, lon: locationPayload.longitude },
     });
   }
 
@@ -845,6 +848,10 @@ async function handleText(event, client) {
     return handleEventReminderIntent({ event, client, sourceId, userId, senderName, intent });
   }
 
+  if (intent?.type === 'eventReminderSuggest') {
+    return client.replyMessage(event.replyToken, buildNoblesseReminderPrompt(intent.proposal, { context: 'manager' }));
+  }
+
   if (intent === 'noblesse:status') {
     const beastMode = await getBeastModeState(sourceId);
     if (!beastMode.enabled) {
@@ -924,6 +931,13 @@ async function handleText(event, client) {
       });
     }
     return handleCuratedPlanTextIntent({ event, client, sourceId, userId, senderName, intent });
+  }
+
+  if (intent?.type === 'restaurant') {
+    return handleDirectRestaurantSearch({
+      client, event, sourceId, userId, senderName,
+      text: mentionInfo.withoutMention,
+    });
   }
 
   if (intent === 'casual') {
@@ -1506,6 +1520,9 @@ function detectTextIntent(text) {
   const reminderIntent = detectReminderIntent(targetText);
   if (reminderIntent) return reminderIntent;
 
+  const reminderSuggestionIntent = detectReminderSuggestionIntent(targetText);
+  if (reminderSuggestionIntent) return reminderSuggestionIntent;
+
   const conciergeIntent = detectConciergeIntent(targetText);
   if (conciergeIntent) return conciergeIntent;
 
@@ -1534,10 +1551,10 @@ function detectTextIntent(text) {
 
   if (/(進捗|しんちょく|やってない|まだ.*試合|試合.*まだ|残り.*試合|試合.*残り|誰がまだ|だれがまだ|やった.*誰|誰.*やった|片方|1試合|未消化)/.test(targetText)) return 'progress';
 
-  if (/(状況|戦況|成績|調子|まとめ|誰が強い|だれが強い|勝ってる)/.test(targetText)) return 'status';
-
   if (/NB-\d{8}-\d+/.test(targetText)) return 'noblesse:status';
-  if (/(案件|ノブレス).*(確認|状況|どうなった|一覧|見せて|教えて|リスト|まとめ)/.test(targetText)) return 'noblesse:status';
+  if (/(案件|ノブレス|システム).*(確認|状況|どうなった|一覧|見せて|教えて|リスト|まとめ)/.test(targetText)) return 'noblesse:status';
+
+  if (/(状況|戦況|成績|調子|まとめ|誰が強い|だれが強い|勝ってる)/.test(targetText)) return 'status';
 
   if (isWeatherRequest(targetText)) return 'weather';
 
@@ -1550,6 +1567,8 @@ function detectTextIntent(text) {
   if (detectNoblesseIntent(targetText)) return 'noblesse';
 
   if (isTransportRequest(targetText)) return 'transport';
+
+  if (isRestaurantRequest(targetText)) return { type: 'restaurant', text: targetText };
 
   return 'casual';
 }
@@ -2279,6 +2298,80 @@ function normalizeRestaurantCandidates(shops) {
   }));
 }
 
+function extractRestaurantArea(text) {
+  const t = String(text || '').normalize('NFKC').trim();
+  const m = t.match(/([ぁ-ん一-龯ァ-ン]{2,8}?)(?:駅|で|の|周辺|近く|あたり|に向|方面)/);
+  return m ? m[1].trim() : '';
+}
+
+function buildDiningKeywordsFromProfile(profile) {
+  if (!profile) return [];
+  const combined = [
+    profile.preferenceHints?.food || '',
+    ...(profile.summaryLines || []),
+    profile.memo || '',
+  ].join(' ');
+
+  const keywords = [];
+  if (/妥協.*刺さ|ちゃんと美味し|良い外食|こだわ/.test(combined)) keywords.push('こだわり');
+  if (/落ち着|大人|上質|静か/.test(combined)) keywords.push('落ち着いた');
+  if (/おしゃれ|麻布台|吉祥寺|空気感|センス/.test(combined)) keywords.push('おしゃれ');
+  if (/居酒屋|飲み|クラフトビール/.test(combined)) keywords.push('居酒屋');
+  if (/和食|割烹|日本料理/.test(combined)) keywords.push('和食');
+  if (/イタリアン|パスタ|ピザ/.test(combined)) keywords.push('イタリアン');
+  if (/ランチ|昼食/.test(combined)) keywords.push('ランチ');
+  return keywords.slice(0, 2); // 多すぎると絞り込みすぎるので最大2つ
+}
+
+function buildProfileIntroLine(profile, area) {
+  if (!profile) return `${area}で見つけてきたよ。気になるところある？`;
+  const name = profile.lineName || profile.realName || '';
+  const food = profile.preferenceHints?.food;
+  if (food) return `${name ? name + 'さんの「' + food.slice(0, 18) + '」' : 'あなたの好みの感じ'}に近いところ、${area}で探してきたよ。`;
+  return `${name ? name + 'さんに向きそうなところ、' : ''}${area}で見つけてきたよ。`;
+}
+
+async function handleDirectRestaurantSearch({ client, event, sourceId, userId, senderName, text }) {
+  // エリア抽出：テキスト → 直近会話を遡る
+  let area = extractRestaurantArea(text);
+  if (!area && sourceId) {
+    const recent = await getRecentConversation(sourceId, 8).catch(() => []);
+    for (const msg of [...recent].reverse()) {
+      const a = extractRestaurantArea(msg.text || '');
+      if (a) { area = a; break; }
+    }
+  }
+
+  if (!area) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'どのエリアで探す？「市ヶ谷で」「渋谷近く」みたいに教えてくれると、ちゃんと探せるよ。',
+    });
+  }
+
+  // プロファイルから嗜好キーワードを生成
+  const profile = await getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null);
+  const profileKeywords = buildDiningKeywordsFromProfile(profile);
+  const { capacity, budgetYen } = extractRestaurantParams(text);
+  const keyword = [area, ...profileKeywords].filter(Boolean).join(' ');
+
+  const shops = await searchRestaurants({ keyword, capacity, budgetYen, count: 3 }).catch(() => null);
+
+  if (!shops?.length) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `${area}で探してみたけど、今日は出てこなかった。エリアか条件を変えてみようか？`,
+    });
+  }
+
+  const intro = buildProfileIntroLine(profile, area);
+  const carousel = buildRestaurantCarousel(shops, null);
+  return client.replyMessage(event.replyToken, carousel
+    ? [{ type: 'text', text: intro }, carousel]
+    : { type: 'text', text: shops.map(s => `・${s.name}（${s.genre?.name || ''}）`).join('\n') }
+  );
+}
+
 async function handleCuratedApprovalFlow({ client, event, sourceId, actorName, userId, caseId, caseData, option, kind }) {
   const plan = createCuratedPlanState({
     kind,
@@ -2374,7 +2467,7 @@ async function handleCuratedPlanTextIntent({ event, client, sourceId, userId, se
   });
 }
 
-async function handleCuratedFieldUpdate({ client, event, sourceId, caseId, plan, actorName, userId, rawValue }) {
+async function handleCuratedFieldUpdate({ client, event, sourceId, caseId, plan, actorName, userId, rawValue, locationCoords }) {
   const parsed = applyCuratedFieldInput(plan, rawValue);
   if (!parsed.ok) {
     const currentField = getNextCuratedField(plan);
@@ -2387,9 +2480,15 @@ async function handleCuratedFieldUpdate({ client, event, sourceId, caseId, plan,
     ]);
   }
 
+  // GPS 位置情報が origin 更新と一緒に届いた場合は lat/lon も保存（天気・周辺スポット照会に使う）
+  const coordsPatch = locationCoords && parsed.patch?.origin
+    ? { lat: locationCoords.lat, lon: locationCoords.lon }
+    : {};
+
   const merged = {
     ...plan,
     ...parsed.patch,
+    ...coordsPatch,
     ownerUserId: userId || plan.ownerUserId || '',
     ownerName: actorName || plan.ownerName || '',
   };
@@ -2435,9 +2534,24 @@ async function continueCuratedPlanOrRun({ client, event, sourceId, actorName, ca
 }
 
 async function runCuratedCandidates({ client, event, sourceId, actorName, caseId, plan, intro = '' }) {
-  const candidates = rankCuratedCandidates(plan);
+  // A: 天気インテリジェンス — GPS 座標があれば現在の降雨を照会して候補のランキングに反映
+  let weatherIntro = '';
+  let activePlan = plan;
+  if (plan.kind === 'outing' && Number.isFinite(plan.lat) && Number.isFinite(plan.lon)) {
+    const weather = await fetchYahooWeather(plan.lat, plan.lon).catch(() => null);
+    if (weather) {
+      const line = buildWeatherLine(weather);
+      if (line) weatherIntro = line;
+      if ((weather.isRaining || weather.willRain) && plan.weatherMode !== 'indoor') {
+        activePlan = { ...plan, weatherMode: 'indoor' };
+        weatherIntro += '\n屋内・屋根付きを優先候補に調整しました。';
+      }
+    }
+  }
+
+  const candidates = rankCuratedCandidates(activePlan);
   const updated = {
-    ...plan,
+    ...activePlan,
     candidates,
     awaitingField: '',
     status: candidates.length ? 'candidates' : 'collecting',
@@ -2450,12 +2564,16 @@ async function runCuratedCandidates({ client, event, sourceId, actorName, caseId
   if (!candidates.length) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: `${intro ? `${intro}\n` : ''}${plan.kind === 'outing' ? 'いまの条件だと、しっくりくるおでかけ先がまだ出し切れなかったの。少し条件を変えようか。' : 'いまの条件だと、しっくりくる買い物先がまだ出し切れなかったの。少し条件を変えようか。'}`,
+      text: [weatherIntro, intro, plan.kind === 'outing'
+        ? 'いまの条件だと、しっくりくるおでかけ先がまだ出し切れなかったの。少し条件を変えようか。'
+        : 'いまの条件だと、しっくりくる買い物先がまだ出し切れなかったの。少し条件を変えようか。',
+      ].filter(Boolean).join('\n'),
     });
   }
 
+  const guideText = buildCuratedGuideText(caseId, updated, candidates);
   return client.replyMessage(event.replyToken, [
-    { type: 'text', text: [intro, buildCuratedGuideText(caseId, updated, candidates)].filter(Boolean).join('\n') },
+    { type: 'text', text: [weatherIntro, intro, guideText].filter(Boolean).join('\n') },
     buildCuratedCandidatesFlex(caseId, updated, candidates),
   ]);
 }
@@ -2471,7 +2589,35 @@ async function handleCuratedCandidatePick({ client, event, sourceId, actorName, 
     });
   }
 
-  const itineraryText = buildCuratedItinerary(caseId, plan, candidate);
+  const baseItinerary = buildCuratedItinerary(caseId, plan, candidate);
+
+  // A + B: 天気照会 + 周辺スポットスキャン（外出プランかつ GPS 座標ありの場合）
+  const isOutingWithCoords = plan.kind === 'outing' && Number.isFinite(plan.lat) && Number.isFinite(plan.lon);
+  const [weather, nearbySpots] = await Promise.all([
+    isOutingWithCoords
+      ? fetchYahooWeather(plan.lat, plan.lon).catch(() => null)
+      : Promise.resolve(null),
+    plan.kind === 'outing' && candidate.area
+      ? searchYahooLocalSpots(`${candidate.area} カフェ 飲食店`).catch(() => [])
+      : Promise.resolve([]),
+  ]);
+
+  const intelligenceLines = [];
+  if (weather) {
+    intelligenceLines.push('', '── 気象情報 ──', buildWeatherLine(weather));
+  }
+  if (nearbySpots.length) {
+    intelligenceLines.push('', '── 周辺スポット照会 ──');
+    nearbySpots.slice(0, 2).forEach(s => {
+      const dist = s.distance != null ? `（${s.distance}m先）` : '';
+      intelligenceLines.push(`${s.name}${dist}${s.category ? '　' + s.category : ''}`);
+    });
+  }
+
+  const itineraryText = intelligenceLines.length
+    ? baseItinerary + '\n' + intelligenceLines.join('\n')
+    : baseItinerary;
+
   const shareText = buildCuratedShareText(caseId, plan, candidate, itineraryText);
   await updateCuratedPlan(caseId, {
     ...plan,
@@ -3251,6 +3397,8 @@ async function handleEventReminderIntent({ event, client, sourceId, userId, send
       reminderAt: intent.reminderAt,
       advanceMin: intent.advanceMin || 0,
       tags: intent.tags || [],
+      detail: intent.detail || '',
+      participantCount: intent.participantCount || null,
       createdByName: senderName || '',
       createdBy: userId || '',
     });
@@ -3263,22 +3411,31 @@ async function handleEventReminderIntent({ event, client, sourceId, userId, send
   return null;
 }
 
-function buildNoblesseReminderPrompt(proposal) {
+function buildNoblesseReminderPrompt(proposal, options = {}) {
+  const isManagerContext = options.context === 'manager';
+  const titlePrefix = proposal.participantCount
+    ? `今夜${proposal.participantCount}人で「${proposal.title}」を`
+    : `「${proposal.title}」を`;
   if (proposal.hasTime) {
     const h = proposal.time.hour;
     const m = proposal.time.minute;
     const timeLabel = `${h}:${String(m).padStart(2, '0')}`;
+    const intro = isManagerContext
+      ? `今夜の予定、${proposal.participantCount ? `${proposal.participantCount}人で` : ''}「${proposal.title}」が ${timeLabel} からなのね。`
+      : `「${proposal.title}」が今夜 ${timeLabel} からなのね。`;
     return {
       type: 'text',
       text: [
-        `「${proposal.title}」が今夜 ${timeLabel} からなのね。`,
+        intro,
+        proposal.detail || '',
         'リマインドも入れておく？ 何分前に声をかければいい？',
-      ].join('\n'),
+      ].filter(Boolean).join('\n'),
       quickReply: {
         items: [
-          { type: 'action', action: { type: 'message', label: '30分前', text: `${timeLabel}の30分前にリマインドして` } },
-          { type: 'action', action: { type: 'message', label: '15分前', text: `${timeLabel}の15分前にリマインドして` } },
-          { type: 'action', action: { type: 'message', label: '開始時間に', text: `${timeLabel}にリマインドして` } },
+          { type: 'action', action: { type: 'message', label: '1時間前', text: `${titlePrefix}${timeLabel}の1時間前にリマインドして` } },
+          { type: 'action', action: { type: 'message', label: '30分前', text: `${titlePrefix}${timeLabel}の30分前にリマインドして` } },
+          { type: 'action', action: { type: 'message', label: '15分前', text: `${titlePrefix}${timeLabel}の15分前にリマインドして` } },
+          { type: 'action', action: { type: 'message', label: '開始時間に', text: `${titlePrefix}${timeLabel}にリマインドして` } },
           { type: 'action', action: { type: 'message', label: 'リマインド不要', text: 'リマインドはいいや' } },
         ],
       },
@@ -3287,10 +3444,13 @@ function buildNoblesseReminderPrompt(proposal) {
   return {
     type: 'text',
     text: [
-      `「${proposal.title}」ね、了解。`,
+      isManagerContext
+        ? `${proposal.participantCount ? `${proposal.participantCount}人の` : ''}「${proposal.title}」ね、了解。`
+        : `「${proposal.title}」ね、了解。`,
+      proposal.detail || '',
       '開始時間を教えてくれたら、集合前にリマインドを入れておけるよ。',
       '例: 21時スタート / 20時30分集合',
-    ].join('\n'),
+    ].filter(Boolean).join('\n'),
     quickReply: {
       items: [
         { type: 'action', action: { type: 'message', label: 'リマインド不要', text: 'リマインドはいいや' } },

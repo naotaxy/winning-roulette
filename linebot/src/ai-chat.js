@@ -8,9 +8,9 @@ const DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite';
 const DEFAULT_AI_DAILY_LIMIT = 10;
 const DEFAULT_AI_MONTHLY_LIMIT = 50;
-const DEFAULT_AI_DAILY_TOKEN_LIMIT = 10000;
-const DEFAULT_AI_MONTHLY_TOKEN_LIMIT = 50000;
-const DEFAULT_AI_ESTIMATED_TOKENS_PER_REPLY = 900;
+const DEFAULT_AI_DAILY_TOKEN_LIMIT = 15000;
+const DEFAULT_AI_MONTHLY_TOKEN_LIMIT = 70000;
+const DEFAULT_AI_ESTIMATED_TOKENS_PER_REPLY = 1100;
 const SUPPORTED_AI_PROVIDERS = new Set(['gemini', 'openai']);
 
 function shouldUseAiChat() {
@@ -87,7 +87,7 @@ async function getAiChatDetailedStatus() {
       text: [
         `AI会話ON。provider ${getAiProviderLabel(status.provider)} / model ${status.model} / 課金ガードON。`,
         `今日 ${state.usage.dayCalls}/${state.limits.dailyRequests}回、今月 ${state.usage.monthCalls}/${state.limits.monthlyRequests}回。`,
-        `今月tokens ${state.usage.monthTokens}/${state.limits.monthlyTokens || '上限なし'}。`,
+        `今日tokens ${state.usage.dayTokens}/${state.limits.dailyTokens || '上限なし'}、今月tokens ${state.usage.monthTokens}/${state.limits.monthlyTokens || '上限なし'}。`,
         formatProviderSafetyNote(status.provider),
       ].join(' '),
       state,
@@ -224,7 +224,7 @@ async function callOpenAiChat(config, userText, context, signal) {
     body: JSON.stringify({
       model: config.model,
       store: false,
-      max_output_tokens: 180,
+      max_output_tokens: 400,
       instructions: buildInstructions(),
       input: buildInput(userText, context),
     }),
@@ -262,7 +262,7 @@ async function callGeminiChat(config, userText, context, signal) {
         parts: [{ text: buildInput(userText, context) }],
       }],
       generationConfig: {
-        maxOutputTokens: 180,
+        maxOutputTokens: 400,
         temperature: 0.8,
         topP: 0.9,
       },

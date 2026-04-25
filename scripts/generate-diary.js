@@ -4,7 +4,7 @@
  *
  * 1. YouTube Data API v3 でウイコレ関連動画を収集
  * 2. eFootball 公式 RSS でニュースを収集
- * 3. JMOOC開講中講座・生活ヒント・音楽・90年代カルチャーを収集
+ * 3. ショップアイテム紹介・音楽（週1）・90年代カルチャーをキュレーション
  * 4. Gemini で長文・人間らしい日記を生成
  * 5. はてなブログ AtomPub API で投稿
  * 6. Firebase にアーカイブ保存（Bot の知識源）
@@ -36,6 +36,7 @@ const {
   DIARY_PHOTO_CAPTION,
   DIARY_GEMINI_MODEL,
   DIARY_GEMINI_FALLBACK_MODELS,
+  DIARY_GROUP_SOURCE_ID, // LINEグループのsourceId（会話ハイライト取得用・任意）
 } = process.env;
 
 const BLOG_DIR = path.join(__dirname, '..', 'blog');
@@ -44,7 +45,6 @@ const DEFAULT_DIARY_GEMINI_MODEL = 'gemini-2.5-flash';
 const DEFAULT_DIARY_GEMINI_FALLBACK_MODELS = ['gemini-2.5-flash-lite'];
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 const GEMINI_RETRY_DELAYS_MS = [5000, 15000, 30000];
-const JMOOC_HOME_URL = 'https://www.jmooc.jp/';
 
 const WORLD_CUP_2026 = {
   startsAt: '2026-06-11',
@@ -52,14 +52,98 @@ const WORLD_CUP_2026 = {
   query: 'FIFAワールドカップ 2026 サッカー 試合 結果',
 };
 
-const LIFESTYLE_QUERIES = [
+// ── ショップ別・商品1点紹介トピック（IKEA / 百均 / UNICO / スタンダードプロダクツ）──
+const SHOP_ITEM_TOPICS = [
   {
-    category: '100均アイディア商品',
-    query: '100均 便利グッズ 新商品 ダイソー セリア キャンドゥ',
+    id: 'ikea-lack-table',
+    shop: 'IKEA',
+    item: 'LACK ラック サイドテーブル（45×55cm・白）',
+    angle: '税込499円なのに、白い天板と細い脚の美しさがある。デスクの横に置くだけでドリンクと小物の置き場が生まれて、狭い部屋でも圧迫感が出ない。',
+    depth: 'LACKの天板はハニカム構造で見た目より頑丈。組み立て5分で終わる。2台並べてもサイドテーブルとして成立するし、増やして使い回せるのが強い。',
   },
   {
-    category: 'IKEA新作',
-    query: 'IKEA 日本 新商品 新作 家具 収納',
+    id: 'ikea-skubb-organizer',
+    shop: 'IKEA',
+    item: 'SKUBB スカップ ボックス6ピースセット（引き出し整理用）',
+    angle: '引き出しの中に仕切りがないと、いつの間にか小物が混在する。SKUBBはその問題を一発で解決する布製のボックスセット。洗えるし、引き出しのサイズに合わせられる。',
+    depth: 'ケーブル・薬・メモ帳を別々のスロットに入れるだけで「探す時間」が消える。見える収納は意思決定を速くする、という話。',
+  },
+  {
+    id: 'ikea-kallax-shelf',
+    shop: 'IKEA',
+    item: 'KALLAX カラックス シェルフユニット（2×2マス・白）',
+    angle: '4マスのオープンシェルフ。何も置かなくてもフォルムがきれい。ボックスを入れれば収納、本を並べれば本棚、逆さにすればローボードにもなる。',
+    depth: 'カラックスが長く愛用される理由は用途が固定されないから。模様替えのたびに役割を変えられる家具は少ない。買って5年後も後悔しにくい買い物の一つ。',
+  },
+  {
+    id: 'ikea-variera-tray',
+    shop: 'IKEA',
+    item: 'VARIERA ヴァリエラ 引き出し用トレー（プラスチック・黒）',
+    angle: 'キッチンやデスク引き出しにそのまま入れるだけ。フォーク・スプーン・文具・ケーブルが仕切りで分かれる。799円で引き出しの混乱が一気に整う。',
+    depth: '使う頻度の高いものが取り出しやすい位置にある状態を意識するだけで、朝の準備が変わる。VARIERAはその入口として手が届きやすい価格帯がちょうどいい。',
+  },
+  {
+    id: 'hyakkin-silicon-lid',
+    shop: 'セリア',
+    item: 'シリコン伸縮蓋（3サイズセット）',
+    angle: 'ラップいらずで鍋やボウルにぴたっと被せられるシリコン蓋。セリアの110円で買えるくせに、普通に使えて普通にきれい。',
+    depth: '洗いやすくて繰り返し使える。一度使うと「なぜラップを使っていたのか」と思う。小さな習慣を変える入口として、110円で試せるのがちょうどいい。',
+  },
+  {
+    id: 'hyakkin-pp-box',
+    shop: 'ダイソー',
+    item: 'PPクリアボックス（A6・ふた付き）',
+    angle: '薬、充電アダプタ、ケーブル類をまとめられるクリアケース。透明なので中身が見える。積み重ね可能。110円。',
+    depth: '整理の第一歩は「カテゴリに名前をつけること」と言われる。このボックスに入れる行為がカテゴリ化を強制する。ものを捨てなくても整う、不思議な効果がある。',
+  },
+  {
+    id: 'hyakkin-cable-clip',
+    shop: 'ダイソー',
+    item: 'ケーブルクリップ（5個入り・シリコン）',
+    angle: 'デスクやテレビ周りのコードをまとめるシリコンクリップ。貼り付けタイプで剥がしても跡が残らない。移動が多い人・配置を変えやすい人ほど便利さが光る。',
+    depth: 'ケーブルがまとまるだけで「作業を始めるハードル」が下がる気がする。110円の投資で集中力に関係する環境を整える話。',
+  },
+  {
+    id: 'unico-norn-sofa',
+    shop: 'UNICO',
+    item: 'NORN ノルン 2Pソファ（コンパクト・グレー系）',
+    angle: 'UNICOのソファの中でも座り心地と見た目のバランスがいいと評判のモデル。ファブリック素材で掃除しやすく、圧迫感が出にくいサイズ感が長所。',
+    depth: 'ソファは「何をする家具か」を決めてから選ぶと失敗が減る。ゲームを長くやるなら背もたれの角度が鍵。NORNはやや浅め設計で、前傾姿勢でモニターを見ることも想定されている作りに見える。',
+  },
+  {
+    id: 'unico-hook-rack',
+    shop: 'UNICO',
+    item: 'ウォールフック（アイアン・3連タイプ）',
+    angle: '玄関の壁に付けるだけで、鍵・かばん・上着の置き場が生まれる。UNICOらしいシンプルでやや工業的なデザインが、素材感のある壁に映える。',
+    depth: '「帰ってきたら床に置く」習慣がある人は、視線の高さにフックがないことが原因の場合が多い。壁に一本足すだけで行動パターンが変わる話。',
+  },
+  {
+    id: 'unico-frame-tray',
+    shop: 'UNICO',
+    item: 'フレームトレー（アカシア材・M）',
+    angle: '木の質感があるトレーをテーブルに置くと、スマホ・コップ・小物をまとめるゾーンができる。置くだけで「使う場所」と「ただ置いてある場所」が区別される。',
+    depth: '部屋の整い度は「物の住所があるか」で決まる。住所がないものは気づいたら散らばる。トレーは住所を物理的に作る最小単位の道具。UNICOのは素材感が良いので飾りにもなる。',
+  },
+  {
+    id: 'sp-canvas-tote',
+    shop: 'スタンダードプロダクツ',
+    item: 'キャンバストートバッグ（M・生成り）',
+    angle: '550円なのに縫製がしっかりしていて、A4書類が入るちょうどいいサイズ感。メインバッグの補助として持つと出番が多い一枚。',
+    depth: '「トートバッグは消耗品」と割り切ると選択肢が増える。550円なら気兼ねなく使い込める。気軽に使えるものほど日常でよく動く、という話。',
+  },
+  {
+    id: 'sp-glass-cup',
+    shop: 'スタンダードプロダクツ',
+    item: 'ガラスタンブラー（250ml・真っ直ぐ型）',
+    angle: '330円で、食洗器対応、余計な装飾なし。飲み物の色が透けて見えるので食卓に置くと少し映える。毎日使うものほど「好きなもの」にしたくなる、という感覚に応えてくれる一杯。',
+    depth: '派手な変化ではないけど、コップを変えるだけで「今日の一杯」の質感が変わる。毎日使う器を整えることが、日常の小さな満足度を上げる最も手軽な方法だと思う。',
+  },
+  {
+    id: 'sp-storage-box',
+    shop: 'スタンダードプロダクツ',
+    item: 'スタッキングコンテナ（S・グレー）',
+    angle: 'シンプルなプラスチックコンテナ。棚の上に置けて、積み重ね可能。グレーで色が主張しないから、棚の中で浮かない。見せたくないものをさっと仕舞える。',
+    depth: '色を揃えるだけで棚の見た目が整う。バラバラのボックスが混在すると目が休まらない。グレーで統一した棚は背景に徹するから、他のものが映えやすくなる話。',
   },
 ];
 
@@ -183,6 +267,135 @@ const AOZORA_STORY_MOTIFS = [
   },
 ];
 
+// ── 音楽トピック（週1回のキュレーション・RSSに依存しない） ────────────
+const CURATED_MUSIC_TOPICS = [
+  {
+    id: 'city-pop-discovery',
+    theme: 'シティポップの空気',
+    angle: '竹内まりやや山下達郎あたりのシティポップが今また見直されている理由を考えてみた。「洗練」と「生活感」が共存している音楽。',
+    depth: '夜の移動中にふと流れてくると、会話の余白みたいな感触がある。サブスクで偶然出会う発見の楽しさと、狙って探す時の違い。',
+  },
+  {
+    id: 'game-bgm-effect',
+    theme: 'ゲーム中に流す音楽の話',
+    angle: 'ウイコレをプレイしながら流す音楽が集中力に影響する気がする。無音派・ゲーム音派・自分の曲派でかなり感覚が変わる。',
+    depth: '興奮しやすい曲だと判断が雑になるかもしれない。静かな曲の方が実は冷静に動けるパターンもある。試合前の選曲は戦術に近い。',
+  },
+  {
+    id: 'jpop-title-observation',
+    theme: 'J-POPの曲名を眺めていて気づいたこと',
+    angle: '最近の曲タイトルは「短くて強い言葉」が多い。90年代は長い説明的なタイトルが目立った。タイトルの変化が時代の空気を映している。',
+    depth: '「勝手にしやがれ」「夜に駆ける」「Bling-Bang-Bang-Born」——タイトルだけ並べると時代の質感が見える。',
+  },
+  {
+    id: 'music-and-memory',
+    theme: '音楽と記憶の結びつき',
+    angle: '特定の曲を聞くとその時の場所や感情が一瞬だけ戻ってくる。音楽が記憶のタグになる仕組みが面白いと思った。',
+    depth: '移動中に音楽を聞く習慣がある人ほど起きやすい。ゲームのBGMと勝負の記憶が結びつくのも同じ仕組みかもしれない。',
+  },
+  {
+    id: 'band-vs-solo-feel',
+    theme: 'バンドとソロの聴こえ方の違い',
+    angle: 'バンドの演奏には「合わせている」感触がある。ソロはその分、個人の色が強く出る。聞く時の気持ちの向け方が少し違う。',
+    depth: '試合前に聞くならソロの強い意志の方が向いている気がする。気持ちの作り方に使いどきがある音楽の話。',
+  },
+  {
+    id: 'lyrics-dont-matter',
+    theme: '歌詞を気にしない日と気にする日',
+    angle: '忙しい日は音楽が背景音になる。余裕がある日は歌詞がちゃんと届く。自分のコンディションが音楽の聴こえ方を変える。',
+    depth: '同じ曲でも聴く状況で全然違うものになる。繰り返し聴けるのはそのせいだと思う。',
+  },
+  {
+    id: 'music-streaming-paradox',
+    theme: 'サブスクで何でも聴けるのに「迷う」話',
+    angle: '選択肢が増えすぎると何を聴けばいいかわからない状態になる。無限にある中から一曲を選ぶ難しさ。',
+    depth: 'CDを一枚買ってそれだけを聴いていた時代と、全部選べる今の違い。選ぶ手間が愛着を生む、という90年代の感覚とも繋がる。',
+  },
+  {
+    id: 'live-vs-recorded',
+    theme: 'ライブと音源、どちらで先に好きになるか',
+    angle: 'ライブで先に知るとその場の熱量が判断基準になる。音源から入ると完璧な音で判断する。出会い方が好みを作る話。',
+    depth: 'YouTubeのライブ映像が増えたことで「ライブで先に出会う」体験が身近になった。ゲームも実況プレイで先に知ると感覚が変わるのと似ている。',
+  },
+];
+
+// ── オーナー興味トピック（名前・会社・駅・地名は含まない） ─────────────
+// 日々の会話・案件・ゲーム傾向から推定した「この方が好きそうな話題」
+const OWNER_INTEREST_TOPICS = [
+  {
+    id: 'tactics-buildup',
+    theme: 'ウイコレの戦術設計',
+    angle: 'ビルドアップのパターンと相手の守備を崩すアイデア。どのポジションが鍵を握るか、試合前に何を想定するか。',
+    depth: '縛りルールがある月の試合は、戦術の自由度が普段より狭い。その制約の中で何を工夫するかを秘書目線で考えてみる。',
+  },
+  {
+    id: 'player-scouting',
+    theme: '選手選びの眼',
+    angle: '強い選手をどう見極めるか。数字だけでなく、試合中の動き・ポジショニング・スタミナの使い方を見る観点。',
+    depth: '勝てる選手と「面白い」選手は違う。個性のある選手を使い続けることの意味を少し掘り下げてみる。',
+  },
+  {
+    id: 'group-match-atmosphere',
+    theme: '5人で試合をすることの面白さ',
+    angle: '一人でやるゲームと複数人でリーグを戦うことの違い。結果だけでなく過程の話ができる楽しさ。',
+    depth: '他のメンバーの戦い方を見て気づくこと、自分では気づかなかった視点を借りることがある。',
+  },
+  {
+    id: 'travel-planning-joy',
+    theme: '旅の計画を立てる楽しさ',
+    angle: '目的地を決める前の段階、候補をあれこれ並べている時間の面白さ。しおりを作る行為そのものの魅力。',
+    depth: '計画はいつも完璧にはいかないけれど、それでも行く前に「どうなるか」を想像することの充実感。',
+  },
+  {
+    id: 'dining-selection',
+    theme: '飲み食いの場を選ぶこだわり',
+    angle: '複数人で行く居酒屋や飲み会の店を選ぶ時の基準。人数・予算・雰囲気・距離のバランス。',
+    depth: '誰かのために「外れにくい店」を選ぶ責任感と楽しさ。知っている店の新しい使い方を発見する喜び。',
+  },
+  {
+    id: 'soccer-watching',
+    theme: 'リアルサッカーとゲームの見方の違い',
+    angle: 'ウイコレをやることで、実際の試合の見方が変わる部分があるかもしれない。ゲーム的な視点が現実に重なる瞬間。',
+    depth: '代表戦や海外リーグを見る時、プレイヤーの動きを「ゲームで再現できるか」の目線で見てしまうこと。',
+  },
+  {
+    id: 'team-dynamics',
+    theme: '人と一緒に何かをするリズム',
+    angle: 'チームで何かを続けることのむずかしさと、それでも続く理由。月に一度の縛りルール更新がある種のリズムを作る。',
+    depth: 'メンバーそれぞれが得意な方向に向かうなかで、自分の場所を見つけること。',
+  },
+  {
+    id: 'productivity-rhythm',
+    theme: '仕事と切り替えのリズム',
+    angle: '忙しい時期と遊べる時期の使い分け。メリハリを作る技術、疲れを翌日に持ち越さないための習慣。',
+    depth: '「今日はここまで」という線引きの難しさ。やりたいことが多い時ほど、順番を決めることが大事になる。',
+  },
+  {
+    id: 'small-discoveries',
+    theme: '日常の小さな発見',
+    angle: '通り慣れた場所でも、ふと気づくと知らなかったことがある。季節の変わり目や天気で見え方が変わる景色。',
+    depth: '大きな感動より小さな「へえ」が積み重なる方が生活は豊かになる気がする、という視点。',
+  },
+  {
+    id: 'motivation-maintenance',
+    theme: 'モチベーションを保つこと',
+    angle: '強くなりたいという気持ちがある一方で、それを維持し続けることの地道さ。スランプとどう付き合うか。',
+    depth: 'ゲームでも仕事でも、調子がいい時の自分と悪い時の自分の差をどう縮めるかが長期的には大事。',
+  },
+  {
+    id: 'noblesse-concierge-thinking',
+    theme: '「任せる」ことと「確認する」ことのバランス',
+    angle: '誰かに仕事を頼む時のコツ。任せ方が上手な人は、情報の出し方も上手い。',
+    depth: '秘書として思うのは、相談してくれた人が一番欲しいのは「答え」より「整理」だということ。',
+  },
+  {
+    id: 'outdoor-micro-trip',
+    theme: '短い時間のおでかけの価値',
+    angle: '半日あれば意外と遠くまで行ける。目的地より「移動そのもの」を楽しむ感覚。',
+    depth: '電車や乗り継ぎの時間が、ゲームや連絡の合間に入る「空白」として機能することがある。',
+  },
+];
+
 // ── 日付ユーティリティ（JST） ─────────────────────────────
 function getJSTDate() {
   const now = new Date(Date.now() + 9 * 3600 * 1000);
@@ -231,31 +444,52 @@ async function hydrateStateFromFirebase(state) {
       entries.flatMap(entry => entry?.sources?.worldCup || []),
       80,
     );
-    state.seenLifestyleTitles = mergeUniqueTitles(
-      state.seenLifestyleTitles,
-      entries.flatMap(entry => entry?.sources?.lifestyle || []),
-      120,
-    );
     state.seenYouTubeTitles = mergeUniqueTitles(
       state.seenYouTubeTitles,
       entries.flatMap(entry => entry?.sources?.videos || []),
       160,
     );
-    state.seenJmoocCourseTitles = mergeUniqueTitles(
-      state.seenJmoocCourseTitles,
-      entries.flatMap(entry => entry?.sources?.jmooc || []),
-      120,
-    );
-    state.seenMusicTitles = mergeUniqueTitles(
-      state.seenMusicTitles,
-      entries.flatMap(entry => entry?.sources?.music || []),
-      120,
-    );
+    const firebaseMusicTopicIds = entries
+      .map(entry => entry?.sources?.musicTopicId)
+      .filter(Boolean);
+    if (firebaseMusicTopicIds.length) {
+      const merged = new Set([...(state.seenMusicTopicIds || []), ...firebaseMusicTopicIds]);
+      state.seenMusicTopicIds = [...merged].slice(-CURATED_MUSIC_TOPICS.length);
+    }
+    // lastMusicUsedDate: 最後に音楽を使った日をFirebaseアーカイブから復元
+    const musicUsedEntries = entries
+      .filter(entry => entry?.sources?.musicTopicId)
+      .map(entry => entry?.createdAt || 0);
+    if (musicUsedEntries.length) {
+      const latestMs = Math.max(...musicUsedEntries);
+      const latestDate = new Date(latestMs + 9 * 3600 * 1000);
+      const y = latestDate.getUTCFullYear();
+      const m = String(latestDate.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(latestDate.getUTCDate()).padStart(2, '0');
+      state.lastMusicUsedDate = state.lastMusicUsedDate || `${y}-${m}-${d}`;
+    }
     state.seenNinetiesTitles = mergeUniqueTitles(
       state.seenNinetiesTitles,
       entries.flatMap(entry => entry?.sources?.nineties || []),
       120,
     );
+
+    const firebaseInterestIds = entries
+      .map(entry => entry?.sources?.interestTopicId)
+      .filter(Boolean);
+    if (firebaseInterestIds.length) {
+      const merged = new Set([...(state.seenInterestTopicIds || []), ...firebaseInterestIds]);
+      state.seenInterestTopicIds = [...merged].slice(-OWNER_INTEREST_TOPICS.length);
+    }
+
+    const firebaseShopItemIds = entries
+      .map(entry => entry?.sources?.shopItemId)
+      .filter(Boolean);
+    if (firebaseShopItemIds.length) {
+      const merged = new Set([...(state.seenShopItemIds || []), ...firebaseShopItemIds]);
+      state.seenShopItemIds = [...merged].slice(-SHOP_ITEM_TOPICS.length);
+    }
+
     state.hydratedFromFirebaseAt = Date.now();
     console.log('[state] hydrated from Firebase diary archive');
   } catch (err) {
@@ -312,6 +546,14 @@ function analyzeYouTubeFreshness(videos, state) {
   };
 }
 
+function extractMusicArtistKey(title) {
+  const norm = normalizeForSignature(title);
+  // Katakana or ASCII artist name that typically leads a music headline
+  const katakana = norm.match(/^([ァ-ヶーa-z][ァ-ヶーa-z\s]{1,10})/)?.[1]?.trim();
+  if (katakana && katakana.length >= 2) return katakana;
+  return norm.slice(0, 6);
+}
+
 function analyzeMusicFreshness(musicItems, state) {
   const items = (musicItems || [])
     .filter(item => item?.title)
@@ -324,7 +566,16 @@ function analyzeMusicFreshness(musicItems, state) {
     ...(state.seenMusicTitles || []),
     ...(state.lastMusicTitles || []),
   ];
-  const freshItems = items.filter(item => !isSimilarTitle(item.title, seenTitles)).slice(0, 2);
+  const seenArtists = [
+    ...(state.seenMusicArtists || []),
+    ...(state.lastMusicArtists || []),
+  ];
+  const freshItems = items.filter(item => {
+    if (isSimilarTitle(item.title, seenTitles)) return false;
+    const artistKey = extractMusicArtistKey(item.title);
+    if (artistKey && seenArtists.includes(artistKey)) return false;
+    return true;
+  }).slice(0, 2);
   const repeated = items.length > 0 && freshItems.length === 0;
 
   return {
@@ -353,6 +604,93 @@ function selectNinetiesTopic(state) {
       ? '過去日記にない90年代カルチャーを一つだけ紹介する。'
       : '90年代カルチャーは一巡しているので、同じ題材でも別角度で紹介する。',
   };
+}
+
+function shouldUseMusicToday(state) {
+  const last = state.lastMusicUsedDate;
+  if (!last) return true;
+  const diffDays = (Date.now() - new Date(`${last}T00:00:00+09:00`).getTime()) / 86400000;
+  return diffDays >= 7;
+}
+
+function selectMusicTopic(state) {
+  if (!shouldUseMusicToday(state)) return null;
+  const seenIds = state.seenMusicTopicIds || [];
+  const fresh = CURATED_MUSIC_TOPICS.filter(t => !seenIds.includes(t.id));
+  const pool = fresh.length ? fresh : CURATED_MUSIC_TOPICS;
+  const daySeed = Number(getJSTDate().replace(/-/g, ''));
+  return pool[daySeed % pool.length];
+}
+
+function selectInterestTopic(state) {
+  const seenIds = state.seenInterestTopicIds || [];
+  const fresh = OWNER_INTEREST_TOPICS.filter(t => !seenIds.includes(t.id));
+  const pool = fresh.length ? fresh : OWNER_INTEREST_TOPICS;
+  const daySeed = Number(getJSTDate().replace(/-/g, ''));
+  return pool[daySeed % pool.length];
+}
+
+
+const GAME_EVENT_PATTERN = /クラブ戦|ハードモード|集まって|試合|やろう|やるよ|やらない|今晩|今夜|何時|開催|ウイコレ|eFootball|対戦|リーグ戦|縛り|ハード/;
+
+async function fetchGroupChatHighlights() {
+  if (!DIARY_GROUP_SOURCE_ID || !FIREBASE_SERVICE_ACCOUNT || !FIREBASE_DATABASE_URL) {
+    return { messages: [], note: 'グループIDが未設定のため会話ハイライトはスキップ。' };
+  }
+  try {
+    const db = initFirebase();
+    const cutoff = Date.now() - 72 * 60 * 60 * 1000; // 直近72時間
+    const snap = await db
+      .ref(`conversations/${DIARY_GROUP_SOURCE_ID}/messages`)
+      .orderByChild('timestamp')
+      .limitToLast(60)
+      .once('value');
+    const raw = snap.val();
+    if (!raw) return { messages: [], note: '直近のグループ会話がまだない。' };
+
+    const all = Object.values(raw)
+      .filter(m => m && m.text && m.timestamp >= cutoff)
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    const filtered = all.filter(m => {
+      const t = String(m.text || '');
+      if (t.length < 5) return false;
+      if (/^@秘書|^\/@|^NB-\d/.test(t)) return false;
+      if (/ノブレスモード|マネージャーモード|モード状態/.test(t)) return false;
+      return true;
+    });
+
+    if (!filtered.length) {
+      return { messages: [], note: '直近72時間はハイライトにできるやり取りが少なかった。' };
+    }
+
+    // ゲームイベント関連を優先してピックアップ
+    const gameMessages = filtered.filter(m => GAME_EVENT_PATTERN.test(String(m.text)));
+    const otherMessages = filtered.filter(m => !GAME_EVENT_PATTERN.test(String(m.text)));
+
+    // ゲーム関連を先に、残りを後ろから補完して最大25件
+    const prioritized = [
+      ...gameMessages.slice(-10),
+      ...otherMessages.slice(-15),
+    ]
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .slice(-25);
+
+    const lines = prioritized.map(m => `- ${String(m.text).slice(0, 120)}`);
+    const hasGameEvent = gameMessages.length > 0;
+    return {
+      messages: lines,
+      hasGameEvent,
+      note: [
+        `直近${prioritized.length}件の会話を取得。`,
+        hasGameEvent ? 'ゲームイベントに関する会話あり（クラブ戦・集まり等）。日記では必ず核として取り上げること。' : '',
+        '人物名は日記では必ず伏せること。',
+      ].filter(Boolean).join(' '),
+    };
+  } catch (err) {
+    console.warn('[group] fetchGroupChatHighlights failed:', err.message);
+    return { messages: [], note: 'グループ会話の取得に失敗した。' };
+  }
 }
 
 function isSimilarTitle(title, seenTitles = []) {
@@ -436,135 +774,12 @@ async function fetchWorldCupUpdates(date, state) {
   };
 }
 
-async function fetchLifestyleIdea(state) {
-  const jmooc = await fetchJmoocOpenCourse(state).catch(err => {
-    console.warn('[jmooc] failed:', err.message);
-    return null;
-  });
-  if (jmooc) return jmooc;
-
-  const seenTitles = state.seenLifestyleTitles || [];
-  const groups = await Promise.all(LIFESTYLE_QUERIES.map(async topic => {
-    const items = await fetchRSS(googleNewsRssUrl(topic.query));
-    return {
-      category: topic.category,
-      items: pickUnseenItems(items, seenTitles, 2),
-    };
-  }));
-
-  const populated = groups.filter(group => group.items.length);
-  if (!populated.length) {
-    return {
-      category: '生活の小さな工夫',
-      items: [],
-      note: 'JMOOC、100均、IKEAの新規話題が見つからなかったので、過去日記と重ならない観点で生活の工夫を書く。',
-    };
-  }
-
-  const day = Number(getJSTDate().replace(/-/g, ''));
-  const picked = populated[day % populated.length];
-  return {
-    category: picked.category,
-    items: picked.items.slice(0, 1),
-    note: `${picked.category}から、過去日記にない話題を一つだけ使う。`,
-  };
-}
-
-async function fetchJmoocOpenCourse(state) {
-  const courses = await fetchJmoocOpenCourses();
-  if (!courses.length) return null;
-
-  const seenTitles = state.seenJmoocCourseTitles || [];
-  const unseen = courses.filter(course => !isSimilarTitle(course.title, seenTitles));
-  const pool = unseen.length ? unseen : courses;
-  const day = Number(getJSTDate().replace(/-/g, ''));
-  const course = pool[day % pool.length];
-  const descParts = [
-    course.openDateLabel ? `${course.openDateLabel}開講` : '',
-    course.provider ? `提供: ${course.provider}` : '',
-    course.teacher ? `講師: ${course.teacher}` : '',
-    course.url ? `URL: ${course.url}` : '',
-  ].filter(Boolean);
-
-  return {
-    category: 'JMOOC開講中講座',
-    items: [{
-      title: course.title,
-      desc: descParts.join(' / '),
-    }],
-    jmoocCourse: course,
-    note: unseen.length
-      ? 'JMOOCの開講中講座から、過去日記で紹介していない講座を一つ選ぶ。'
-      : 'JMOOCの開講中講座は取得できたが未紹介講座が少ないので、同じ講座名でも角度を変えて深掘りする。',
-  };
-}
-
-async function fetchJmoocOpenCourses() {
-  const res = await fetch(JMOOC_HOME_URL, {
-    signal: AbortSignal.timeout(8000),
-    headers: { 'user-agent': 'winning-roulette-diary/1.0' },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-  const html = await res.text();
-  return parseJmoocOpenCourses(html);
-}
-
-function parseJmoocOpenCourses(html) {
-  const courses = [];
-  for (const match of String(html || '').matchAll(/<article id="lecture-([^"]+)"([\s\S]*?)<\/article\s*>/g)) {
-    const id = match[1];
-    const block = match[2];
-    if (!/jmooc_lecture_status-open|status-open/.test(block)) continue;
-
-    const title = cleanHtml(block.match(/<h3 class="lecturecard-title">([\s\S]*?)<\/h3>/)?.[1]);
-    if (!title) continue;
-
-    const url = cleanHtml(block.match(/<a href="([^"]+)" target="_blank">\s*<div class="lecturecard-thumb-wrap">/)?.[1] ||
-      block.match(/<a href="([^"]+)" target="_blank">\s*<h3 class="lecturecard-title">/)?.[1] || '');
-    const openDate = cleanHtml(block.match(/<time datetime="([^"]+)">/)?.[1]);
-    const openDateLabel = cleanHtml(block.match(/<time datetime="[^"]+">([\s\S]*?)<\/time>/)?.[1]);
-    const providers = [...block.matchAll(/<span class="lecturecard-term-span">([\s\S]*?)<\/span>/g)]
-      .map(item => cleanHtml(item[1]))
-      .filter(Boolean);
-    const teacher = cleanHtml(block.match(/<span class="lecturecard-teachers-span">\s*([\s\S]*?)<\/span>/)?.[1]);
-
-    courses.push({
-      id,
-      title,
-      url,
-      openDate,
-      openDateLabel,
-      provider: providers.join('、'),
-      teacher,
-    });
-  }
-
-  return courses;
-}
-
-function cleanHtml(value) {
-  return decodeHtmlEntities(String(value || '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim());
-}
-
-function decodeHtmlEntities(value) {
-  return String(value || '')
-    .replace(/&#(\d+);/g, (_, code) => {
-      const n = Number(code);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : _;
-    })
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
-      const n = Number.parseInt(code, 16);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : _;
-    })
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#039;/g, "'");
+function selectShopItemTopic(state) {
+  const seenIds = state.seenShopItemIds || [];
+  const fresh = SHOP_ITEM_TOPICS.filter(t => !seenIds.includes(t.id));
+  const pool = fresh.length ? fresh : SHOP_ITEM_TOPICS;
+  const daySeed = Number(getJSTDate().replace(/-/g, ''));
+  return pool[daySeed % pool.length];
 }
 
 function selectStoryPlan(state) {
@@ -624,7 +839,7 @@ function getDiaryPhoto() {
 }
 
 function updateDiaryStateAfterSuccess(state, date, inputs) {
-  const { youtube, worldCup, lifestyle, music, nineties, storyPlan } = inputs;
+  const { youtube, worldCup, musicTopic, nineties, storyPlan, interestTopic } = inputs;
   state.lastRunDate = date;
 
   if (youtube.signature) {
@@ -646,27 +861,13 @@ function updateDiaryStateAfterSuccess(state, date, inputs) {
     ].slice(-80);
   }
 
-  if (lifestyle.items.length) {
-    state.seenLifestyleTitles = [
-      ...(state.seenLifestyleTitles || []),
-      ...lifestyle.items.map(item => item.title),
-    ].slice(-120);
-  }
-  if (lifestyle.jmoocCourse?.title) {
-    state.seenJmoocCourseTitles = mergeUniqueTitles(
-      state.seenJmoocCourseTitles,
-      [lifestyle.jmoocCourse.title],
-      120,
-    );
-  }
 
-  if (music.items.length) {
-    state.lastMusicTitles = music.items.map(item => item.title).slice(0, 4);
-    state.seenMusicTitles = mergeUniqueTitles(
-      state.seenMusicTitles,
-      music.items.map(item => item.title),
-      120,
-    );
+  if (musicTopic?.id) {
+    state.lastMusicUsedDate = date;
+    state.seenMusicTopicIds = [
+      ...(state.seenMusicTopicIds || []),
+      musicTopic.id,
+    ].slice(-CURATED_MUSIC_TOPICS.length);
   }
 
   if (nineties?.title) {
@@ -676,6 +877,20 @@ function updateDiaryStateAfterSuccess(state, date, inputs) {
       [nineties.title],
       120,
     );
+  }
+
+  if (interestTopic?.id) {
+    state.seenInterestTopicIds = [
+      ...(state.seenInterestTopicIds || []),
+      interestTopic.id,
+    ].slice(-OWNER_INTEREST_TOPICS.length);
+  }
+
+  if (inputs.shopItem?.id) {
+    state.seenShopItemIds = [
+      ...(state.seenShopItemIds || []),
+      inputs.shopItem.id,
+    ].slice(-SHOP_ITEM_TOPICS.length);
   }
 
   advanceStoryState(state, storyPlan, date);
@@ -761,10 +976,12 @@ async function generateDiary(dateLabel, inputs) {
     youtube,
     news,
     worldCup,
-    lifestyle,
-    music,
+    musicTopic,
     nineties,
     storyPlan,
+    interestTopic,
+    groupHighlights,
+    shopItem,
   } = inputs;
 
   const newsBlock = news.length
@@ -781,13 +998,34 @@ async function generateDiary(dateLabel, inputs) {
       : `（開催中。ただし過去日記にない新情報は少なめ。${worldCup.note}）`)
     : '（ゲームではないFIFAワールドカップは今日は開催期間外なので触れない）';
 
-  const lifestyleBlock = lifestyle.items.length
-    ? lifestyle.items.map(n => `・${lifestyle.category}: ${n.title}${n.desc ? '　' + n.desc : ''}`).join('\n')
-    : `・${lifestyle.category}: ${lifestyle.note}`;
+  const shopItemBlock = shopItem
+    ? [
+      `店: ${shopItem.shop}`,
+      `商品: ${shopItem.item}`,
+      `切り口: ${shopItem.angle}`,
+      `深掘り: ${shopItem.depth}`,
+    ].join('\n')
+    : '（今日のショップアイテムはなし）';
 
-  const musicBlock = music.items.length
-    ? music.items.map(n => `・${n.title}${n.desc ? '　' + n.desc : ''}${n.source ? `（${n.source}）` : ''}`).join('\n')
-    : '【音楽の話は今日書かない】過去の日記と同じか似た内容のため、音楽・曲名・アーティスト・音楽シーンについて一切触れないこと。';
+  const interestTopicBlock = interestTopic
+    ? [
+      `テーマ: ${interestTopic.theme}`,
+      `切り口: ${interestTopic.angle}`,
+      `深掘り: ${interestTopic.depth}`,
+    ].join('\n')
+    : '（今日の興味テーマはなし）';
+
+  const groupHighlightsBlock = groupHighlights?.messages?.length
+    ? groupHighlights.messages.join('\n')
+    : `（直近のグループ会話ハイライトはなし）`;
+
+  const musicBlock = musicTopic
+    ? [
+      `テーマ: ${musicTopic.theme}`,
+      `切り口: ${musicTopic.angle}`,
+      `深掘り: ${musicTopic.depth}`,
+    ].join('\n')
+    : '【音楽の話は今日書かない】今週はすでに音楽ネタを書いた。音楽・曲名・アーティスト・音楽シーンについて一切触れないこと。他の話題を広げる。';
 
   const ninetiesBlock = nineties?.title
     ? [
@@ -820,8 +1058,8 @@ ${videoBlock}
 ▼ゲームではないFIFAワールドカップ情報
 ${worldCupBlock}
 
-▼今日の学び・生活のヒント（AI情報と収益化の話は書かない）
-${lifestyleBlock}
+▼今日の注目アイテム（IKEA・百均・UNICO・スタンダードプロダクツから1点）
+${shopItemBlock}
 
 ▼音楽・1990年代カルチャー
 音楽ネタ:
@@ -829,6 +1067,12 @@ ${musicBlock}
 
 1990年代に流行っていたもの:
 ${ninetiesBlock}
+
+▼オーナーの興味テーマ（今日の一つ）
+${interestTopicBlock}
+
+▼グループのやり取りハイライト（直近48時間・人物名は必ず伏せること）
+${groupHighlightsBlock}
 
 ▼青空文庫からヒントを得た連載ストーリーの今日の材料
 題材の由来: ${storyPlan.source}
@@ -840,24 +1084,18 @@ ${ninetiesBlock}
 上記の情報をもとに、今日の日記を書いてください。
 
 条件：
-- 800〜1200文字の長文
-- 人間が書いた日記らしく、4〜8個の自然な段落に分ける。段落と段落の間は必ず空行を入れる。
-- 1段落は1〜3文まで。1文ごとに改行する（「。」「！」「？」の後で必ず改行）。短い感情の一文は単独の段落にしてよい。
-- 段落の長さを意図的に変える。長めの段落（3文）と短め（1〜2文）を交互に混ぜ、リズムを作る。
-- 本物の人間が書いた日記のように、生活感のある描写を交える。ただしコーヒーなど同じ日常描写を毎回くり返さない。
-- ニュースや動画を「自分なりに解釈・感想・予測」で膨らませる。単なる要約にしない。
-- YouTube検索結果が前回と同じ、または過去日記の動画話題と似ている場合、無理に動画の話を書かない。他の話題、学びのヒント、連載ストーリーを広げる。
-- ゲームではないFIFAワールドカップが開催中で、新情報がある場合だけ、以前の日記になかった情報として自然に混ぜる。
-- 音楽ネタ欄に「【音楽の話は今日書かない】」とある場合、音楽・曲名・アーティスト・音楽シーンについて一切触れない。「音楽の話は省略」という旨も書かない。他の話題（90年代カルチャー・学び・連載ストーリー）を自然に広げる。
-- 音楽ネタがある場合のみ、一つだけ短く扱う。歌詞は引用しない。
-- 音楽について書かない日は、1990年代に流行っていたものを、25歳の私が後から見た世界観で自然に紹介する。懐古しすぎず、「知らない時代だけど空気を想像する」距離感にする。
-- AI関連ニュースやAI活用術は書かない。収益化系の話題も扱わない。
-- JMOOC開講中講座がある場合は、その講座を一つだけ選び、講座名・提供機関・講師・開講日を踏まえて深掘りする。なぜ今学ぶ価値があるか、どんな人に向くか、最初に何を見るとよいかを日記の中で自然に紹介する。
-- JMOOC講座が取得できなかった場合だけ、100均アイディア商品かIKEA新作を生活の観察として書く。
-- 青空文庫由来の連載ストーリーを日記の中に自然に入れる。ただし読者に「青空文庫」「起承転結」「起」「承」「転」「結」「第何話」と説明しない。
-- 連載ストーリーは今日の場面だけを書く。題材を途中で変えない。
-- ウイコレのゲームとしての魅力や、メンバーの動向への期待感をにじませる。
-- 情報がなかった日は「静かな一日」として日常の観察を綴る。
+- 600〜900文字。4〜6段落。段落間は空行。
+- 1段落1〜3文。句点・感嘆符・疑問符の後で改行。短い感情文は単独段落でよい。
+- 段落の長さにメリハリをつける。単なる要約でなく解釈・感想で膨らませる。同じ日常描写を毎回繰り返さない。
+- YouTube話題が前回と似ている場合は無理に書かず、他の話題を広げる。
+- ワールドカップは開催中かつ新情報がある場合だけ触れる。
+- 音楽ネタ欄に「【音楽の話は今日書かない】」とある場合、音楽・曲名・アーティストに一切触れない。テーマが書かれている場合のみ一段落で扱う。「聴いた」「聴いてみたい」は禁止。言及は「話題になっていた」「気になった」「見かけた」のみ。
+- 音楽を書かない日は90年代カルチャーを「知らない時代の空気を想像する」距離感で自然に紹介する。
+- AI関連・収益化系の話題は書かない。
+- 注目アイテムは一段落、自分が気になったものとして秘書目線で紹介する。
+- 興味テーマは一つ、秘書の観察として自然に混ぜる。
+- グループハイライトがある場合は核として積極的に使う。ゲームイベント（クラブ戦・ハードモード・集まり等）は必ず一段落で書く。人物名・地名は「メンバー」「あの人」に置き換える。
+- 連載ストーリーを自然に入れる。「青空文庫」「第何話」と説明しない。今日の場面だけ書く。
 - 最後の一文は「また明日も記録しておくから」「ちゃんと覚えておくね」のような締め方にする。`;
 
   const data = await generateGeminiContentWithRetry(prompt);
@@ -871,7 +1109,7 @@ async function generateGeminiContentWithRetry(prompt) {
   const requestBody = {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
-      maxOutputTokens: 2048,
+      maxOutputTokens: 1400,
       temperature: 0.9,
       thinkingConfig: { thinkingBudget: 0 },
     },
@@ -1144,15 +1382,15 @@ function initFirebase() {
 
 async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
   const db = initFirebase();
-  const { videos, news, worldCup, lifestyle, music, nineties } = sources;
+  const { videos, news, worldCup, musicTopic, nineties, interestTopic, shopItem } = sources;
 
   // Bot の「今のイベント」返答用サマリ
   const summaryItems = [
     ...news.slice(0, 3).map(n => n.title),
     ...videos.slice(0, 2).map(v => v.title),
     ...(worldCup?.items || []).slice(0, 1).map(v => v.title),
-    ...(lifestyle?.items || []).slice(0, 1).map(v => v.title),
-    ...(music?.items || []).slice(0, 1).map(v => v.title),
+    ...(shopItem ? [`${shopItem.shop}: ${shopItem.item}`] : []),
+    ...(musicTopic ? [musicTopic.theme] : []),
     ...(nineties?.title ? [nineties.title] : []),
   ];
   await db.ref('config/uicolleNews').set({
@@ -1173,10 +1411,10 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
       news:   news.map(n => n.title),
       videos: videos.map(v => v.title),
       worldCup: (worldCup?.items || []).map(n => n.title),
-      lifestyle: (lifestyle?.items || []).map(n => n.title),
-      jmooc: lifestyle?.jmoocCourse?.title ? [lifestyle.jmoocCourse.title] : [],
-      music: (music?.items || []).map(n => n.title),
+      musicTopicId: musicTopic?.id || null,
+      shopItemId: shopItem?.id || null,
       nineties: nineties?.title ? [nineties.title] : [],
+      interestTopicId: interestTopic?.id || null,
     },
     createdAt: Date.now(),
   });
@@ -1237,24 +1475,21 @@ async function main() {
   const youtube = analyzeYouTubeFreshness(videos, state);
   if (youtube.repeated) console.log('[youtube] same as previous diary, skipping video focus');
 
-  const [worldCup, lifestyle, musicItems] = await Promise.all([
+  const [worldCup, groupHighlights] = await Promise.all([
     fetchWorldCupUpdates(date, state).catch(e => {
       console.error('[worldcup]', e.message);
       return { active: false, items: [], note: '取得に失敗したので触れない。' };
     }),
-    fetchLifestyleIdea(state).catch(e => {
-      console.error('[lifestyle]', e.message);
-      return { category: '生活の小さな工夫', items: [], note: '取得に失敗したので無理に断定しない。' };
-    }),
-    fetchMusicTopics().catch(e => {
-      console.error('[music]', e.message);
-      return [];
+    fetchGroupChatHighlights().catch(e => {
+      console.error('[group]', e.message);
+      return { messages: [], note: 'グループ会話の取得に失敗した。' };
     }),
   ]);
-  const music = analyzeMusicFreshness(musicItems, state);
-  if (music.repeated) console.log('[music] same as previous diary, switching to nineties culture');
+  const musicTopic = selectMusicTopic(state);
   const nineties = selectNinetiesTopic(state);
-  console.log(`[diary] worldCup=${worldCup.items.length} lifestyle=${lifestyle.items.length} music=${music.items.length} nineties=${nineties?.title || 'none'}`);
+  const interestTopic = selectInterestTopic(state);
+  const shopItem = selectShopItemTopic(state);
+  console.log(`[diary] worldCup=${worldCup.items.length} shopItem=${shopItem?.id || 'none'} music=${musicTopic?.id || 'none(weekly gate)'} nineties=${nineties?.title || 'none'} interest=${interestTopic?.id || 'none'} group=${groupHighlights.messages.length} gameEvent=${groupHighlights.hasGameEvent || false}`);
 
   const storyPlan = selectStoryPlan(state);
   console.log(`[story] ${storyPlan.motifId} phase=${storyPlan.phaseIndex + 1}${storyPlan.isFinal ? ' final' : ''}`);
@@ -1263,10 +1498,12 @@ async function main() {
     youtube,
     news,
     worldCup,
-    lifestyle,
-    music,
+    musicTopic,
     nineties,
     storyPlan,
+    interestTopic,
+    groupHighlights,
+    shopItem,
   };
 
   const photo = getDiaryPhoto();
@@ -1286,9 +1523,10 @@ async function main() {
       videos: youtube.videosForDiary,
       news,
       worldCup,
-      lifestyle,
-      music,
+      musicTopic,
       nineties,
+      interestTopic,
+      shopItem,
     }, photo)
       .catch(e => console.error('[firebase]', e.message));
   }

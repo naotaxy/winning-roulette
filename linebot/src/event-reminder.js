@@ -25,6 +25,8 @@ function detectReminderIntent(text) {
   const reminderAt = advanceMin ? dueAt - advanceMin * 60 * 1000 : dueAt;
   const title = extractReminderTitle(text);
   const tags = extractTags(t);
+  const participantCount = extractParticipantCount(t);
+  const detail = buildReminderDetail(text, title, tags, participantCount);
 
   return {
     type: 'eventReminder',
@@ -36,6 +38,20 @@ function detectReminderIntent(text) {
     reminderAt,
     advanceMin: advanceMin || 0,
     tags,
+    detail,
+    participantCount,
+  };
+}
+
+function detectReminderSuggestionIntent(text) {
+  const t = normalize(text);
+  if (!t) return null;
+  if (detectReminderIntent(text)) return null;
+  if (!detectNoblesseReminderHint(text)) return null;
+  if (!/(決まった|やる|開催|集合|スタート|始める|今夜|今日|本日|ハード|ノーマル|クラブ戦)/.test(t)) return null;
+  return {
+    type: 'eventReminderSuggest',
+    proposal: buildNoblesseReminderProposal(text),
   };
 }
 
@@ -49,8 +65,11 @@ function formatReminderSetReply(intent, senderName) {
     `${when}${advLabel}に「${intent.title}」をリマインドするね。`,
     'GitHub Actions 経由だから1〜5分くらい前後することはあるけど、ちゃんと声をかけに来るよ。',
   ];
+  if (intent.detail) {
+    lines.push(intent.detail);
+  }
   if (intent.tags.includes('uicolle')) {
-    lines.push('ウイコレ、楽しんできてね。');
+    lines.push('ウイコレの段取りは私が静かに預かっておくね。');
   }
   return lines.join('\n');
 }
@@ -62,7 +81,8 @@ function formatReminderListReply(reminders) {
   }
   const lines = [`リマインド一覧（${active.length}件）`];
   for (const r of active) {
-    lines.push(`• ${formatJst(r.reminderAt)} — ${r.title}`);
+    const detail = r.detail ? ` (${String(r.detail).replace(/^補足:\s*/, '')})` : '';
+    lines.push(`• ${formatJst(r.reminderAt)} — ${r.title}${detail}`);
   }
   lines.push('');
   lines.push('「リマインドキャンセル」で全解除、「〇〇のリマインド消して」で個別消去できるよ。');
@@ -83,7 +103,11 @@ function formatReminderPushText(reminder) {
   if (reminder.detail) lines.push(reminder.detail);
   if (reminder.tags?.includes('uicolle')) {
     lines.push('');
-    lines.push('クラブ戦、全力で行ってきてね。秘書は応援してるよ。');
+    if (reminder.participantCount) {
+      lines.push(`今夜は${reminder.participantCount}人の段取り、抜けないようにね。秘書はちゃんと見送ってるよ。`);
+    } else {
+      lines.push('クラブ戦、全力で行ってきてね。秘書は応援してるよ。');
+    }
   }
   return lines.join('\n');
 }
@@ -104,7 +128,8 @@ function detectNoblesseReminderHint(text) {
   return (
     /(今夜|今日|本日).*(ウイコレ|クラブ戦|対戦|集合|やる|開催)/.test(t) ||
     /(ウイコレ|クラブ戦).*(今夜|今日|今から|スタート|始める|やる)/.test(t) ||
-    /(集合|スタート|開始).*(何時|時間|リマインド)/.test(t)
+    /(集合|スタート|開始).*(何時|時間|リマインド)/.test(t) ||
+    /(ウイコレ|クラブ戦).*(決まった|予定|今夜|ハード|ノーマル)/.test(t)
   );
 }
 
@@ -113,11 +138,15 @@ function buildNoblesseReminderProposal(text) {
   const time = parseHourMinute(t);
   const tags = extractTags(t);
   const title = extractReminderTitle(text) || 'ウイコレ クラブ戦';
+  const participantCount = extractParticipantCount(t);
+  const detail = buildReminderDetail(text, title, tags, participantCount);
   return {
     title,
     time,
     tags,
     hasTime: !!time,
+    participantCount,
+    detail,
   };
 }
 
@@ -170,6 +199,28 @@ function extractReminderTitle(text) {
   return '';
 }
 
+function buildReminderDetail(text, title = '', tags = [], participantCount = null) {
+  const t = normalize(text);
+  const count = participantCount || extractParticipantCount(t);
+  if (tags.includes('uicolle') || /ウイコレ|クラブ戦/.test(title)) {
+    const parts = [];
+    if (/(今夜|今日|本日)/.test(t)) parts.push('今夜の段取り');
+    if (Number.isFinite(count) && count > 1) parts.push(`${count}人予定`);
+    if (/ハード/.test(t)) parts.push('ハードモード');
+    if (/ノーマル/.test(t)) parts.push('ノーマルモード');
+    if (/クラブ戦/.test(t)) parts.push('クラブ戦');
+    return parts.length ? `補足: ${parts.join(' / ')}` : '';
+  }
+  return '';
+}
+
+function extractParticipantCount(t) {
+  const match = String(t || '').match(/(\d{1,2})\s*人/);
+  if (!match) return null;
+  const count = Number(match[1]);
+  return Number.isFinite(count) && count > 0 ? count : null;
+}
+
 function extractTags(t) {
   const tags = [];
   if (/(ウイコレ|クラブ戦|対戦|uicolle)/i.test(t)) tags.push('uicolle');
@@ -204,6 +255,7 @@ function formatJst(timestamp) {
 
 module.exports = {
   detectReminderIntent,
+  detectReminderSuggestionIntent,
   detectNoblesseReminderHint,
   buildNoblesseReminderProposal,
   formatReminderSetReply,
