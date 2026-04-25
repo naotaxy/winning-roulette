@@ -1,5 +1,7 @@
 'use strict';
 
+const { detectDayPart } = require('./time-choice');
+
 // ─── 検出 ───────────────────────────────────────────────────────────────────
 
 function detectReminderIntent(text) {
@@ -17,7 +19,11 @@ function detectReminderIntent(text) {
   const time = parseHourMinute(t);
   if (!time) {
     const title = extractReminderTitle(text);
-    return { type: 'eventReminder', action: 'missingTime', title };
+    const dayPart = detectDayPart(t);
+    if (dayPart) {
+      return { type: 'eventReminder', action: 'timeBranch', title: title || '予定', dayPart, tags: extractTags(t) };
+    }
+    return { type: 'eventReminder', action: 'missingTime', title: title || '予定', tags: extractTags(t) };
   }
 
   const advanceMin = extractAdvanceMinutes(t);
@@ -120,6 +126,39 @@ function formatReminderMissingTimeReply(intent) {
   ].join('\n');
 }
 
+function inferReminderHintFromConversation(messages = []) {
+  const recent = Array.isArray(messages) ? messages.slice(-10).reverse() : [];
+  for (const item of recent) {
+    const rawText = String(item?.text || '').trim();
+    const text = normalize(rawText);
+    if (!text || /^@?秘書/.test(rawText)) continue;
+
+    if (detectNoblesseReminderHint(text)) {
+      return buildNoblesseReminderProposal(rawText);
+    }
+
+    const title = inferGenericReminderTitle(rawText);
+    if (title) {
+      return {
+        title,
+        tags: extractTags(text),
+        participantCount: extractParticipantCount(text),
+        detail: buildReminderDetail(rawText, title, extractTags(text), extractParticipantCount(text)),
+      };
+    }
+  }
+  return null;
+}
+
+function inferGenericReminderTitle(text) {
+  const normalized = normalize(text);
+  if (/(飲み会|飲み|会食|ご飯)/.test(normalized)) return '飲み会';
+  if (/(打ち合わせ|会議|ミーティング|mtg)/.test(normalized)) return '打ち合わせ';
+  if (/(旅行|出発|集合)/.test(normalized)) return '移動予定';
+  if (/(病院|診察)/.test(normalized)) return '通院';
+  return '';
+}
+
 // ─── Noblesse用 ─────────────────────────────────────────────────────────────
 
 function detectNoblesseReminderHint(text) {
@@ -195,8 +234,22 @@ function extractReminderTitle(text) {
   if (quoted) return quoted[1];
   // "〜のリマインド / 〜を通知" 形式
   const titled = t.match(/(.{2,15})(?:を?リマインド|を通知|を知らせ)/);
-  if (titled) return titled[1].replace(/^(今夜|今日|今|)/, '').trim();
+  if (titled) {
+    return sanitizeReminderTitle(titled[1]);
+  }
   return '';
+}
+
+function sanitizeReminderTitle(value) {
+  const cleaned = String(value || '')
+    .replace(/^(今夜|今日|本日|明日|今朝|朝|昼|夜|午前|午後|夕方)\s*/u, '')
+    .replace(/[をはに]$/u, '')
+    .trim();
+  if (!cleaned) return '';
+  if (/^(今夜|今日|本日|明日|今朝|朝|昼|夜|午前|午後|夕方|朝に|昼に|夜に|予定)$/u.test(cleaned)) {
+    return '';
+  }
+  return cleaned;
 }
 
 function buildReminderDetail(text, title = '', tags = [], participantCount = null) {
@@ -266,4 +319,6 @@ module.exports = {
   parseHourMinute,
   extractReminderTitle,
   extractTags,
+  inferReminderHintFromConversation,
+  inferGenericReminderTitle,
 };

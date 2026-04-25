@@ -9,6 +9,10 @@ const {
   fetchWakeWeather,
   formatWakeWeatherSummary,
 } = require('../linebot/src/weather');
+const {
+  isMorningAlarm,
+  buildMorningBriefingMessages,
+} = require('../linebot/src/morning-briefing');
 
 const WAKE_ALARM_ROOT = 'wakeAlarms';
 const LOOKBACK_MS = 15 * 60 * 1000;
@@ -28,7 +32,7 @@ function getDb() {
   return _db;
 }
 
-async function pushLineText(to, text) {
+async function pushLineMessages(to, messages) {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   if (!token) throw new Error('LINE_CHANNEL_ACCESS_TOKEN is missing');
 
@@ -38,10 +42,7 @@ async function pushLineText(to, text) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({
-      to,
-      messages: [{ type: 'text', text }],
-    }),
+    body: JSON.stringify({ to, messages }),
   });
 
   if (!res.ok) {
@@ -63,8 +64,14 @@ async function processWakeAlarm(sourceId, alarm, now) {
     weatherLongitude,
   ).catch(() => null);
   const weatherLine = formatWakeWeatherSummary(weather);
-  const text = [formatWakeAlarmPushText(alarm), weatherLine].filter(Boolean).join('\n');
-  await pushLineText(sourceId, text);
+  const messages = [
+    { type: 'text', text: [formatWakeAlarmPushText(alarm), weatherLine].filter(Boolean).join('\n') },
+  ];
+  if (isMorningAlarm(alarm)) {
+    const briefingMessages = await buildMorningBriefingMessages(alarm).catch(() => []);
+    messages.push(...briefingMessages);
+  }
+  await pushLineMessages(sourceId, messages.filter(item => item?.text));
 
   const ref = getDb().ref(`${WAKE_ALARM_ROOT}/${sourceId}`);
   const update = {

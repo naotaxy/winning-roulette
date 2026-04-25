@@ -195,6 +195,10 @@ const {
   formatWakeAlarmCancelReply,
 } = require('./wake-alarm');
 const {
+  buildWakeTimeChoiceMessage,
+  buildReminderTimeChoiceMessage,
+} = require('./time-choice');
+const {
   getResolvedPrivateProfile,
   buildPrivateProfileContextText,
   formatOwnPrivateProfileReply,
@@ -218,6 +222,7 @@ const {
   formatReminderCancelReply,
   formatReminderPushText,
   formatReminderMissingTimeReply,
+  inferReminderHintFromConversation,
 } = require('./event-reminder');
 
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
@@ -804,10 +809,11 @@ async function handleText(event, client) {
     }
 
     if (intent.action === 'missingTime') {
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '何時に起こせばいいかだけ教えてね。\n例:「朝7時に起こして」「明日7:30に起こして」「毎朝6時半に起こして」',
-      });
+      return client.replyMessage(event.replyToken, buildWakeTimeChoiceMessage(intent));
+    }
+
+    if (intent.action === 'timeBranch') {
+      return client.replyMessage(event.replyToken, buildWakeTimeChoiceMessage(intent));
     }
 
     if (intent.action === 'invalidTime') {
@@ -831,6 +837,7 @@ async function handleText(event, client) {
       minute: intent.minute,
       dueAt: intent.dueAt,
       recurring: intent.recurring === true,
+      weekdayOnly: intent.weekdayOnly === true,
       weatherPlace,
       weatherLatitude: Number.isFinite(Number(latestLocation?.latitude)) ? Number(latestLocation.latitude) : null,
       weatherLongitude: Number.isFinite(Number(latestLocation?.longitude)) ? Number(latestLocation.longitude) : null,
@@ -3378,7 +3385,27 @@ function streamToBuffer(stream) {
 
 // ─── イベントリマインダー ──────────────────────────────────────────────────────
 
+async function enrichReminderIntentWithContext(sourceId, intent) {
+  if (!intent || !sourceId) return intent;
+  const needsContext = !intent.title || intent.title === '予定';
+  if (!needsContext) return intent;
+
+  const recentConversation = await getRecentConversation(sourceId, 12).catch(() => []);
+  const inferred = inferReminderHintFromConversation(recentConversation);
+  if (!inferred) return intent;
+
+  return {
+    ...intent,
+    title: inferred.title || intent.title,
+    tags: [...new Set([...(intent.tags || []), ...(inferred.tags || [])])],
+    participantCount: intent.participantCount || inferred.participantCount || null,
+    detail: intent.detail || inferred.detail || '',
+  };
+}
+
 async function handleEventReminderIntent({ event, client, sourceId, userId, senderName, intent }) {
+  const enrichedIntent = await enrichReminderIntentWithContext(sourceId, intent);
+
   if (intent.action === 'list') {
     const reminders = await getEventReminders(sourceId).catch(() => []);
     return client.replyMessage(event.replyToken, {
@@ -3396,29 +3423,33 @@ async function handleEventReminderIntent({ event, client, sourceId, userId, send
   }
 
   if (intent.action === 'missingTime') {
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: formatReminderMissingTimeReply(intent),
-    });
+    if (enrichedIntent.dayPart) {
+      return client.replyMessage(event.replyToken, buildReminderTimeChoiceMessage(enrichedIntent));
+    }
+    return client.replyMessage(event.replyToken, buildReminderTimeChoiceMessage(enrichedIntent));
+  }
+
+  if (intent.action === 'timeBranch') {
+    return client.replyMessage(event.replyToken, buildReminderTimeChoiceMessage(enrichedIntent));
   }
 
   if (intent.action === 'set') {
     await saveEventReminder(sourceId, {
-      title: intent.title,
-      hour: intent.hour,
-      minute: intent.minute,
-      dueAt: intent.dueAt,
-      reminderAt: intent.reminderAt,
-      advanceMin: intent.advanceMin || 0,
-      tags: intent.tags || [],
-      detail: intent.detail || '',
-      participantCount: intent.participantCount || null,
+      title: enrichedIntent.title,
+      hour: enrichedIntent.hour,
+      minute: enrichedIntent.minute,
+      dueAt: enrichedIntent.dueAt,
+      reminderAt: enrichedIntent.reminderAt,
+      advanceMin: enrichedIntent.advanceMin || 0,
+      tags: enrichedIntent.tags || [],
+      detail: enrichedIntent.detail || '',
+      participantCount: enrichedIntent.participantCount || null,
       createdByName: senderName || '',
       createdBy: userId || '',
     });
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: formatReminderSetReply(intent, senderName),
+      text: formatReminderSetReply(enrichedIntent, senderName),
     });
   }
 

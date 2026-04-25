@@ -1,5 +1,7 @@
 'use strict';
 
+const { detectDayPart } = require('./time-choice');
+
 function detectWakeAlarmIntent(text) {
   const normalized = normalize(text);
   if (!normalized) return null;
@@ -16,13 +18,20 @@ function detectWakeAlarmIntent(text) {
     return null;
   }
 
+  const recurring = /(毎朝|毎日|平日)/.test(normalized);
+  const weekdayOnly = /(平日|月曜?から金曜?|月-?金|月〜金|月~金)/.test(normalized);
   const time = parseHourMinute(normalized);
-  if (!time) return { type: 'wakeAlarm', action: 'missingTime' };
+  if (!time) {
+    const dayPart = detectDayPart(normalized);
+    if (dayPart) {
+      return { type: 'wakeAlarm', action: 'timeBranch', recurring, weekdayOnly, dayPart };
+    }
+    return { type: 'wakeAlarm', action: 'missingTime', recurring, weekdayOnly };
+  }
   if (time.hour < 0 || time.hour > 23 || time.minute < 0 || time.minute > 59) {
     return { type: 'wakeAlarm', action: 'invalidTime' };
   }
 
-  const recurring = /(毎朝|毎日)/.test(normalized);
   const explicitTomorrow = /(明日|あした)/.test(normalized);
   const explicitToday = /(今日|きょう)/.test(normalized);
   const now = getTokyoDateTimeParts(new Date());
@@ -30,6 +39,7 @@ function detectWakeAlarmIntent(text) {
     hour: time.hour,
     minute: time.minute,
     recurring,
+    weekdayOnly,
     explicitTomorrow,
     explicitToday,
     now,
@@ -41,6 +51,7 @@ function detectWakeAlarmIntent(text) {
     hour: time.hour,
     minute: time.minute,
     recurring,
+    weekdayOnly,
     explicitTomorrow,
     dueAt,
   };
@@ -51,9 +62,12 @@ function formatWakeAlarmSetReply(intent, senderName = null) {
   const title = senderName
     ? `${senderName}さん、${when}に起こすね。`
     : `${when}に起こすね。`;
+  const cadence = intent?.recurring
+    ? `${intent?.weekdayOnly ? '平日の朝' : '毎朝'} ${formatHourMinute(intent.hour, intent.minute)} ごろに声をかけるよ。`
+    : `${formatHourMinute(intent.hour, intent.minute)} ごろに声をかけるよ。`;
   return [
     title,
-    intent?.recurring ? `毎朝 ${formatHourMinute(intent.hour, intent.minute)} ごろに声をかけるよ。` : `${formatHourMinute(intent.hour, intent.minute)} ごろに声をかけるよ。`,
+    cadence,
     'GitHub Actions 経由だから、数分くらい前後することはあるけど、ちゃんと迎えに行くね。',
   ].join('\n');
 }
@@ -67,7 +81,7 @@ function formatWakeAlarmStatusReply(alarm) {
   }
   return [
     alarm.recurring
-      ? `今は毎朝 ${formatHourMinute(alarm.hour, alarm.minute)} ごろに起こす設定だよ。`
+      ? `今は${alarm.weekdayOnly ? '平日の朝' : '毎朝'} ${formatHourMinute(alarm.hour, alarm.minute)} ごろに起こす設定だよ。`
       : `次は ${formatDueLabel(alarm.dueAt, false)} に起こす予定だよ。`,
     alarm.recurring ? `次の予定は ${formatDateTime(alarm.dueAt)} ごろ。` : '',
   ].filter(Boolean).join('\n');
@@ -95,6 +109,7 @@ function computeNextRecurringDueAt(alarm, fromDate = new Date()) {
     hour: Number(alarm.hour) || 0,
     minute: Number(alarm.minute) || 0,
     recurring: true,
+    weekdayOnly: alarm.weekdayOnly === true,
     explicitTomorrow: false,
     explicitToday: false,
     now: getTokyoDateTimeParts(fromDate),
@@ -114,16 +129,27 @@ function parseHourMinute(text) {
   return null;
 }
 
-function computeWakeDueAt({ hour, minute, recurring, explicitTomorrow, explicitToday, now }) {
+function computeWakeDueAt({ hour, minute, recurring, weekdayOnly, explicitTomorrow, explicitToday, now }) {
   const todayTs = buildTokyoTimestamp(now.year, now.month, now.day, hour, minute);
   if (recurring) {
+    if (weekdayOnly) {
+      return findNextWeekdayTimestamp(now, hour, minute, todayTs > now.timestamp ? 0 : 1);
+    }
     return todayTs > now.timestamp ? todayTs : buildShiftedDayTimestamp(now.year, now.month, now.day, 1, hour, minute);
   }
   if (explicitTomorrow) {
-    return buildShiftedDayTimestamp(now.year, now.month, now.day, 1, hour, minute);
+    return weekdayOnly
+      ? findNextWeekdayTimestamp(now, hour, minute, 1)
+      : buildShiftedDayTimestamp(now.year, now.month, now.day, 1, hour, minute);
   }
   if (explicitToday) {
+    if (weekdayOnly) {
+      return findNextWeekdayTimestamp(now, hour, minute, todayTs > now.timestamp ? 0 : 1);
+    }
     return todayTs > now.timestamp ? todayTs : buildShiftedDayTimestamp(now.year, now.month, now.day, 1, hour, minute);
+  }
+  if (weekdayOnly) {
+    return findNextWeekdayTimestamp(now, hour, minute, todayTs > now.timestamp ? 0 : 1);
   }
   return todayTs > now.timestamp ? todayTs : buildShiftedDayTimestamp(now.year, now.month, now.day, 1, hour, minute);
 }
@@ -132,6 +158,21 @@ function buildShiftedDayTimestamp(year, month, day, deltaDays, hour, minute) {
   const base = buildTokyoTimestamp(year, month, day, 12, 0) + (deltaDays * 24 * 60 * 60 * 1000);
   const shifted = getTokyoDateTimeParts(new Date(base));
   return buildTokyoTimestamp(shifted.year, shifted.month, shifted.day, hour, minute);
+}
+
+function findNextWeekdayTimestamp(now, hour, minute, startOffsetDays) {
+  for (let offset = startOffsetDays; offset < startOffsetDays + 8; offset++) {
+    const base = buildShiftedDayTimestamp(now.year, now.month, now.day, offset, 12, 0);
+    const candidate = getTokyoDateTimeParts(new Date(base));
+    if (isWeekend(candidate.year, candidate.month, candidate.day)) continue;
+    return buildTokyoTimestamp(candidate.year, candidate.month, candidate.day, hour, minute);
+  }
+  return buildShiftedDayTimestamp(now.year, now.month, now.day, startOffsetDays || 1, hour, minute);
+}
+
+function isWeekend(year, month, day) {
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return weekday === 0 || weekday === 6;
 }
 
 function getTokyoDateTimeParts(date) {
