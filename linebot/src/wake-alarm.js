@@ -2,9 +2,28 @@
 
 const { detectDayPart } = require('./time-choice');
 
+const WAKE_NEWS_MODE_LABELS = {
+  all: 'WBSと大きめニュース',
+  wbs: 'WBSだけ',
+  major: '大きめニュースだけ',
+  none: 'ニュースなし',
+};
+
 function detectWakeAlarmIntent(text) {
+  const raw = String(text || '');
   const normalized = normalize(text);
   if (!normalized) return null;
+
+  if (/(起床ニュース|朝ニュース|朝のニュース|起床セットニュース|ニュース設定)/.test(normalized)) {
+    if (/(状態|確認|どう|何|見せ)/.test(normalized)) {
+      return { type: 'wakeAlarm', action: 'newsStatus' };
+    }
+    const newsMode = extractWakeNewsMode(raw, normalized);
+    if (newsMode) {
+      return { type: 'wakeAlarm', action: 'setNewsMode', newsMode };
+    }
+    return { type: 'wakeAlarm', action: 'newsChoice' };
+  }
 
   if (/(起こすのやめて|起こさなくていい|起床解除|アラーム解除|目覚まし解除|起こして解除|起こすの停止)/.test(normalized)) {
     return { type: 'wakeAlarm', action: 'cancel' };
@@ -84,6 +103,7 @@ function formatWakeAlarmStatusReply(alarm) {
       ? `今は${alarm.weekdayOnly ? '平日の朝' : '毎朝'} ${formatHourMinute(alarm.hour, alarm.minute)} ごろに起こす設定だよ。`
       : `次は ${formatDueLabel(alarm.dueAt, false)} に起こす予定だよ。`,
     alarm.recurring ? `次の予定は ${formatDateTime(alarm.dueAt)} ごろ。` : '',
+    `朝のニュース設定は「${formatWakeNewsModeLabel(alarm?.newsMode)}」。`,
   ].filter(Boolean).join('\n');
 }
 
@@ -98,8 +118,20 @@ function formatWakeAlarmPushText(alarm) {
   const intro = alarm?.recurring ? 'おはよう。' : '起きる時間だよ。';
   return [
     intro,
-    `${formatHourMinute(alarm?.hour, alarm?.minute)} ごろの約束、ちゃんと来たよ。`,
-    '今日も無理しすぎないでね。私はもう起きて待ってる。',
+    `${formatHourMinute(alarm?.hour, alarm?.minute)} になったから、そっと声をかけに来たよ。`,
+  ].join('\n');
+}
+
+function formatWakeNewsModeReply(newsMode, senderName = null) {
+  const label = formatWakeNewsModeLabel(newsMode);
+  const title = senderName
+    ? `${senderName}さん、朝のニュースは「${label}」にしておくね。`
+    : `朝のニュースは「${label}」にしておくね。`;
+  return [
+    title,
+    newsMode === 'none'
+      ? '起きた時は、天気と通勤まわりを静かに持っていくね。'
+      : '起きた時は、天気や通勤のあとに、その設定に合わせて小さく報告するよ。',
   ].join('\n');
 }
 
@@ -127,6 +159,26 @@ function parseHourMinute(text) {
   if (hourMinute) return { hour: Number(hourMinute[1]), minute: hourMinute[2] ? Number(hourMinute[2]) : 0 };
 
   return null;
+}
+
+function extractWakeNewsMode(rawText, normalizedText) {
+  if (/(なし|いらない|不要|オフ|off|天気だけ)/i.test(rawText)) return 'none';
+  if (/(wbs|経済|マーケット)/i.test(rawText)) return 'wbs';
+  if (/(大きいニュース|主要ニュース|大事なニュース|一般ニュース|nhk)/i.test(rawText)) return 'major';
+  if (/(全部|全部入り|両方|おまかせ|通常|フル)/.test(normalizedText)) return 'all';
+  return null;
+}
+
+function normalizeWakeNewsMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'wbs') return 'wbs';
+  if (mode === 'major') return 'major';
+  if (mode === 'none') return 'none';
+  return 'all';
+}
+
+function formatWakeNewsModeLabel(value) {
+  return WAKE_NEWS_MODE_LABELS[normalizeWakeNewsMode(value)] || WAKE_NEWS_MODE_LABELS.all;
 }
 
 function computeWakeDueAt({ hour, minute, recurring, weekdayOnly, explicitTomorrow, explicitToday, now }) {
@@ -237,5 +289,8 @@ module.exports = {
   formatWakeAlarmStatusReply,
   formatWakeAlarmCancelReply,
   formatWakeAlarmPushText,
+  formatWakeNewsModeReply,
+  formatWakeNewsModeLabel,
+  normalizeWakeNewsMode,
   computeNextRecurringDueAt,
 };

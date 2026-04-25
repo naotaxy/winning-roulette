@@ -48,6 +48,13 @@ const REMINDER_TIME_OPTIONS = {
   ],
 };
 
+const WAKE_NEWS_MODE_LABELS = {
+  all: 'WBSと大きめニュース',
+  wbs: 'WBSだけ',
+  major: '大きめニュースだけ',
+  none: 'ニュースなし',
+};
+
 function detectDayPart(text) {
   const normalized = normalize(text);
   if (!normalized) return null;
@@ -108,6 +115,20 @@ function buildReminderTimeChoiceMessage(intent = {}) {
   );
 }
 
+function buildWakeNewsChoiceMessage(alarm = {}) {
+  const currentMode = normalizeWakeNewsMode(alarm.newsMode);
+  const currentLabel = WAKE_NEWS_MODE_LABELS[currentMode] || WAKE_NEWS_MODE_LABELS.all;
+  return buildQuickReplyText(
+    `朝のニュースはどう持っていこうか？ 今は「${currentLabel}」になってるよ。`,
+    [
+      { label: '全部', text: '起床ニュース 全部' },
+      { label: 'WBSだけ', text: '起床ニュース WBSだけ' },
+      { label: '大きいニュース', text: '起床ニュース 主要ニュースだけ' },
+      { label: '天気だけ', text: '起床ニュース なし' },
+    ],
+  );
+}
+
 function buildWakeQualifier(intent) {
   if (intent.weekdayOnly) return '平日 ';
   if (intent.recurring) return '毎朝 ';
@@ -136,6 +157,14 @@ function buildQuickReplyText(text, actions = []) {
   };
 }
 
+function normalizeWakeNewsMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'wbs') return 'wbs';
+  if (mode === 'major') return 'major';
+  if (mode === 'none') return 'none';
+  return 'all';
+}
+
 function normalize(text) {
   return String(text || '')
     .normalize('NFKC')
@@ -147,4 +176,5 @@ module.exports = {
   detectDayPart,
   buildWakeTimeChoiceMessage,
   buildReminderTimeChoiceMessage,
+  buildWakeNewsChoiceMessage,
 };

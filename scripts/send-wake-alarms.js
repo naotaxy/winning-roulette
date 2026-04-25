@@ -64,14 +64,18 @@ async function processWakeAlarm(sourceId, alarm, now) {
     weatherLongitude,
   ).catch(() => null);
   const weatherLine = formatWakeWeatherSummary(weather);
-  const messages = [
-    { type: 'text', text: [formatWakeAlarmPushText(alarm), weatherLine].filter(Boolean).join('\n') },
-  ];
+  const messages = [{ type: 'text', text: formatWakeAlarmPushText(alarm) }];
+  if (weatherLine) {
+    messages.push({
+      type: 'text',
+      text: `まず外まわりだけ。\n${weatherLine}`,
+    });
+  }
   if (isMorningAlarm(alarm)) {
     const briefingMessages = await buildMorningBriefingMessages(alarm).catch(() => []);
     messages.push(...briefingMessages);
   }
-  await pushLineMessages(sourceId, messages.filter(item => item?.text));
+  await pushLineMessages(sourceId, messages.filter(item => item?.text).slice(0, 5));
 
   const ref = getDb().ref(`${WAKE_ALARM_ROOT}/${sourceId}`);
   const update = {

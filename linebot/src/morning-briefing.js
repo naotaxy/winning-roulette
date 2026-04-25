@@ -9,6 +9,7 @@ const YAHOO_OEDO_STATUS_URL = 'https://transit.yahoo.co.jp/diainfo/131/0';
 const HTTP_HEADERS = { 'user-agent': 'traperuko-linebot/1.0' };
 
 async function buildMorningBriefingMessages(alarm = {}) {
+  const newsMode = normalizeWakeNewsMode(alarm.newsMode);
   const profile = await getResolvedPrivateProfile({
     userId: alarm.userId || '',
     lineName: alarm.senderName || '',
@@ -17,8 +18,12 @@ async function buildMorningBriefingMessages(alarm = {}) {
   const commute = buildCommuteProfile(profile);
 
   const [wbsHighlights, majorNews, trainStatuses] = await Promise.all([
-    fetchWbsHighlights().catch(() => []),
-    fetchMajorNewsHighlights().catch(() => []),
+    newsMode === 'all' || newsMode === 'wbs'
+      ? fetchWbsHighlights().catch(() => [])
+      : Promise.resolve([]),
+    newsMode === 'all' || newsMode === 'major'
+      ? fetchMajorNewsHighlights().catch(() => [])
+      : Promise.resolve([]),
     Promise.all(commute.lines.map(fetchTrainStatus)).catch(() => []),
   ]);
 
@@ -164,7 +169,7 @@ function inferCommuteRouteLabel(text) {
 
 function formatCommuteBriefing(commute, statuses) {
   if (!Array.isArray(statuses) || !statuses.length) return '';
-  const lines = ['通勤まわりだけ、先に見てきたよ。'];
+  const lines = ['そのあと、通勤まわりだけ先に見てきたよ。'];
   if (commute?.routeLabel) {
     lines.push(`いつもの筋は ${commute.routeLabel} で見てる。`);
   }
@@ -176,7 +181,7 @@ function formatCommuteBriefing(commute, statuses) {
 
 function formatWbsBriefing(items) {
   if (!Array.isArray(items) || !items.length) return '';
-  const lines = ['昨夜のWBSは、この3本だけ押さえておけば大丈夫。'];
+  const lines = ['昨夜のWBSは、今朝ならこのへんだけ押さえておけば十分。'];
   items.forEach((item, index) => {
     lines.push(`${index + 1}. ${item.title}`);
     if (item.summary) lines.push(`   ${item.summary}`);
@@ -186,7 +191,7 @@ function formatWbsBriefing(items) {
 
 function formatMajorNewsBriefing(items) {
   if (!Array.isArray(items) || !items.length) return '';
-  const lines = ['あと、朝の時点で大きめのニュースも少しだけ。'];
+  const lines = ['世の中の大きめニュースも、朝の分だけ少し置いておくね。'];
   items.forEach(item => {
     lines.push(`・${item.title}`);
     if (item.summary) lines.push(`  ${item.summary}`);
@@ -267,6 +272,14 @@ function formatJstDate(date) {
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   const day = String(date.getUTCDate()).padStart(2, '0');
   return `${year}/${month}/${day}`;
+}
+
+function normalizeWakeNewsMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'wbs') return 'wbs';
+  if (mode === 'major') return 'major';
+  if (mode === 'none') return 'none';
+  return 'all';
 }
 
 module.exports = {

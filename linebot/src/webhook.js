@@ -193,11 +193,16 @@ const {
   formatWakeAlarmSetReply,
   formatWakeAlarmStatusReply,
   formatWakeAlarmCancelReply,
+  formatWakeNewsModeReply,
+  formatWakeNewsModeLabel,
+  normalizeWakeNewsMode,
 } = require('./wake-alarm');
 const {
   buildWakeTimeChoiceMessage,
   buildReminderTimeChoiceMessage,
+  buildWakeNewsChoiceMessage,
 } = require('./time-choice');
+const { isMorningAlarm } = require('./morning-briefing');
 const {
   getResolvedPrivateProfile,
   buildPrivateProfileContextText,
@@ -793,10 +798,20 @@ async function handleText(event, client) {
 
     if (intent.action === 'status') {
       const alarm = await getWakeAlarm(sourceId);
-      return client.replyMessage(event.replyToken, {
+      if (!alarm) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: formatWakeAlarmStatusReply(alarm),
+        });
+      }
+      const messages = [{
         type: 'text',
         text: formatWakeAlarmStatusReply(alarm),
-      });
+      }];
+      if (isMorningAlarm(alarm)) {
+        messages.push(buildWakeNewsChoiceMessage(alarm));
+      }
+      return client.replyMessage(event.replyToken, messages);
     }
 
     if (intent.action === 'cancel') {
@@ -816,6 +831,44 @@ async function handleText(event, client) {
       return client.replyMessage(event.replyToken, buildWakeTimeChoiceMessage(intent));
     }
 
+    if (intent.action === 'newsChoice' || intent.action === 'newsStatus') {
+      const alarm = await getWakeAlarm(sourceId);
+      if (!alarm) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: 'まだ起床セットが入っていないみたい。先に「平日毎朝6時半に起こして」みたいに時間を決めてくれたら、そのあとニュースの持ち方を選べるよ。',
+        });
+      }
+      return client.replyMessage(event.replyToken, [
+        {
+          type: 'text',
+          text: `今の朝ニュースは「${formatWakeNewsModeLabel(alarm.newsMode)}」だよ。`,
+        },
+        buildWakeNewsChoiceMessage(alarm),
+      ]);
+    }
+
+    if (intent.action === 'setNewsMode') {
+      const currentAlarm = await getWakeAlarm(sourceId);
+      if (!currentAlarm) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: 'まだ起床セットが入っていないみたい。先に「平日毎朝6時半に起こして」みたいに時間を決めてくれたら、そのあとニュースの持ち方を選べるよ。',
+        });
+      }
+      const alarm = await setWakeAlarm(sourceId, {
+        ...currentAlarm,
+        newsMode: normalizeWakeNewsMode(intent.newsMode),
+      });
+      return client.replyMessage(event.replyToken, [
+        {
+          type: 'text',
+          text: formatWakeNewsModeReply(alarm.newsMode, senderName),
+        },
+        buildWakeNewsChoiceMessage(alarm),
+      ]);
+    }
+
     if (intent.action === 'invalidTime') {
       return client.replyMessage(event.replyToken, {
         type: 'text',
@@ -823,6 +876,7 @@ async function handleText(event, client) {
       });
     }
 
+    const currentAlarm = await getWakeAlarm(sourceId).catch(() => null);
     const latestLocation = await getLatestLocation(sourceId, userId);
     const privateProfile = await getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null);
     const weatherPlace = latestLocation?.label
@@ -838,6 +892,7 @@ async function handleText(event, client) {
       dueAt: intent.dueAt,
       recurring: intent.recurring === true,
       weekdayOnly: intent.weekdayOnly === true,
+      newsMode: normalizeWakeNewsMode(currentAlarm?.newsMode),
       weatherPlace,
       weatherLatitude: Number.isFinite(Number(latestLocation?.latitude)) ? Number(latestLocation.latitude) : null,
       weatherLongitude: Number.isFinite(Number(latestLocation?.longitude)) ? Number(latestLocation.longitude) : null,
@@ -845,10 +900,14 @@ async function handleText(event, client) {
       createdAt: Date.now(),
       createdAtIso: new Date().toISOString(),
     });
-    return client.replyMessage(event.replyToken, {
+    const messages = [{
       type: 'text',
       text: formatWakeAlarmSetReply(alarm, senderName),
-    });
+    }];
+    if (isMorningAlarm(alarm)) {
+      messages.push(buildWakeNewsChoiceMessage(alarm));
+    }
+    return client.replyMessage(event.replyToken, messages);
   }
 
   if (intent?.type === 'eventReminder') {
