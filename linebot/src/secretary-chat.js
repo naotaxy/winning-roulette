@@ -574,7 +574,7 @@ const CASUAL_QUICK_REPLY_SCENES = [
       { label: '近くで探す', text: 'スニーカー 近くで見たい' },
       { label: 'いい店だけ', text: 'スニーカー 良い店だけ知りたい' },
       { label: '気軽に', text: 'スニーカー 気軽に寄りたい' },
-      { label: '背中押して', text: '背中押して' },
+      { label: '背中押して', text: 'スニーカー 背中押して' },
     ],
   },
   {
@@ -583,7 +583,7 @@ const CASUAL_QUICK_REPLY_SCENES = [
       { label: '近くで探す', text: '器 近くで見たい' },
       { label: 'いい店だけ', text: '器 良い店だけ知りたい' },
       { label: '気軽に', text: '器 気軽に寄りたい' },
-      { label: '背中押して', text: '背中押して' },
+      { label: '背中押して', text: '器 背中押して' },
     ],
   },
   {
@@ -592,7 +592,7 @@ const CASUAL_QUICK_REPLY_SCENES = [
       { label: '近くで探す', text: 'おいしいもの 近くで食べたい' },
       { label: 'いい店だけ', text: 'おいしいもの 良い店だけ知りたい' },
       { label: '気軽に', text: 'おいしいもの 気軽に寄りたい' },
-      { label: '背中押して', text: '背中押して' },
+      { label: '背中押して', text: 'おいしいもの 背中押して' },
     ],
   },
   {

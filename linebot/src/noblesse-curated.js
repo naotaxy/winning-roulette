@@ -364,7 +364,7 @@ function detectShoppingRequest(text) {
 function detectFoodQuickReplyCommand(text) {
   const t = String(text || '').trim();
   if (!t) return null;
-  if (/(おいしいもの|美味しいもの).*(近くで食べたい|良い店だけ知りたい|気軽に寄りたい)/.test(t)) {
+  if (/(おいしいもの|美味しいもの).*(近くで食べたい|良い店だけ知りたい|気軽に寄りたい|背中押して)/.test(t)) {
     return {
       type: 'restaurant',
       route: 'food-quick-reply',
@@ -386,7 +386,7 @@ function detectCuratedPlanCommand(text) {
   if (/(近場で自然がほしい|神社っぽい場所がいい|天気も踏まえて|軽くしおりみたいに)/.test(t)) {
     return { type: 'curatedPlan', action: 'start', kind: 'outing', text: t };
   }
-  if (/(スニーカー.*(近くで見たい|良い店だけ知りたい|気軽に寄りたい)|器.*(近くで見たい|良い店だけ知りたい|気軽に寄りたい))/.test(t)) {
+  if (/(スニーカー.*(近くで見たい|良い店だけ知りたい|気軽に寄りたい|背中押して)|器.*(近くで見たい|良い店だけ知りたい|気軽に寄りたい|背中押して))/.test(t)) {
     return { type: 'curatedPlan', action: 'start', kind: 'shopping', text: t };
   }
   return null;
@@ -507,6 +507,7 @@ function buildCuratedSummary(caseId, state) {
     lines.push(`予算: ${state.budgetYen ? `${Number(state.budgetYen).toLocaleString('ja-JP')}円くらい` : '未入力'}`);
   }
   if (state.weatherMode === 'indoor') lines.push('補正: 雨・屋内寄り');
+  if (state.weatherMode === 'weather-check') lines.push('補正: 天気を踏まえて選ぶ');
   return lines.join('\n');
 }
 
@@ -779,6 +780,9 @@ function scoreCuratedItem(item, state) {
   if (state.weatherMode === 'indoor') {
     score += item.indoor === 'high' ? 18 : item.indoor === 'medium' ? 8 : -8;
   }
+  if (state.weatherMode === 'weather-check') {
+    score += item.indoor === 'high' ? 8 : item.indoor === 'medium' ? 5 : 0;
+  }
 
   const originZone = inferZoneFromOrigin(state.origin || '');
   if (originZone && item.zone === originZone) score += 15;
@@ -838,7 +842,10 @@ function extractWalkingLevel(text) {
 }
 
 function extractWeatherMode(text) {
-  return /(雨|屋内)/.test(String(text || '')) ? 'indoor' : 'normal';
+  const t = String(text || '');
+  if (/(雨|屋内)/.test(t)) return 'indoor';
+  if (/天気/.test(t)) return 'weather-check';
+  return 'normal';
 }
 
 function extractOutingTheme(text) {
