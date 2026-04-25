@@ -1023,6 +1023,7 @@ async function handleText(event, client) {
       requestText: intent.text || `${kindLabel}したい`,
       actorName: senderName || '',
       ownerUserId: userId,
+      entryRoute: 'casual-chat',
     });
     await rememberCuratedPlan(caseId, plan);
     await logCaseEvent(caseId, 'curated_plan_started', { actorName: senderName || '', kind: intent.kind });
@@ -2499,6 +2500,7 @@ async function handleCuratedApprovalFlow({ client, event, sourceId, actorName, u
     actorName,
     ownerUserId: userId,
     option,
+    entryRoute: 'approved-case',
   });
   await rememberCuratedPlan(caseId, plan);
   await logCaseEvent(caseId, 'curated_plan_started', { actorName, kind });

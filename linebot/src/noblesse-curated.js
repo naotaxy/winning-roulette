@@ -392,11 +392,12 @@ function detectCuratedPlanCommand(text) {
   return null;
 }
 
-function createCuratedPlanState({ kind, requestText, actorName, ownerUserId, option }) {
+function createCuratedPlanState({ kind, requestText, actorName, ownerUserId, option, entryRoute = '' }) {
   const request = String(requestText || '').trim();
   const base = {
     kind,
     option: option || '',
+    entryRoute: String(entryRoute || '').slice(0, 40),
     requestText: request.slice(0, 300),
     origin: extractOrigin(request),
     durationHours: extractDurationHours(request),
@@ -452,10 +453,14 @@ function buildCuratedPrompt(caseId, state) {
   }
 
   if (field === 'origin') {
+    const caller = state?.ownerName ? `${state.ownerName}、` : '';
+    const outingOriginPrompt = state?.entryRoute === 'casual-chat'
+      ? `${caller}じゃあ、ここから私が整えるね。\nまずはどこから出るかだけ教えて。ふわっとで大丈夫。\n例: 中野区の東橋バス停 / 新宿駅\n\n今いる場所ならGPSでも受け取れるよ📍`
+      : 'どこから動き始めるか教えてね。\n例: 中野区の東橋バス停 / 新宿駅\n\nGPSで現在地を送ることもできるよ📍';
     return {
       type: 'text',
       text: state.kind === 'outing'
-        ? 'どこから動き始めるか教えてね。\n例: 中野区の東橋バス停 / 新宿駅\n\nGPSで現在地を送ることもできるよ📍'
+        ? outingOriginPrompt
         : 'どの街から回り始めたいか教えてね。\n例: 新宿駅 / 中野\n\nGPSで現在地を送ることもできるよ📍',
       quickReply: {
         items: [
