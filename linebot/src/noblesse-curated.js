@@ -361,6 +361,19 @@ function detectShoppingRequest(text) {
   return /(スニーカー|靴|シューズ|器|うつわ|食器|皿|マグ|茶碗|鉢|プレート|花瓶)/.test(String(text || ''));
 }
 
+function detectFoodQuickReplyCommand(text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  if (/(おいしいもの|美味しいもの).*(近くで食べたい|良い店だけ知りたい|気軽に寄りたい)/.test(t)) {
+    return {
+      type: 'restaurant',
+      route: 'food-quick-reply',
+      text: t,
+    };
+  }
+  return null;
+}
+
 function detectCuratedPlanCommand(text) {
   const t = String(text || '').trim();
   if (!t) return null;
@@ -373,7 +386,7 @@ function detectCuratedPlanCommand(text) {
   if (/(近場で自然がほしい|神社っぽい場所がいい|天気も踏まえて|軽くしおりみたいに)/.test(t)) {
     return { type: 'curatedPlan', action: 'start', kind: 'outing', text: t };
   }
-  if (/(スニーカー.*(近くで見たい|良い店だけ知りたい|気軽に寄りたい)|器.*(近くで見たい|良い店だけ知りたい|気軽に寄りたい)|おいしいもの.*(近くで食べたい|良い店だけ知りたい|気軽に寄りたい))/.test(t)) {
+  if (/(スニーカー.*(近くで見たい|良い店だけ知りたい|気軽に寄りたい)|器.*(近くで見たい|良い店だけ知りたい|気軽に寄りたい))/.test(t)) {
     return { type: 'curatedPlan', action: 'start', kind: 'shopping', text: t };
   }
   return null;
@@ -819,7 +832,7 @@ function extractBudgetYen(text) {
 
 function extractWalkingLevel(text) {
   const t = String(text || '');
-  if (/歩くの減ら|疲れた|楽に|駅近|近場/.test(t)) return 'low';
+  if (/歩くの減ら|疲れた|楽に|駅近|近場|軽く|さっと/.test(t)) return 'low';
   if (/たくさん歩|散策したい|がっつり歩/.test(t)) return 'high';
   return 'medium';
 }
@@ -832,6 +845,7 @@ function extractOutingTheme(text) {
   const t = String(text || '');
   if (/神社/.test(t) && !/公園/.test(t)) return 'shrine';
   if (/公園|庭園/.test(t) && !/神社/.test(t)) return 'park';
+  if (/自然|緑/.test(t)) return 'nature';
   return 'nature';
 }
 
@@ -889,6 +903,7 @@ function buildMessageQuickReplies(items) {
 module.exports = {
   detectOutingRequest,
   detectShoppingRequest,
+  detectFoodQuickReplyCommand,
   detectCuratedPlanCommand,
   createCuratedPlanState,
   getNextCuratedField,

@@ -156,6 +156,7 @@ const {
 const {
   detectOutingRequest,
   detectShoppingRequest,
+  detectFoodQuickReplyCommand,
   detectCuratedPlanCommand,
   createCuratedPlanState,
   getNextCuratedField,
@@ -1042,7 +1043,8 @@ async function handleText(event, client) {
   if (intent?.type === 'restaurant') {
     return handleDirectRestaurantSearch({
       client, event, sourceId, userId, senderName,
-      text: mentionInfo.withoutMention,
+      text: intent.text || mentionInfo.withoutMention,
+      route: intent.route || '',
     });
   }
 
@@ -1673,6 +1675,9 @@ function detectTextIntent(text, options = {}) {
 
   const bookingCommand = detectBookingCommand(targetText);
   if (bookingCommand) return bookingCommand;
+
+  const foodQuickReplyCommand = detectFoodQuickReplyCommand(targetText);
+  if (foodQuickReplyCommand) return foodQuickReplyCommand;
 
   const curatedPlanCommand = detectCuratedPlanCommand(targetText);
   if (curatedPlanCommand) return curatedPlanCommand;
@@ -2444,7 +2449,7 @@ function buildProfileIntroLine(profile, area) {
   return `${name ? name + 'さんに向きそうなところ、' : ''}${area}で見つけてきたよ。`;
 }
 
-async function handleDirectRestaurantSearch({ client, event, sourceId, userId, senderName, text }) {
+async function handleDirectRestaurantSearch({ client, event, sourceId, userId, senderName, text, route = '' }) {
   // エリア抽出：テキスト → 直近会話を遡る
   let area = extractRestaurantArea(text);
   if (!area && sourceId) {
@@ -2458,7 +2463,9 @@ async function handleDirectRestaurantSearch({ client, event, sourceId, userId, s
   if (!area) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'どのエリアで探す？「市ヶ谷で」「渋谷近く」みたいに教えてくれると、ちゃんと探せるよ。',
+      text: route === 'food-quick-reply'
+        ? 'どのエリアで寄りたい？「中野で」「吉祥寺近く」みたいに教えてくれたら、美味しい候補だけ静かに絞るよ。'
+        : 'どのエリアで探す？「市ヶ谷で」「渋谷近く」みたいに教えてくれると、ちゃんと探せるよ。',
     });
   }
 
