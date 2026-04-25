@@ -1553,6 +1553,7 @@ async function buildAiConversationContext(year, month, senderName = null, source
 function detectTextIntent(text) {
   const { compact, mentioned, withoutMention } = getSecretaryMentionInfo(text);
   if (!compact) return null;
+  if (/^(ヘルプ|help)$/i.test(compact)) return 'help';
   if (!mentioned) return null;
 
   if (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention)) return 'help';
