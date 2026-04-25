@@ -1,6 +1,7 @@
 'use strict';
 
 const { buildRouteFlex } = require('./transport');
+const CURATED_PAGE_SIZE = 3;
 
 const OUTING_PLACES = [
   {
@@ -405,6 +406,7 @@ function createCuratedPlanState({ kind, requestText, actorName, ownerUserId, opt
     walkingLevel: extractWalkingLevel(request),
     weatherMode: extractWeatherMode(request),
     selectedIndex: null,
+    candidatePage: 0,
     itineraryText: '',
     candidates: [],
     awaitingField: '',
@@ -551,12 +553,100 @@ function rankCuratedCandidates(state) {
   const avoidIds = Array.isArray(state?.avoidIds) ? new Set(state.avoidIds) : new Set();
   return items
     .map(item => ({ ...item, score: scoreCuratedItem(item, state) - (avoidIds.has(item.id) ? 25 : 0) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
+    .sort((a, b) => b.score - a.score);
 }
 
-function buildCuratedCandidatesFlex(caseId, state, candidates) {
-  const bubbles = (candidates || []).map((item, index) => ({
+function normalizeCuratedPage(page, candidates) {
+  const totalPages = Math.max(1, Math.ceil((Array.isArray(candidates) ? candidates.length : 0) / CURATED_PAGE_SIZE));
+  const value = Number(page);
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(totalPages - 1, Math.floor(value)));
+}
+
+function buildCuratedPagerBubble(caseId, state, page, totalItems) {
+  const totalPages = Math.max(1, Math.ceil(totalItems / CURATED_PAGE_SIZE));
+  const start = page * CURATED_PAGE_SIZE;
+  const end = Math.min(totalItems, start + CURATED_PAGE_SIZE);
+  const buttons = [];
+
+  if (page > 0) {
+    buttons.push({
+      type: 'button',
+      style: 'secondary',
+      height: 'sm',
+      action: {
+        type: 'postback',
+        label: '前の3件',
+        data: `noblesse:curated_page:${caseId}:${page - 1}`,
+        displayText: state.kind === 'outing' ? '前のおでかけ候補を見る' : '前の買い物候補を見る',
+      },
+    });
+  }
+
+  if (page < totalPages - 1) {
+    buttons.push({
+      type: 'button',
+      style: 'primary',
+      height: 'sm',
+      margin: buttons.length ? 'sm' : 'none',
+      action: {
+        type: 'postback',
+        label: 'さらに見る',
+        data: `noblesse:curated_page:${caseId}:${page + 1}`,
+        displayText: state.kind === 'outing' ? '次のおでかけ候補を見る' : '次の買い物候補を見る',
+      },
+    });
+  }
+
+  return {
+    type: 'bubble',
+    size: 'kilo',
+    header: {
+      type: 'box',
+      layout: 'vertical',
+      backgroundColor: '#f3f6f8',
+      contents: [
+        { type: 'text', text: '候補を切り替える', size: 'sm', weight: 'bold', color: '#14324a' },
+        { type: 'text', text: `${start + 1}〜${end}件目 / 全${totalItems}件`, size: 'xs', color: '#66707a', margin: 'xs' },
+      ],
+    },
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      paddingAll: 'md',
+      contents: [
+        {
+          type: 'text',
+          text: state.kind === 'outing'
+            ? '今の条件で相性が近い順に並べてあるよ。気分が少し違ったら、続きもすぐ見せる。'
+            : '今の条件で回しやすい順に並べてあるよ。まだ見たいなら、次の候補もすぐ出せる。',
+          size: 'xs',
+          color: '#555555',
+          wrap: true,
+        },
+        {
+          type: 'text',
+          text: `${page + 1}/${totalPages}ページ`,
+          size: 'xs',
+          color: '#7a848d',
+          margin: 'sm',
+        },
+      ],
+    },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      paddingAll: 'sm',
+      contents: buttons,
+    },
+  };
+}
+
+function buildCuratedCandidatesFlex(caseId, state, candidates, page = 0) {
+  const currentPage = normalizeCuratedPage(page, candidates);
+  const start = currentPage * CURATED_PAGE_SIZE;
+  const pagedCandidates = (candidates || []).slice(start, start + CURATED_PAGE_SIZE);
+  const bubbles = pagedCandidates.map((item, index) => ({
     type: 'bubble',
     size: 'kilo',
     header: {
@@ -601,13 +691,17 @@ function buildCuratedCandidatesFlex(caseId, state, candidates) {
           action: {
             type: 'postback',
             label: state.kind === 'outing' ? 'ここでしおりを作る' : 'ここを軸に回る',
-            data: `noblesse:curated_pick:${caseId}:${index}`,
+            data: `noblesse:curated_pick:${caseId}:${start + index}`,
             displayText: state.kind === 'outing' ? `${item.name} でしおりを作る` : `${item.name} を見に行く`,
           },
         },
       ],
     },
   }));
+
+  if ((candidates || []).length > CURATED_PAGE_SIZE) {
+    bubbles.push(buildCuratedPagerBubble(caseId, state, currentPage, candidates.length));
+  }
 
   return {
     type: 'flex',

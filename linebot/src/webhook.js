@@ -2022,6 +2022,35 @@ async function handleNoblessePostback(event, client, data) {
     });
   }
 
+  if (action === 'curated_page') {
+    const caseData = await getNoblesseCase(caseId);
+    if (!caseData) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `案件 ${caseId} が見つからなかったの。もう一度相談してくれる？`,
+      });
+    }
+    const plan = getCuratedPlan(caseData);
+    if (!plan?.kind || !Array.isArray(plan.candidates) || !plan.candidates.length) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '候補の続きがまだ用意できていないみたい。先に候補を出し直そうか。',
+      });
+    }
+    const totalPages = Math.max(1, Math.ceil(plan.candidates.length / 3));
+    const requestedPage = Math.max(0, Number(parts[3]) || 0);
+    const nextPage = Math.min(totalPages - 1, requestedPage);
+    await updateCuratedPlan(caseId, { candidatePage: nextPage });
+    await logCaseEvent(caseId, 'curated_candidates_paged', { actorName, page: nextPage + 1 });
+    return client.replyMessage(event.replyToken, [
+      {
+        type: 'text',
+        text: `${nextPage * 3 + 1}件目から見せるね。気になるところがあったら、そのまま押してくれたら続けるよ。`,
+      },
+      buildCuratedCandidatesFlex(caseId, { ...plan, candidatePage: nextPage }, plan.candidates, nextPage),
+    ]);
+  }
+
   if (action === 'hotel_select') {
     const caseData = await getNoblesseCase(caseId);
     if (!caseData) {
@@ -2554,7 +2583,7 @@ async function handleCuratedPlanTextIntent({ event, client, sourceId, userId, se
     if (Array.isArray(plan.candidates) && plan.candidates.length) {
       return client.replyMessage(event.replyToken, [
         { type: 'text', text: buildCuratedGuideText(caseData.caseId, plan, plan.candidates) },
-        buildCuratedCandidatesFlex(caseData.caseId, plan, plan.candidates),
+        buildCuratedCandidatesFlex(caseData.caseId, plan, plan.candidates, plan.candidatePage || 0),
       ]);
     }
     return continueCuratedPlanOrRun({
@@ -2690,6 +2719,7 @@ async function runCuratedCandidates({ client, event, sourceId, actorName, caseId
   const updated = {
     ...activePlan,
     candidates,
+    candidatePage: 0,
     awaitingField: '',
     status: candidates.length ? 'candidates' : 'collecting',
     selectedIndex: null,
@@ -2711,7 +2741,7 @@ async function runCuratedCandidates({ client, event, sourceId, actorName, caseId
   const guideText = buildCuratedGuideText(caseId, updated, candidates);
   return client.replyMessage(event.replyToken, [
     { type: 'text', text: [weatherIntro, intro, guideText].filter(Boolean).join('\n') },
-    buildCuratedCandidatesFlex(caseId, updated, candidates),
+    buildCuratedCandidatesFlex(caseId, updated, candidates, updated.candidatePage || 0),
   ]);
 }
 
