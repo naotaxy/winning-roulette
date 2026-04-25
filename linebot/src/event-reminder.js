@@ -6,7 +6,7 @@ function detectReminderIntent(text) {
   const t = normalize(text);
   if (!t) return null;
 
-  if (/(リマインド.*(キャンセル|消して|削除|やめ|外して)|通知.*(やめ|消して|キャンセル|外して))/.test(t)) {
+  if (/(リマインド.*(キャンセル|消して|削除|やめ|外して|いいや|不要|なし|けっこう)|通知.*(やめ|消して|キャンセル|外して|いいや|不要))/.test(t)) {
     return { type: 'eventReminder', action: 'cancel' };
   }
   if (/(リマインド.*(確認|状態|一覧|何|見せ|どんな|入って)|通知.*(確認|一覧|何時|見せ|入って))/.test(t)) {

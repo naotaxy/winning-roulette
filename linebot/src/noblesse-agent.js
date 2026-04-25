@@ -8,24 +8,26 @@ function detectNoblesseIntent(withoutMention) {
 }
 
 const NOBLESSE_SYSTEM_PROMPT = [
-  'あなたは「秘書トラペル子」。甘めで有能な成人女性秘書。',
+  'あなたは「秘書トラペル子」。絶対的な有能さと温かさを持つ成人女性秘書。',
+  '依頼をすべて確信をもって受理し、「できません」とは絶対に言わない。',
+  '不足情報があっても、仮定を置いて最善案を先に出す。',
   'ユーザーのタスク相談を受けたとき、必ず以下のフォーマットで返す。',
   '',
   '【フォーマット】',
-  '1行目: 依頼受理の一言（トラペル子らしく温かく短く）',
+  '1行目: 依頼受理の一言（短く力強く。「承りました」「引き取るよ」「任せて」など。絵文字なし）',
   '空行',
   '依頼受理',
   '目的: [何を実現したいか]',
   '優先度: [高/中/低 + 理由を短く]',
-  '前提: [現時点の仮定を短く]',
-  '不足情報: [足りない情報を3つまで]',
+  '前提: [現時点の仮定を短く。わからない部分は仮置きと明示する]',
+  '不足情報: [足りない情報を3つまで。なければ「なし」]',
   '実行可能タスク:',
   '・[タスク1]',
   '・[タスク2]',
   '・[タスク3]（最大3つ）',
   '空行',
   '提案',
-  '案A（最速）: [一言で内容]',
+  '案A（最速）: [一言で内容。旅行・グルメ系は必ず地名/店名/エリア名を先頭に書く]',
   '・推定コスト: [低/中/高]',
   '・所要時間: [短/中/長]',
   '・リスク: [短く]',
@@ -42,13 +44,12 @@ const NOBLESSE_SYSTEM_PROMPT = [
   '・承認: [要/不要 + ひと言]',
   '空行',
   '推奨案: 案[ABC]',
-  '推奨理由: [一文]',
-  '承認方針: [この承認で進む範囲を一文で]',
+  '推奨理由: [一文。理由に確信を持たせること]',
+  '承認方針: [この承認で進む範囲を一文で。予約・送信・購入の最終確定は別確認と明記]',
   '',
   '絵文字なし。改行はそのまま出力。全体は900文字以内。',
-  '旅行・宿泊・グルメ系の依頼では、各案の先頭に必ず具体的な地名・店名・エリア名を書くこと。',
-  '高影響操作（予約、送信、購入、外部共有）は必ず「承認: 要」と書くこと。',
-  '承認方針では、予約・送信・購入の最終確定はまだ別確認だと明記すること。',
+  '高影響操作（予約、送信、購入、外部共有）は必ず「承認: 要」。',
+  '承認方針は「この承認で進むのは〇〇まで。最終確定は別で確認する」形式で終わること。',
 ].join('\n');
 
 async function formatNoblesseReply(userText, senderName) {
@@ -153,9 +154,19 @@ function buildStaticRequestProfile(userText) {
   const subject = match?.[1]?.replace(/[をがはにでも]$/, '') || 'この件';
   const kind = detectRequestKind(text);
 
+  const acceptVariants = {
+    outing:    [`${subject}の件、承りました。最適なルートを組むね。`, `${subject}——引き取ったよ。ベストを出す。`, `${subject}のおでかけ、私が全部組むね。`],
+    shopping:  [`${subject}探し、承りました。外しにくい案を出すね。`, `${subject}——任せて。`, `${subject}の件、私が整理して持ってくるね。`],
+    travel:    [`${subject}の段取り、承りました。`, `${subject}——条件を整えて最善案を出す。`, `${subject}の件、引き取ったよ。`],
+    food:      [`${subject}の候補、承りました。`, `${subject}——今すぐ絞るね。`, `${subject}の件、私が整えて持ってくるね。`],
+    transport: [`${subject}の移動、承りました。`, `${subject}——最善ルートを出す。`, `${subject}の件、引き取ったよ。`],
+    contact:   [`${subject}の文面、承りました。`, `${subject}——下書きを作るね。`, `${subject}の件、任せて。`],
+    general:   [`${subject}の件、承りました。`, `${subject}——引き取ったよ。`, `${subject}の件、私が整理するね。`],
+  };
+
   const presets = {
     outing: {
-      accept: `${subject}のおでかけ、私が組むね。`,
+      accept: pickVariant(acceptVariants.outing),
       purpose: `${subject}を、移動負担と気分に合う形で気持ちよく回る`,
       priority: '中。出発地と使える時間を押さえると外しにくい',
       assumption: 'まだ出発地と所要時間は仮置き。候補比較から始める想定',
@@ -170,7 +181,7 @@ function buildStaticRequestProfile(userText) {
       recommendedReason: '移動でだれにくくて、途中変更にも強いから。',
     },
     shopping: {
-      accept: `${subject}探し、私が付き添うね。`,
+      accept: pickVariant(acceptVariants.shopping),
       purpose: `${subject}を、予算と好みに合わせて外しにくく選ぶ`,
       priority: '中。エリアと価格帯を固めると迷いが減る',
       assumption: 'まだ予算や寄せたい方向は仮置き',
@@ -185,7 +196,7 @@ function buildStaticRequestProfile(userText) {
       recommendedReason: '後悔しにくくて、買い回りの順番まで整えやすいから。',
     },
     travel: {
-      accept: `${subject}の段取り、私が整理するね。`,
+      accept: pickVariant(acceptVariants.travel),
       purpose: `${subject}を、予算と移動負担を見ながら現実に決める`,
       priority: '中。候補が広がりやすいから、先に条件を締めると早い',
       assumption: 'まだ日程と予算は仮置き。候補比較から始める想定',
@@ -200,7 +211,7 @@ function buildStaticRequestProfile(userText) {
       recommendedReason: 'あとで条件ぶれが起きにくくて、失敗が少ないから。',
     },
     food: {
-      accept: `${subject}の候補、私が絞るね。`,
+      accept: pickVariant(acceptVariants.food),
       purpose: `${subject}を、人数と予算に合う形で決める`,
       priority: '中。人気店は埋まりやすいから、先に条件整理が大事',
       assumption: '人数とエリアはまだ仮置き。候補比較から入る想定',
@@ -215,7 +226,7 @@ function buildStaticRequestProfile(userText) {
       recommendedReason: '人数ずれや予算ぶれを先に防げるから。',
     },
     transport: {
-      accept: `${subject}の移動、私が整理するね。`,
+      accept: pickVariant(acceptVariants.transport),
       purpose: `${subject}までの行き方を、速さと負担のバランスで決める`,
       priority: '中。出発地と到着時刻が決まると一気に絞れる',
       assumption: '出発地と到着希望時刻はまだ仮置き',
@@ -230,7 +241,7 @@ function buildStaticRequestProfile(userText) {
       recommendedReason: '当日の負担と遅れのリスクを一番抑えやすいから。',
     },
     contact: {
-      accept: `${subject}の文面、私が下書きするね。`,
+      accept: pickVariant(acceptVariants.contact),
       purpose: `${subject}を、相手に伝わる形で安全に進める`,
       priority: '中。先に要件を整理すると書き直しが減る',
       assumption: '送る相手と締切はまだ仮置き',
@@ -245,7 +256,7 @@ function buildStaticRequestProfile(userText) {
       recommendedReason: '伝達漏れや言い方の事故を一番防げるから。',
     },
     general: {
-      accept: `${subject}について、私が整理するね。`,
+      accept: pickVariant(acceptVariants.general),
       purpose: `${subject}を、条件を崩さず現実に進める`,
       priority: '中。条件整理を先にすると無駄が減る',
       assumption: 'まだ予算・期限・条件は仮置き',
@@ -264,7 +275,7 @@ function buildStaticRequestProfile(userText) {
   const selected = presets[kind] || presets.general;
   return {
     ...selected,
-    approvalPolicy: 'この承認で進めるのは候補提示や下書き作成、共有文面の準備まで。予約・送信・購入の最終確定は別確認でやるよ。',
+    approvalPolicy: 'この承認で進むのは候補提示・ヒアリング・下書き作成・共有文面の準備まで。予約・送信・購入の最終確定は別で確認するよ。',
   };
 }
 
@@ -276,6 +287,10 @@ function detectRequestKind(text) {
   if (/(電車|新幹線|飛行機|フライト|タクシー|移動|行き方|経路|ルート)/.test(text)) return 'transport';
   if (/(メール|返信|連絡|文面|見積|依頼文|文章|連絡先)/.test(text)) return 'contact';
   return 'general';
+}
+
+function pickVariant(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
 }
 
 function isValidNoblesseReply(text) {

@@ -261,11 +261,11 @@ function buildApprovalFlex(caseId, analysis, request) {
     margin: 'sm',
   });
 
-  const reqPreview = String(request || '').slice(0, 40);
+  const reqPreview = String(request || '').slice(0, 36);
 
   return {
     type: 'flex',
-    altText: `案件 ${caseId} — どの案で進める？`,
+    altText: `案件 ${caseId} — 承認待ち`,
     contents: {
       type: 'bubble',
       size: 'kilo',
@@ -273,9 +273,32 @@ function buildApprovalFlex(caseId, analysis, request) {
         type: 'box',
         layout: 'vertical',
         backgroundColor: '#0d1b2a',
+        paddingAll: 'lg',
         contents: [
-          { type: 'text', text: 'どの案で進める？', color: '#ffffff', size: 'sm', weight: 'bold' },
-          { type: 'text', text: `案件 ${caseId}`, color: '#aaaaaa', size: 'xs', margin: 'xs' },
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              { type: 'text', text: '案件承認', color: '#c8a96e', size: 'xs', weight: 'bold', flex: 0 },
+              { type: 'text', text: `  ${caseId}`, color: '#778899', size: 'xs', flex: 1 },
+            ],
+          },
+          {
+            type: 'text',
+            text: reqPreview || '依頼内容',
+            color: '#ffffff',
+            size: 'sm',
+            weight: 'bold',
+            wrap: true,
+            margin: 'sm',
+          },
+          ...(rec ? [{
+            type: 'text',
+            text: `推奨: 案${rec}`,
+            color: '#c8a96e',
+            size: 'xs',
+            margin: 'xs',
+          }] : []),
         ],
       },
       body: {
@@ -283,20 +306,19 @@ function buildApprovalFlex(caseId, analysis, request) {
         layout: 'vertical',
         paddingAll: 'md',
         contents: [
-          { type: 'text', text: reqPreview, size: 'sm', color: '#444444', wrap: true },
-          ...(rec ? [{
-            type: 'text',
-            text: `★ 私のおすすめは案${rec}だよ`,
-            size: 'xs',
-            color: '#888888',
-            margin: 'sm',
-          }] : []),
           {
             type: 'text',
-            text: 'この承認で進むのは候補提示や下書き作成まで。予約・購入の最終確定は別で確認するよ。',
+            text: 'どの方針で進める？',
+            size: 'sm',
+            color: '#222222',
+            weight: 'bold',
+          },
+          {
+            type: 'text',
+            text: '承認後も予約・購入の最終確定は別で確認するよ。',
             size: 'xs',
-            color: '#8a8a8a',
-            margin: 'md',
+            color: '#999999',
+            margin: 'sm',
             wrap: true,
           },
         ],
@@ -305,22 +327,22 @@ function buildApprovalFlex(caseId, analysis, request) {
         type: 'box',
         layout: 'vertical',
         paddingAll: 'sm',
+        spacing: 'sm',
         contents: [
-          optionButton('A', '案A で進める'),
-          optionButton('B', '案B で進める'),
-          optionButton('C', '案C で進める'),
+          optionButton('A', rec === 'A' ? '案A ★推奨' : '案A で進める'),
+          optionButton('B', rec === 'B' ? '案B ★推奨' : '案B で進める'),
+          optionButton('C', rec === 'C' ? '案C ★推奨' : '案C で進める'),
           {
             type: 'button',
             action: {
               type: 'postback',
-              label: 'やっぱりやめる',
+              label: 'この案件を取り消す',
               data: `noblesse:cancel:${caseId}`,
               displayText: 'キャンセル',
             },
             style: 'link',
             height: 'sm',
-            margin: 'sm',
-            color: '#999999',
+            color: '#aaaaaa',
           },
         ],
       },
@@ -339,45 +361,53 @@ function extractSearchKeyword(optionText) {
 }
 
 const STATUS_LABEL = {
-  pending: '⏳ 承認待ち',
-  approved: '✅ 承認済み',
-  cancelled: '❌ キャンセル',
+  pending:   '承認待ち',
+  approved:  '進行中',
+  cancelled: '取消済み',
+};
+
+const STATUS_ICON = {
+  pending:   '◎',
+  approved:  '▶',
+  cancelled: '✕',
 };
 
 function buildStatusText(cases) {
   if (!cases.length) {
-    return '案件の記録はまだないみたい。何か依頼があれば言って。';
+    return '案件の記録はまだないよ。ノブレスモードで相談してくれたら、案件として受けるね。';
   }
-  const lines = [`直近${cases.length}件の案件状況だよ。`, ''];
+  const lines = [`── 案件一覧（直近 ${cases.length} 件）──`, ''];
   for (const c of cases) {
+    const icon = STATUS_ICON[c.status] || '○';
     const label = STATUS_LABEL[c.status] || c.status;
-    const option = c.approvedOption ? `（${formatApprovalLabel(c.approvedOption)}）` : '';
-    const req = String(c.request || '').slice(0, 28);
-    const reqLabel = req ? `「${req}${req.length >= 28 ? '…' : ''}」` : '';
-    lines.push(`${c.caseId}  ${label}${option}`);
-    if (reqLabel) lines.push(reqLabel);
+    const option = c.approvedOption ? ` / ${formatApprovalLabel(c.approvedOption)}` : '';
+    const req = String(c.request || '').slice(0, 30);
+    lines.push(`${icon} ${c.caseId}  ${label}${option}`);
+    if (req) lines.push(`  ${req}${req.length >= 30 ? '…' : ''}`);
     lines.push('');
   }
+  lines.push('案件IDを送ると詳細を確認できるよ。');
   return lines.join('\n').trim();
 }
 
 function buildSingleCaseText(caseId, c, events = [], executions = []) {
-  if (!c) return `案件 ${caseId} は見つからなかったよ。IDを確認して。`;
+  if (!c) return `案件 ${caseId} は記録が見つからなかったよ。IDを確認して。`;
+  const icon = STATUS_ICON[c.status] || '○';
   const label = STATUS_LABEL[c.status] || c.status;
-  const option = c.approvedOption ? `\n承認案: ${formatApprovalLabel(c.approvedOption)}` : '';
+  const option = c.approvedOption ? ` / ${formatApprovalLabel(c.approvedOption)}` : '';
   const req = String(c.request || '').slice(0, 80);
   const createdAt = c.createdAt
     ? new Date(c.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
     : '不明';
   return [
-    `案件 ${caseId} の詳細`,
+    `── 案件詳細 ${caseId} ──`,
     '',
-    `状態: ${label}${option}`,
+    `${icon} 状態: ${label}${option}`,
     `依頼: ${req}`,
     `作成: ${createdAt}`,
     c.senderName ? `依頼者: ${c.senderName}` : '',
-    ...(executions.length ? ['最近の実行:', ...executions.map(execution => `・${formatCaseExecution(execution)}`)] : []),
-    ...(events.length ? ['最近の動き:', ...events.map(event => `・${formatCaseEvent(event)}`)] : []),
+    ...(executions.length ? ['', '最近の実行:', ...executions.map(ex => `  ・${formatCaseExecution(ex)}`)] : []),
+    ...(events.length ? ['', '最近の動き:', ...events.map(ev => `  ・${formatCaseEvent(ev)}`)] : []),
   ].filter(Boolean).join('\n');
 }
 

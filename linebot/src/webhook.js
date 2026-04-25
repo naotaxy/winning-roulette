@@ -1626,10 +1626,17 @@ async function sendNoblesseReply(client, event, caseId, analysis, request, sourc
   if (userId) showTypingIndicator(userId).catch(() => {});
   await new Promise(r => setTimeout(r, 1200 + Math.floor(Math.random() * 600)));
 
-  // 1st: 短い受理一言
+  // 1st: 短い受理一言（バリエーション）
+  const ackLines = [
+    '承りました。少し待っていて。',
+    '受理したよ。すぐ整理する。',
+    '引き取った。少し待っていて。',
+    'わかった。今から出す。',
+  ];
+  const ack = ackLines[Math.floor(Math.random() * ackLines.length)];
   await client.replyMessage(event.replyToken, {
     type: 'text',
-    text: 'うん、わかった。整理するね。',
+    text: ack,
   });
 
   // 2nd: 分析テキスト
