@@ -122,6 +122,96 @@ const OUTING_PLACES = [
     nearby: '温浴施設',
     mapQuery: '高尾山薬王院',
   },
+  {
+    id: 'tama-river-walk',
+    kind: 'outing',
+    name: '多摩川沿いの土手散歩',
+    area: '二子玉川〜登戸',
+    nearest: '二子玉川駅',
+    zone: 'west',
+    type: 'waterway',
+    tags: ['川', '自然', '散歩', '旧街道', '開放的', '近場'],
+    walking: 'medium',
+    indoor: 'low',
+    durationHours: 3,
+    budgetYen: 1500,
+    note: '江戸期の大山道（矢倉沢往還）が通っていたルート。川沿いの風景と土手の開放感がちょうどいいバランス。',
+    nearby: '二子玉川の商業施設か登戸のカフェ',
+    mapQuery: '多摩川 二子玉川 散歩',
+    history: '矢倉沢往還（大山道）が通る旧街道筋。大山阿夫利神社への参拝ルートとして江戸時代に栄えた。',
+  },
+  {
+    id: 'old-kaido-kunitachi',
+    kind: 'outing',
+    name: '旧甲州街道・一橋学園周辺散歩',
+    area: '国立〜小平',
+    nearest: '国立駅',
+    zone: 'west',
+    type: 'old_road',
+    tags: ['旧街道', '歴史', '並木', '静か', '散歩'],
+    walking: 'medium',
+    indoor: 'low',
+    durationHours: 3,
+    budgetYen: 1500,
+    note: '甲州街道の旧道沿いに並木と静かな住宅街が続く。江戸期の脇往還の空気を感じやすい。',
+    nearby: '国立の大学通り沿いカフェ',
+    mapQuery: '国立 旧甲州街道 散歩',
+    history: '甲州街道の旧道筋。日野・府中の宿場を経て甲府へ続く道。国立駅前の大学通りは近代の整備だが、旧道はひとつ南を走る。',
+  },
+  {
+    id: 'nogawa-park',
+    kind: 'outing',
+    name: '野川公園と武蔵野の湧水',
+    area: '小金井',
+    nearest: '武蔵境駅または国分寺駅',
+    zone: 'west',
+    type: 'waterway_park',
+    tags: ['川', '湧水', '自然', '武蔵野', '静か'],
+    walking: 'low',
+    indoor: 'low',
+    durationHours: 3,
+    budgetYen: 1000,
+    note: '武蔵野台地の湧水が源流の野川。国分寺崖線（ハケ）に沿って水が湧き出す。東京でここまで自然な流れが残るのは少ない。',
+    nearby: '野川公園の芝生エリア',
+    mapQuery: '野川公園 湧水',
+    history: '国分寺崖線（通称ハケ）からの湧水が集まる。武蔵国分寺の伽藍が近く、奈良時代の地形感覚が色濃く残るエリア。',
+  },
+  {
+    id: 'mikawa-island-water',
+    kind: 'outing',
+    name: '旧水路・荒川低地の散歩（汐入〜四ツ木）',
+    area: '葛飾',
+    nearest: '四ツ木駅',
+    zone: 'east',
+    type: 'waterway',
+    tags: ['水路', '低地', '旧街道', '下町', '渋い'],
+    walking: 'medium',
+    indoor: 'low',
+    durationHours: 2.5,
+    budgetYen: 1000,
+    note: '関東平野の低地らしい平坦な景色。昔の水路跡がそのまま道になっていて、地形の読み方を感じながら歩ける。',
+    nearby: '立石の下町居酒屋街',
+    mapQuery: '四ツ木 荒川 旧水路 散歩',
+    history: '江戸期に新田開発と水路整備が進んだ荒川低地。旧中川・綾瀬川・水元地区と連なる排水路跡が道として残る。',
+  },
+  {
+    id: 'musashino-plateau-walk',
+    kind: 'outing',
+    name: '武蔵野台地の雑木林散歩（東村山〜所沢方面）',
+    area: '東村山',
+    nearest: '東村山駅',
+    zone: 'west',
+    type: 'woodland',
+    tags: ['雑木林', '武蔵野', '自然', '静か', '半日'],
+    walking: 'medium',
+    indoor: 'low',
+    durationHours: 3.5,
+    budgetYen: 1500,
+    note: '武蔵野台地の平坦なローム層に残る雑木林。狭山丘陵側はまだ落葉広葉樹の林が残り、ナラ・コナラの枝ぶりが気持ちいい。',
+    nearby: '八国山緑地',
+    mapQuery: '東村山 八国山 雑木林 散歩',
+    history: '武蔵野の雑木林は江戸時代の薪・炭の採取地として計画的に管理されてきた。里山としての利用が地形に刻まれている。',
+  },
 ];
 
 const SHOPPING_SPOTS = [
@@ -522,7 +612,7 @@ function buildCuratedGuideText(caseId, state, candidates) {
 function buildCuratedItinerary(caseId, state, candidate) {
   const origin = state.origin || 'いまいる場所';
   if (state.kind === 'outing') {
-    return [
+    const lines = [
       `【旅のしおり】`,
       `案件: ${caseId}`,
       `出発: ${origin}`,
@@ -535,13 +625,19 @@ function buildCuratedItinerary(caseId, state, candidate) {
       '',
       '見どころ',
       candidate.note,
+    ];
+    if (candidate.history) {
+      lines.push('', 'この場所の歴史', candidate.history);
+    }
+    lines.push(
       '',
       '予算感',
       `${Number(candidate.budgetYen || state.budgetYen || 0).toLocaleString('ja-JP')}円前後`,
       '',
       '変更したくなった時',
       '「雨だから屋内寄り」「歩くの減らしたい」「時間なくなった」「今ここは○○」で組み直せるよ。',
-    ].join('\n');
+    );
+    return lines.join('\n');
   }
 
   return [

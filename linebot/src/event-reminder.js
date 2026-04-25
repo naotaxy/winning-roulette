@@ -1,0 +1,217 @@
+'use strict';
+
+// ─── 検出 ───────────────────────────────────────────────────────────────────
+
+function detectReminderIntent(text) {
+  const t = normalize(text);
+  if (!t) return null;
+
+  if (/(リマインド.*(キャンセル|消して|削除|やめ|外して)|通知.*(やめ|消して|キャンセル|外して))/.test(t)) {
+    return { type: 'eventReminder', action: 'cancel' };
+  }
+  if (/(リマインド.*(確認|状態|一覧|何|見せ|どんな|入って)|通知.*(確認|一覧|何時|見せ|入って))/.test(t)) {
+    return { type: 'eventReminder', action: 'list' };
+  }
+  if (!/(リマインド|通知して|通知お願い|知らせて|声かけて|声かけ)/.test(t)) return null;
+
+  const time = parseHourMinute(t);
+  if (!time) {
+    const title = extractReminderTitle(text);
+    return { type: 'eventReminder', action: 'missingTime', title };
+  }
+
+  const advanceMin = extractAdvanceMinutes(t);
+  const dueAt = buildDueAt(time.hour, time.minute);
+  const reminderAt = advanceMin ? dueAt - advanceMin * 60 * 1000 : dueAt;
+  const title = extractReminderTitle(text);
+  const tags = extractTags(t);
+
+  return {
+    type: 'eventReminder',
+    action: 'set',
+    title: title || '予定',
+    hour: time.hour,
+    minute: time.minute,
+    dueAt,
+    reminderAt,
+    advanceMin: advanceMin || 0,
+    tags,
+  };
+}
+
+// ─── フォーマット ─────────────────────────────────────────────────────────────
+
+function formatReminderSetReply(intent, senderName) {
+  const when = formatJst(intent.reminderAt);
+  const advLabel = intent.advanceMin ? `（${intent.title}の${intent.advanceMin}分前）` : '';
+  const lines = [
+    senderName ? `${senderName}さん、了解だよ。` : '了解だよ。',
+    `${when}${advLabel}に「${intent.title}」をリマインドするね。`,
+    'GitHub Actions 経由だから1〜5分くらい前後することはあるけど、ちゃんと声をかけに来るよ。',
+  ];
+  if (intent.tags.includes('uicolle')) {
+    lines.push('ウイコレ、楽しんできてね。');
+  }
+  return lines.join('\n');
+}
+
+function formatReminderListReply(reminders) {
+  const active = (reminders || []).filter(r => r.status === 'active');
+  if (!active.length) {
+    return 'リマインドは今は何も入ってないよ。「〇〇を△時にリマインドして」で追加できるよ。';
+  }
+  const lines = [`リマインド一覧（${active.length}件）`];
+  for (const r of active) {
+    lines.push(`• ${formatJst(r.reminderAt)} — ${r.title}`);
+  }
+  lines.push('');
+  lines.push('「リマインドキャンセル」で全解除、「〇〇のリマインド消して」で個別消去できるよ。');
+  return lines.join('\n');
+}
+
+function formatReminderCancelReply(cancelled) {
+  if (!cancelled) return '消せるリマインドが見つからなかったよ。';
+  return `「${cancelled.title}」のリマインドを外したよ。`;
+}
+
+function formatReminderPushText(reminder) {
+  const tag = reminder.tags?.includes('uicolle') ? '🎮' : '📅';
+  const lines = [
+    `${tag} リマインドだよ！`,
+    `「${reminder.title}」の時間が近づいてきたよ。`,
+  ];
+  if (reminder.detail) lines.push(reminder.detail);
+  if (reminder.tags?.includes('uicolle')) {
+    lines.push('');
+    lines.push('クラブ戦、全力で行ってきてね。秘書は応援してるよ。');
+  }
+  return lines.join('\n');
+}
+
+function formatReminderMissingTimeReply(intent) {
+  const titlePart = intent?.title ? `「${intent.title}」` : 'その予定';
+  return [
+    `${titlePart}のリマインド、何時に送ればいい？`,
+    '例: 21時 / 20時30分 / 集合30分前に知らせて',
+  ].join('\n');
+}
+
+// ─── Noblesse用 ─────────────────────────────────────────────────────────────
+
+function detectNoblesseReminderHint(text) {
+  const t = normalize(text);
+  // ウイコレ系の集合イベントを検知
+  return (
+    /(今夜|今日|本日).*(ウイコレ|クラブ戦|対戦|集合|やる|開催)/.test(t) ||
+    /(ウイコレ|クラブ戦).*(今夜|今日|今から|スタート|始める|やる)/.test(t) ||
+    /(集合|スタート|開始).*(何時|時間|リマインド)/.test(t)
+  );
+}
+
+function buildNoblesseReminderProposal(text) {
+  const t = normalize(text);
+  const time = parseHourMinute(t);
+  const tags = extractTags(t);
+  const title = extractReminderTitle(text) || 'ウイコレ クラブ戦';
+  return {
+    title,
+    time,
+    tags,
+    hasTime: !!time,
+  };
+}
+
+// ─── ユーティリティ ────────────────────────────────────────────────────────────
+
+function normalize(text) {
+  return String(text || '')
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseHourMinute(t) {
+  const colon = t.match(/(\d{1,2})\s*:\s*(\d{1,2})/);
+  if (colon) return { hour: Number(colon[1]), minute: Number(colon[2]) };
+  const half = t.match(/(\d{1,2})\s*時\s*半/);
+  if (half) return { hour: Number(half[1]), minute: 30 };
+  const hm = t.match(/(\d{1,2})\s*時(?:\s*(\d{1,2})\s*分?)?/);
+  if (hm) return { hour: Number(hm[1]), minute: hm[2] ? Number(hm[2]) : 0 };
+  return null;
+}
+
+function extractAdvanceMinutes(t) {
+  const m = t.match(/(\d+)\s*分前/);
+  if (m) return Number(m[1]);
+  const h = t.match(/(\d+)\s*時間前/);
+  if (h) return Number(h[1]) * 60;
+  if (/直前/.test(t)) return 10;
+  if (/少し前/.test(t)) return 15;
+  return 0;
+}
+
+function extractReminderTitle(text) {
+  const t = normalize(text);
+  // ウイコレ関連
+  if (/(ウイコレ|uicolle)/i.test(t)) {
+    const parts = [];
+    if (/(クラブ戦|clubbattle)/i.test(t)) parts.push('クラブ戦');
+    if (/ハード/.test(t)) parts.push('ハードモード');
+    if (/ノーマル/.test(t)) parts.push('ノーマルモード');
+    if (parts.length) return `ウイコレ ${parts.join(' ')}`;
+    return 'ウイコレ';
+  }
+  // 括弧・「」で囲まれたタイトル
+  const quoted = t.match(/「([^」]{2,20})」/);
+  if (quoted) return quoted[1];
+  // "〜のリマインド / 〜を通知" 形式
+  const titled = t.match(/(.{2,15})(?:を?リマインド|を通知|を知らせ)/);
+  if (titled) return titled[1].replace(/^(今夜|今日|今|)/, '').trim();
+  return '';
+}
+
+function extractTags(t) {
+  const tags = [];
+  if (/(ウイコレ|クラブ戦|対戦|uicolle)/i.test(t)) tags.push('uicolle');
+  if (/(飲み|食事|ご飯|ランチ|ディナー)/.test(t)) tags.push('meal');
+  if (/(会議|mtg|ミーティング)/.test(t)) tags.push('meeting');
+  if (/(旅行|出発|集合)/.test(t)) tags.push('travel');
+  return tags;
+}
+
+function buildDueAt(hour, minute) {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(now).reduce((a, p) => { if (p.type !== 'literal') a[p.type] = p.value; return a; }, {});
+
+  const todayTs = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), hour - 9, minute || 0, 0, 0);
+  if (todayTs > Date.now()) return todayTs;
+  // 翌日
+  return todayTs + 24 * 60 * 60 * 1000;
+}
+
+function formatJst(timestamp) {
+  if (!timestamp) return '不明';
+  return new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    month: 'numeric', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(new Date(timestamp));
+}
+
+module.exports = {
+  detectReminderIntent,
+  detectNoblesseReminderHint,
+  buildNoblesseReminderProposal,
+  formatReminderSetReply,
+  formatReminderListReply,
+  formatReminderCancelReply,
+  formatReminderPushText,
+  formatReminderMissingTimeReply,
+  parseHourMinute,
+  extractReminderTitle,
+  extractTags,
+};

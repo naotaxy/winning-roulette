@@ -37,6 +37,9 @@ const {
   getNoblesseCaseEvents,
   getNoblesseExecutions,
   initMemberProfileStub,
+  saveEventReminder,
+  getEventReminders,
+  cancelEventReminders,
 } = require('./firebase-admin');
 const { resolveRealName, updateGroupProfiles, formatProfileForContext } = require('./member-profile');
 const { searchRestaurants, extractRestaurantParams, isRestaurantRequest, buildRestaurantCarousel } = require('./hotpepper');
@@ -204,6 +207,16 @@ const {
   buildLocationStoryPrompt,
   generateLocationStoryMessages,
 } = require('./location-story');
+const {
+  detectReminderIntent,
+  detectNoblesseReminderHint,
+  buildNoblesseReminderProposal,
+  formatReminderSetReply,
+  formatReminderListReply,
+  formatReminderCancelReply,
+  formatReminderPushText,
+  formatReminderMissingTimeReply,
+} = require('./event-reminder');
 
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
 const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
@@ -828,6 +841,10 @@ async function handleText(event, client) {
     });
   }
 
+  if (intent?.type === 'eventReminder') {
+    return handleEventReminderIntent({ event, client, sourceId, userId, senderName, intent });
+  }
+
   if (intent === 'noblesse:status') {
     const beastMode = await getBeastModeState(sourceId);
     if (!beastMode.enabled) {
@@ -872,6 +889,17 @@ async function handleText(event, client) {
 
     // 案件をFirebaseに保存（fire-and-forget）
     createCase({ caseId, userId, sourceId, senderName, request: mentionInfo.withoutMention, analysis }).catch(() => {});
+
+    // ウイコレ集合系なら、リマインダー提案をサジェストする
+    const remHint = detectNoblesseReminderHint(mentionInfo.withoutMention);
+    if (remHint) {
+      const proposal = buildNoblesseReminderProposal(mentionInfo.withoutMention);
+      const reminderPrompt = buildNoblesseReminderPrompt(proposal);
+      return client.replyMessage(event.replyToken, [
+        { type: 'text', text: analysis },
+        reminderPrompt,
+      ]);
+    }
 
     return sendNoblesseReply(client, event, caseId, analysis, mentionInfo.withoutMention, sourceId);
   }
@@ -1474,6 +1502,9 @@ function detectTextIntent(text) {
 
   const wakeAlarmIntent = detectWakeAlarmIntent(targetText);
   if (wakeAlarmIntent) return wakeAlarmIntent;
+
+  const reminderIntent = detectReminderIntent(targetText);
+  if (reminderIntent) return reminderIntent;
 
   const conciergeIntent = detectConciergeIntent(targetText);
   if (conciergeIntent) return conciergeIntent;
@@ -3176,6 +3207,89 @@ function streamToBuffer(stream) {
     stream.on('end',  () => resolve(Buffer.concat(chunks)));
     stream.on('error', reject);
   });
+}
+
+// ─── イベントリマインダー ──────────────────────────────────────────────────────
+
+async function handleEventReminderIntent({ event, client, sourceId, userId, senderName, intent }) {
+  if (intent.action === 'list') {
+    const reminders = await getEventReminders(sourceId).catch(() => []);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatReminderListReply(reminders),
+    });
+  }
+
+  if (intent.action === 'cancel') {
+    const cancelled = await cancelEventReminders(sourceId, null).catch(() => null);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatReminderCancelReply(cancelled),
+    });
+  }
+
+  if (intent.action === 'missingTime') {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatReminderMissingTimeReply(intent),
+    });
+  }
+
+  if (intent.action === 'set') {
+    await saveEventReminder(sourceId, {
+      title: intent.title,
+      hour: intent.hour,
+      minute: intent.minute,
+      dueAt: intent.dueAt,
+      reminderAt: intent.reminderAt,
+      advanceMin: intent.advanceMin || 0,
+      tags: intent.tags || [],
+      createdByName: senderName || '',
+      createdBy: userId || '',
+    });
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatReminderSetReply(intent, senderName),
+    });
+  }
+
+  return null;
+}
+
+function buildNoblesseReminderPrompt(proposal) {
+  if (proposal.hasTime) {
+    const h = proposal.time.hour;
+    const m = proposal.time.minute;
+    const timeLabel = `${h}:${String(m).padStart(2, '0')}`;
+    return {
+      type: 'text',
+      text: [
+        `「${proposal.title}」が今夜 ${timeLabel} からなのね。`,
+        'リマインドも入れておく？ 何分前に声をかければいい？',
+      ].join('\n'),
+      quickReply: {
+        items: [
+          { type: 'action', action: { type: 'message', label: '30分前', text: `${timeLabel}の30分前にリマインドして` } },
+          { type: 'action', action: { type: 'message', label: '15分前', text: `${timeLabel}の15分前にリマインドして` } },
+          { type: 'action', action: { type: 'message', label: '開始時間に', text: `${timeLabel}にリマインドして` } },
+          { type: 'action', action: { type: 'message', label: 'リマインド不要', text: 'リマインドはいいや' } },
+        ],
+      },
+    };
+  }
+  return {
+    type: 'text',
+    text: [
+      `「${proposal.title}」ね、了解。`,
+      '開始時間を教えてくれたら、集合前にリマインドを入れておけるよ。',
+      '例: 21時スタート / 20時30分集合',
+    ].join('\n'),
+    quickReply: {
+      items: [
+        { type: 'action', action: { type: 'message', label: 'リマインド不要', text: 'リマインドはいいや' } },
+      ],
+    },
+  };
 }
 
 module.exports = { handle };

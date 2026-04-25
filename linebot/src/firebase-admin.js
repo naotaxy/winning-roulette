@@ -35,6 +35,7 @@ const BEAST_MODE_ROOT = 'beastMode';
 const LOCATION_MEMORY_ROOT = 'locationMemory';
 const PENDING_LOCATION_REQUEST_ROOT = 'pendingLocationRequests';
 const WAKE_ALARM_ROOT = 'wakeAlarms';
+const EVENT_REMINDER_ROOT = 'eventReminders';
 const PRIVATE_PROFILE_ROOT = 'privateProfiles';
 const LOCATION_MEMORY_TTL_MS = 12 * 60 * 60 * 1000;
 const PENDING_LOCATION_REQUEST_TTL_MS = 30 * 60 * 1000;
@@ -336,6 +337,50 @@ async function setWakeAlarm(sourceId, alarm = {}) {
 async function clearWakeAlarm(sourceId) {
   if (!sourceId) return;
   await getDb().ref(`${WAKE_ALARM_ROOT}/${sourceId}`).remove();
+}
+
+// ─── イベントリマインダー ──────────────────────────────────────────────────────
+
+async function saveEventReminder(sourceId, reminder = {}) {
+  if (!sourceId) return null;
+  const now = Date.now();
+  const id = reminder.id || `rem-${now}-${Math.random().toString(36).slice(2, 7)}`;
+  const payload = {
+    ...reminder,
+    id,
+    sourceId,
+    status: 'active',
+    createdAt: now,
+    createdAtIso: new Date(now).toISOString(),
+  };
+  await getDb().ref(`${EVENT_REMINDER_ROOT}/${sourceId}/${id}`).set(payload);
+  return payload;
+}
+
+async function getEventReminders(sourceId) {
+  if (!sourceId) return [];
+  const snap = await getDb().ref(`${EVENT_REMINDER_ROOT}/${sourceId}`).once('value');
+  const val = snap.val();
+  if (!val) return [];
+  return Object.values(val).filter(r => r && typeof r === 'object');
+}
+
+async function updateEventReminder(sourceId, id, patch = {}) {
+  if (!sourceId || !id) return;
+  await getDb().ref(`${EVENT_REMINDER_ROOT}/${sourceId}/${id}`).update(patch);
+}
+
+async function cancelEventReminders(sourceId, titleMatch) {
+  if (!sourceId) return null;
+  const reminders = await getEventReminders(sourceId);
+  const active = reminders.filter(r => r.status === 'active');
+  if (!active.length) return null;
+  const target = titleMatch
+    ? active.find(r => r.title && r.title.includes(titleMatch))
+    : active[active.length - 1];
+  if (!target) return null;
+  await updateEventReminder(sourceId, target.id, { status: 'cancelled' });
+  return target;
 }
 
 async function getPrivateUserProfile(userId) {
@@ -1050,4 +1095,8 @@ module.exports = {
   createNoblesseExecution,
   updateNoblesseExecution,
   getNoblesseExecutions,
+  saveEventReminder,
+  getEventReminders,
+  updateEventReminder,
+  cancelEventReminders,
 };
