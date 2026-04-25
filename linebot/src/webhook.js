@@ -68,7 +68,14 @@ const {
   formatMissingMatchups,
 } = require('./standings');
 const { formatRuleReply } = require('./rule-message');
-const { formatSecretaryHelpMessages } = require('./help-message');
+const {
+  formatSecretaryHelpMessages,
+  formatOtherHelpMenuMessages,
+  formatUicoleHelpMessages,
+  formatSystemHelpMessages,
+  formatManagerHelpMessages,
+  formatNoblesseHelpMessages,
+} = require('./help-message');
 const { getSecretaryMentionInfo, getCasualReply, getCasualReplyWithContext, buildCasualQuickReply, getTiredReply } = require('./secretary-chat');
 const { detectSystemStatusKind, safeFormatSystemStatusReply } = require('./system-status');
 const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-risk');
@@ -536,10 +543,10 @@ function isExplicitHelpRequest(mentionInfo, isDirectChat = false) {
   const compact = String(mentionInfo?.compact || '');
   const withoutMention = String(mentionInfo?.withoutMention || '');
   if (HELP_ONLY_PATTERN.test(compact)) return true;
-  if (mentionInfo?.mentioned && (!withoutMention || HELP_ONLY_PATTERN.test(withoutMention) || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention))) {
+  if (mentionInfo?.mentioned && (!withoutMention || HELP_ONLY_PATTERN.test(withoutMention) || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード)/.test(withoutMention))) {
     return true;
   }
-  return isDirectChat && /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(compact);
+  return isDirectChat && /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード)/.test(compact);
 }
 
 async function handleText(event, client) {
@@ -1622,7 +1629,7 @@ function detectTextIntent(text, options = {}) {
   if (beastBare) return beastBare;
   if (!mentioned) return null;
 
-  if (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention)) return 'help';
+  if (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード)/.test(withoutMention)) return 'help';
   if (/(まとめて|要約|最近の会話|会話まとめ|何話してた|なに話してた|みんな何|みんな何言)/.test(withoutMention)) return 'summary';
   const directSystemStatusKind = detectSystemStatusKind(withoutMention);
   if (directSystemStatusKind) return `system:${directSystemStatusKind}`;
@@ -1717,6 +1724,16 @@ async function handlePostback(event, client) {
 
   if (data.startsWith('noblesse:')) {
     return handleNoblessePostback(event, client, data);
+  }
+
+  if (data.startsWith('help:')) {
+    const section = data.slice('help:'.length);
+    if (section === 'uicole') return client.replyMessage(event.replyToken, formatUicoleHelpMessages());
+    if (section === 'other') return client.replyMessage(event.replyToken, formatOtherHelpMenuMessages());
+    if (section === 'system') return client.replyMessage(event.replyToken, formatSystemHelpMessages());
+    if (section === 'manager') return client.replyMessage(event.replyToken, formatManagerHelpMessages());
+    if (section === 'noblesse') return client.replyMessage(event.replyToken, formatNoblesseHelpMessages());
+    return;
   }
 
   if (data.startsWith('concierge:')) {
