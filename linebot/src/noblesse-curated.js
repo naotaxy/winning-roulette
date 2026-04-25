@@ -213,6 +213,41 @@ const OUTING_PLACES = [
     mapQuery: '東村山 八国山 雑木林 散歩',
     history: '武蔵野の雑木林は江戸時代の薪・炭の採取地として計画的に管理されてきた。里山としての利用が地形に刻まれている。',
   },
+  {
+    id: 'ueno-museum',
+    kind: 'outing',
+    name: '上野公園・博物館エリア',
+    area: '上野',
+    nearest: '上野駅',
+    zone: 'east',
+    type: 'museum_park',
+    tags: ['博物館', '美術館', '文化', '雨に強い', '駅近'],
+    walking: 'low',
+    indoor: 'high',
+    durationHours: 3.5,
+    budgetYen: 2500,
+    note: '東京国立博物館・都立美術館など屋内スポットが駅から歩いてすぐ集まる。雨の日でも一日を充実させやすい。',
+    nearby: '不忍池の蓮か上野の喫茶',
+    mapQuery: '上野公園 東京国立博物館',
+    history: '明治5年（1872年）の湯島聖堂博覧会を起源とする博物館群。東京国立博物館本館は旧帝室博物館として大正期に建てられた重要文化財。',
+  },
+  {
+    id: 'roppongi-art',
+    kind: 'outing',
+    name: '六本木アートトライアングル',
+    area: '六本木',
+    nearest: '六本木駅',
+    zone: 'central',
+    type: 'museum',
+    tags: ['美術館', '現代アート', '雨に強い', '駅近', '文化'],
+    walking: 'low',
+    indoor: 'high',
+    durationHours: 3,
+    budgetYen: 3500,
+    note: '森美術館・国立新美術館・サントリー美術館が徒歩圏に揃う。雨でも完全屋内でアートを回れる都内屈指のエリア。',
+    nearby: 'ミッドタウン・ガレリア',
+    mapQuery: '六本木 国立新美術館 森美術館',
+  },
 ];
 
 const SHOPPING_SPOTS = [
@@ -459,11 +494,14 @@ function buildCuratedPrompt(caseId, state) {
     const outingOriginPrompt = state?.entryRoute === 'casual-chat'
       ? `${caller}じゃあ、ここから私が整えるね。\nまずはどこから出るかだけ教えて。ふわっとで大丈夫。\n例: 中野区の東橋バス停 / 新宿駅\n\n今いる場所ならGPSでも受け取れるよ📍`
       : 'どこから動き始めるか教えてね。\n例: 中野区の東橋バス停 / 新宿駅\n\nGPSで現在地を送ることもできるよ📍';
+    const shoppingOriginPrompt = state?.entryRoute === 'casual-chat'
+      ? `${caller}じゃあ、どのあたりから動き始めようか。ふわっとで大丈夫。\n例: 新宿駅 / 中野\n\n今いる場所ならGPSでも受け取れるよ📍`
+      : 'どの街から回り始めたいか教えてね。\n例: 新宿駅 / 中野\n\nGPSで現在地を送ることもできるよ📍';
     return {
       type: 'text',
       text: state.kind === 'outing'
         ? outingOriginPrompt
-        : 'どの街から回り始めたいか教えてね。\n例: 新宿駅 / 中野\n\nGPSで現在地を送ることもできるよ📍',
+        : shoppingOriginPrompt,
       quickReply: {
         items: [
           {
