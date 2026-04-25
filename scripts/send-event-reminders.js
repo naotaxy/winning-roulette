@@ -4,7 +4,7 @@ const admin = require('firebase-admin');
 const { formatReminderPushText } = require('../linebot/src/event-reminder');
 
 const EVENT_REMINDER_ROOT = 'eventReminders';
-const LOOKBACK_MS = 10 * 60 * 1000;
+const LOOKBACK_MS = 15 * 60 * 1000;
 
 let _db = null;
 
