@@ -38,6 +38,7 @@ const {
   getNoblesseExecutions,
   initMemberProfileStub,
   saveEventReminder,
+  updateEventReminder,
   getEventReminders,
   cancelEventReminders,
 } = require('./firebase-admin');
@@ -3637,7 +3638,7 @@ async function handleEventReminderIntent({ event, client, sourceId, userId, send
   }
 
   if (intent.action === 'set') {
-    await saveEventReminder(sourceId, {
+    const savedReminder = await saveEventReminder(sourceId, {
       title: enrichedIntent.title,
       hour: enrichedIntent.hour,
       minute: enrichedIntent.minute,
@@ -3650,7 +3651,7 @@ async function handleEventReminderIntent({ event, client, sourceId, userId, send
       createdByName: senderName || '',
       createdBy: userId || '',
     });
-    return client.replyMessage(event.replyToken, {
+    const replyMessage = {
       type: 'text',
       text: formatReminderSetReply(enrichedIntent, senderName),
       quickReply: {
@@ -3659,10 +3660,40 @@ async function handleEventReminderIntent({ event, client, sourceId, userId, send
           { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'リマインドキャンセル' } },
         ],
       },
-    });
+    };
+
+    if (!shouldPushReminderImmediately(savedReminder?.reminderAt)) {
+      return client.replyMessage(event.replyToken, replyMessage);
+    }
+
+    await client.replyMessage(event.replyToken, replyMessage);
+    try {
+      await client.pushMessage(sourceId, {
+        type: 'text',
+        text: formatReminderPushText(savedReminder),
+      });
+      const sentAt = Date.now();
+      await updateEventReminder(sourceId, savedReminder.id, {
+        status: 'sent',
+        sentAt,
+        sentAtIso: new Date(sentAt).toISOString(),
+        lastError: null,
+      });
+    } catch (err) {
+      await updateEventReminder(sourceId, savedReminder.id, {
+        lastError: `immediate push failed: ${String(err?.message || err).slice(0, 200)}`,
+      }).catch(() => {});
+    }
+    return null;
   }
 
   return null;
+}
+
+function shouldPushReminderImmediately(reminderAt, now = Date.now()) {
+  if (!Number.isFinite(Number(reminderAt))) return false;
+  const due = Number(reminderAt);
+  return due <= now && due >= now - (60 * 1000);
 }
 
 function buildNoblesseReminderPrompt(proposal, options = {}) {
