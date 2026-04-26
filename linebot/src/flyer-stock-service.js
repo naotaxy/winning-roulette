@@ -254,15 +254,19 @@ function formatFlyerRecipeReply(snapshot, recipe) {
   if (recipe.summary) lines.push(recipe.summary);
   if (recipe.estimatedTotalPrice) lines.push(`めやす合計: ${recipe.estimatedTotalPrice}`);
 
-  // 近隣店との価格比較を表示
-  if (Array.isArray(snapshot?.competitors) && snapshot.competitors.length) {
-    const chosen = snapshot.store;
+  // 近隣店の比較（常に表示）
+  if (snapshot?.store?.name) {
     const chosenAvg = computeAvgItemPrice(snapshot.items);
     lines.push('');
-    lines.push('近くのお店の特売価格を比べたよ:');
-    lines.push(`・${chosen.name}${formatDistance(chosen.distanceMeters)} — 平均 約${Math.round(chosenAvg)}円 ← いちばん安い`);
-    for (const comp of snapshot.competitors.slice(0, 2)) {
-      lines.push(`・${comp.name}${formatDistance(comp.distanceMeters)} — 平均 約${Math.round(comp.avgItemPrice)}円`);
+    if (Array.isArray(snapshot.competitors) && snapshot.competitors.length) {
+      lines.push('【近くのお店を比べたよ】');
+      lines.push(`◎ ${snapshot.store.name}${formatDistance(snapshot.store.distanceMeters)} — 平均 約${Math.round(chosenAvg)}円 ← いちばん安い`);
+      for (const comp of snapshot.competitors.slice(0, 2)) {
+        lines.push(`・${comp.name}${formatDistance(comp.distanceMeters)} — 平均 約${Math.round(comp.avgItemPrice)}円`);
+      }
+    } else {
+      lines.push(`【お店】${snapshot.store.name}${formatDistance(snapshot.store.distanceMeters)}`);
+      if (snapshot.store.address) lines.push(snapshot.store.address);
     }
   }
 
@@ -293,9 +297,9 @@ async function queryNearbySupermarkets(latitude, longitude) {
   const query = `
 [out:json][timeout:12];
 (
-  node[shop="supermarket"](around:2600,${latitude},${longitude});
-  way[shop="supermarket"](around:2600,${latitude},${longitude});
-  relation[shop="supermarket"](around:2600,${latitude},${longitude});
+  node[shop="supermarket"](around:3000,${latitude},${longitude});
+  way[shop="supermarket"](around:3000,${latitude},${longitude});
+  relation[shop="supermarket"](around:3000,${latitude},${longitude});
 );
 out center tags 20;
   `.trim();
@@ -588,6 +592,8 @@ function extractItemPrice(text) {
 
 function shouldReuseCachedSnapshot(snapshot, latitude, longitude) {
   if (!snapshot?.store?.url || !Array.isArray(snapshot?.items) || !snapshot.items.length) return false;
+  // competitors フィールドがない旧フォーマットは再取得する
+  if (!Array.isArray(snapshot.competitors)) return false;
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return true;
 
   const cachedLatitude = Number(snapshot?.queryLocation?.latitude);

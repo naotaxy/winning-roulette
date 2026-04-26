@@ -1,6 +1,6 @@
 'use strict';
 
-const { getWakeRecipeHistory, saveWakeRecipeHistoryEntry } = require('./firebase-admin');
+const { getWakeRecipeHistory, saveWakeRecipeHistoryEntry, getLatestLocation } = require('./firebase-admin');
 const {
   getNearbyFlyerSnapshot,
   buildRecipeFromFlyerSnapshot,
@@ -18,13 +18,24 @@ async function buildWakeRecipeMessage(alarm = {}) {
     .map(entry => normalize(entry?.title))
     .filter(Boolean);
 
-  const latitude = Number(alarm.weatherLatitude);
-  const longitude = Number(alarm.weatherLongitude);
+  // アラームに座標がなければ Firebase の最終保存位置を fallback にする
+  let latitude = Number(alarm.weatherLatitude);
+  let longitude = Number(alarm.weatherLongitude);
+  let locationLabel = alarm.weatherPlace || '';
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    const saved = await getLatestLocation(sourceId, alarm.userId).catch(() => null);
+    if (Number.isFinite(Number(saved?.latitude)) && Number.isFinite(Number(saved?.longitude))) {
+      latitude = Number(saved.latitude);
+      longitude = Number(saved.longitude);
+      locationLabel = saved.label || saved.address || locationLabel;
+    }
+  }
+
   const snapshot = await getNearbyFlyerSnapshot({
     sourceId,
     latitude: Number.isFinite(latitude) ? latitude : null,
     longitude: Number.isFinite(longitude) ? longitude : null,
-    locationLabel: alarm.weatherPlace || '',
+    locationLabel,
   }).catch(() => null);
   const recipe = (await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: usedTitles }).catch(() => null))
     || buildFallbackRecipe(snapshot, usedTitles);
