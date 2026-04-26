@@ -38,10 +38,20 @@ async function buildWakeRecipeMessage(alarm = {}) {
     storeName: snapshot?.store?.name || '',
   }).catch(() => {});
 
-  return {
+  const hasLocation = Number.isFinite(latitude) && Number.isFinite(longitude);
+  const message = {
     type: 'text',
     text: formatFlyerRecipeReply(snapshot, recipe),
   };
+  if (!hasLocation) {
+    message.quickReply = {
+      items: [{
+        type: 'action',
+        action: { type: 'location', label: '位置情報を送って近くのお店を使う' },
+      }],
+    };
+  }
+  return message;
 }
 
 function getTokyoWeekKey(date = new Date()) {

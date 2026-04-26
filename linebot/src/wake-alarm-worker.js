@@ -176,7 +176,7 @@ async function buildWakeMessages(alarm) {
     const briefingMessages = await buildMorningBriefingMessages(alarm).catch(() => []);
     messages.push(...briefingMessages);
   }
-  if (normalizeWakeRecipeMode(alarm?.recipeMode) !== 'none') {
+  if (normalizeWakeRecipeMode(alarm?.recipeMode || 'flyer') !== 'none') {
     const recipeMessage = await buildWakeRecipeMessage(alarm).catch(() => null);
     if (recipeMessage) messages.push(recipeMessage);
   }

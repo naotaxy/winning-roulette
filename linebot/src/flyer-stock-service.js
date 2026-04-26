@@ -118,9 +118,18 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
   }
   if (!enriched.length) return null;
 
-  const chosen = [...enriched].sort((a, b) =>
-    (Number(a.store.distanceMeters) || 99999) - (Number(b.store.distanceMeters) || 99999)
-  )[0];
+  // 距離順で最大3店を取り、その中から特売品の平均単価が最安の店を選ぶ
+  const top3 = enriched.slice(0, 3);
+  const chosen = pickCheapestStore(top3);
+  const competitors = top3
+    .filter(s => s.store.url !== chosen.store.url)
+    .map(c => ({
+      name: c.store.name,
+      distanceMeters: c.store.distanceMeters,
+      url: c.store.url,
+      avgItemPrice: computeAvgItemPrice(c.items),
+    }));
+
   const payload = {
     source: chosen.source || 'tokubai-html',
     dayKey,
@@ -132,6 +141,7 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
     },
     store: chosen.store,
     items: chosen.items.slice(0, 18),
+    competitors,
     fetchedAt: Date.now(),
     fetchedAtIso: new Date().toISOString(),
   };
@@ -151,7 +161,7 @@ async function buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles = [] } = 
   }
 
   const prompt = [
-    'あなたは、忙しい社会人のために現実的な節約レシピを提案する生活秘書です。',
+    'あなたは、忙しい社会人のために帰宅後すぐ作れる節約夕食レシピを提案する生活秘書です。',
     `対象店舗: ${snapshot.store.name}`,
     `住所: ${snapshot.store.address || '不明'}`,
     '以下の広告掲載商品と価格リストだけを材料候補として使って、今週まだ提案していないレシピを1つ提案してください。',
@@ -162,7 +172,7 @@ async function buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles = [] } = 
     'steps は4〜6手順の文字列配列。',
     'estimatedPriceText は広告価格から使うぶんの概算にする。',
     'sourcePriceText には参照した広告価格や単位を入れる。',
-    'summary は60文字以内で、夕食として無理のない内容にする。',
+    'summary は60文字以内で、仕事帰りに買って夜に一人か二人で作れる内容にする。',
     '',
     '広告掲載商品と価格リスト:',
     ...snapshot.items.slice(0, 20).map((item, index) =>
@@ -232,17 +242,30 @@ function formatFlyerStockReply(snapshot) {
 
 function formatFlyerRecipeReply(snapshot, recipe) {
   if (!recipe?.title) {
-    return '今日はまだ、特売から組めるレシピをきれいにまとめ切れなかったの。少し時間を置いてもう一回聞いてね。';
+    return '今夜はまだ、特売から組めるレシピをきれいにまとめ切れなかったの。少し時間を置いてもう一回聞いてね。';
   }
   const storeHeader = snapshot?.store?.name
-    ? `${snapshot.store.name}${formatDistance(snapshot.store.distanceMeters)}の特売をもとに、今日の一皿を組んだよ。`
-    : '今週使いやすい食材で、今日の一皿を組んだよ。';
+    ? `${snapshot.store.name}${formatDistance(snapshot.store.distanceMeters)}の特売をもとに、今夜の一皿を組んだよ。`
+    : '今週使いやすい食材で、今夜の一皿を組んだよ。';
   const lines = [
     storeHeader,
     `「${recipe.title}」 (${recipe.servings || '2人前'})`,
   ];
   if (recipe.summary) lines.push(recipe.summary);
   if (recipe.estimatedTotalPrice) lines.push(`めやす合計: ${recipe.estimatedTotalPrice}`);
+
+  // 近隣店との価格比較を表示
+  if (Array.isArray(snapshot?.competitors) && snapshot.competitors.length) {
+    const chosen = snapshot.store;
+    const chosenAvg = computeAvgItemPrice(snapshot.items);
+    lines.push('');
+    lines.push('近くのお店の特売価格を比べたよ:');
+    lines.push(`・${chosen.name}${formatDistance(chosen.distanceMeters)} — 平均 約${Math.round(chosenAvg)}円 ← いちばん安い`);
+    for (const comp of snapshot.competitors.slice(0, 2)) {
+      lines.push(`・${comp.name}${formatDistance(comp.distanceMeters)} — 平均 約${Math.round(comp.avgItemPrice)}円`);
+    }
+  }
+
   lines.push('');
   lines.push('材料:');
   for (const ingredient of (recipe.ingredients || []).slice(0, 8)) {
@@ -259,7 +282,7 @@ function formatFlyerRecipeReply(snapshot, recipe) {
     lines.push('');
     lines.push(`選び方の理由: ${recipe.reason}`);
   }
-  if (snapshot.store.url) {
+  if (snapshot?.store?.url) {
     lines.push('');
     lines.push(`チラシ: ${snapshot.store.url}`);
   }
@@ -539,6 +562,28 @@ function buildFallbackRecipe(snapshot, excludedTitles = []) {
     .sort((left, right) => right.score - left.score);
   const target = scored[0]?.recipe || null;
   return target ? { ...target, source: 'fallback-library' } : null;
+}
+
+function pickCheapestStore(snapshots) {
+  if (!snapshots?.length) return snapshots?.[0] ?? null;
+  return snapshots.reduce((best, snap) => {
+    const bestAvg = computeAvgItemPrice(best.items);
+    const snapAvg = computeAvgItemPrice(snap.items);
+    return snapAvg < bestAvg ? snap : best;
+  });
+}
+
+function computeAvgItemPrice(items = []) {
+  const prices = items
+    .map(item => extractItemPrice(item.mainPriceText || item.priceText || ''))
+    .filter(p => p > 0);
+  if (!prices.length) return 99999;
+  return prices.reduce((sum, p) => sum + p, 0) / prices.length;
+}
+
+function extractItemPrice(text) {
+  const match = String(text || '').replace(/,/g, '').match(/(\d+)/);
+  return match ? Number(match[1]) : 0;
 }
 
 function shouldReuseCachedSnapshot(snapshot, latitude, longitude) {
