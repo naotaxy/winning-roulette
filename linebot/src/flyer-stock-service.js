@@ -152,10 +152,12 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
 
   if (!enriched.length) {
     // チラシ情報なし: 既知の店名・距離だけで partial snapshot を返す（キャッシュしない）
-    const allKnown = [
-      ...nearbyStores.slice(0, 3),
-      ...areaDirectStores.slice(0, 3).map(s => ({ name: s.name, address: s.address, distanceMeters: null })),
-    ];
+    // Tokubai 位置情報検索の結果を優先（OSM は閉店・改名が反映されないことがあるため）
+    const tokubaiForFallback = areaDirectStores
+      .slice(0, 3)
+      .map(s => ({ name: s.name, address: s.address, distanceMeters: null }));
+    const osmForFallback = nearbyStores.slice(0, 3);
+    const allKnown = tokubaiForFallback.length ? tokubaiForFallback : osmForFallback;
     if (!allKnown.length) return null;
     const [main, ...rest] = allKnown.slice(0, 3);
     return {
