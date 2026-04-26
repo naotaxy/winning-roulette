@@ -183,11 +183,13 @@ function formatWakeNewsModeLabel(value) {
 
 function computeWakeDueAt({ hour, minute, recurring, weekdayOnly, explicitTomorrow, explicitToday, now }) {
   const todayTs = buildTokyoTimestamp(now.year, now.month, now.day, hour, minute);
+  const sameMinute = now.hour === Number(hour) && now.minute === Number(minute);
+  const isFutureOrCurrentMinute = todayTs > now.timestamp || sameMinute;
   if (recurring) {
     if (weekdayOnly) {
-      return findNextWeekdayTimestamp(now, hour, minute, todayTs > now.timestamp ? 0 : 1);
+      return findNextWeekdayTimestamp(now, hour, minute, isFutureOrCurrentMinute ? 0 : 1);
     }
-    return todayTs > now.timestamp ? todayTs : buildShiftedDayTimestamp(now.year, now.month, now.day, 1, hour, minute);
+    return isFutureOrCurrentMinute ? todayTs : buildShiftedDayTimestamp(now.year, now.month, now.day, 1, hour, minute);
   }
   if (explicitTomorrow) {
     return weekdayOnly
@@ -196,14 +198,14 @@ function computeWakeDueAt({ hour, minute, recurring, weekdayOnly, explicitTomorr
   }
   if (explicitToday) {
     if (weekdayOnly) {
-      return findNextWeekdayTimestamp(now, hour, minute, todayTs > now.timestamp ? 0 : 1);
+      return findNextWeekdayTimestamp(now, hour, minute, isFutureOrCurrentMinute ? 0 : 1);
     }
-    return todayTs > now.timestamp ? todayTs : buildShiftedDayTimestamp(now.year, now.month, now.day, 1, hour, minute);
+    return isFutureOrCurrentMinute ? todayTs : buildShiftedDayTimestamp(now.year, now.month, now.day, 1, hour, minute);
   }
   if (weekdayOnly) {
-    return findNextWeekdayTimestamp(now, hour, minute, todayTs > now.timestamp ? 0 : 1);
+    return findNextWeekdayTimestamp(now, hour, minute, isFutureOrCurrentMinute ? 0 : 1);
   }
-  return todayTs > now.timestamp ? todayTs : buildShiftedDayTimestamp(now.year, now.month, now.day, 1, hour, minute);
+  return isFutureOrCurrentMinute ? todayTs : buildShiftedDayTimestamp(now.year, now.month, now.day, 1, hour, minute);
 }
 
 function buildShiftedDayTimestamp(year, month, day, deltaDays, hour, minute) {

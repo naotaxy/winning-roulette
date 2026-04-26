@@ -311,6 +311,9 @@ function buildDueAt(hour, minute) {
   }).formatToParts(now).reduce((a, p) => { if (p.type !== 'literal') a[p.type] = p.value; return a; }, {});
 
   const todayTs = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), hour - 9, minute || 0, 0, 0);
+  if (Number(parts.hour) === Number(hour) && Number(parts.minute) === Number(minute || 0)) {
+    return todayTs;
+  }
   if (todayTs > Date.now()) return todayTs;
   // 翌日
   return todayTs + 24 * 60 * 60 * 1000;

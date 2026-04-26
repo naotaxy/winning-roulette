@@ -15,7 +15,7 @@ const {
 } = require('../linebot/src/morning-briefing');
 
 const WAKE_ALARM_ROOT = 'wakeAlarms';
-const LOOKBACK_MS = 15 * 60 * 1000;
+const LOOKBACK_MS = 25 * 60 * 1000;
 
 let _db = null;
 
