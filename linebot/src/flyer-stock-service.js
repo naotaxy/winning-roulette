@@ -5,6 +5,7 @@ const {
   saveFlyerStockSnapshot,
 } = require('./firebase-admin');
 const { getTokyoDateParts } = require('./date-utils');
+const RECIPE_LIBRARY = require('./recipe-library');
 
 const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 const TOKUBAI_SEARCH_URL = 'https://tokubai.co.jp/search';
@@ -715,9 +716,21 @@ async function fetchTokubaiLeafletImagePart(leafletUrl) {
   };
 }
 
+function getCurrentSeason() {
+  const month = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCMonth() + 1;
+  if (month >= 3 && month <= 5) return 'spring';
+  if (month >= 6 && month <= 8) return 'summer';
+  if (month >= 9 && month <= 11) return 'fall';
+  return 'winter';
+}
+
 function buildFallbackRecipe(snapshot, excludedTitles = []) {
-  const pool = FALLBACK_RECIPE_LIBRARY.filter(recipe => !excludedTitles.includes(normalize(recipe.title)));
-  const candidates = pool.length ? pool : FALLBACK_RECIPE_LIBRARY;
+  const season = getCurrentSeason();
+  const excluded = new Set((excludedTitles || []).map(t => normalize(t)));
+  const allRecipes = [...RECIPE_LIBRARY, ...FALLBACK_RECIPE_LIBRARY];
+  const pool = allRecipes.filter(r => !excluded.has(normalize(r.title)));
+  const seasonal = pool.filter(r => r.season === season || r.season === 'all' || !r.season);
+  const candidates = seasonal.length ? seasonal : pool.length ? pool : allRecipes;
   const availableNames = new Set((snapshot?.items || []).map(item => normalize(item?.name)).filter(Boolean));
   const scored = candidates
     .map(recipe => ({
