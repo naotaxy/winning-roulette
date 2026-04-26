@@ -22,11 +22,11 @@ const FALLBACK_RECIPE_LIBRARY = [
     title: '豚こまと小松菜の卵とじ',
     summary: '青菜と卵でまとまりやすい、平日に寄せやすい一皿。',
     servings: '2人前',
-    estimatedTotalPrice: '約420円',
+    estimatedTotalPrice: '',
     ingredients: [
-      { name: '豚こま切れ', amount: '160', unit: 'g', countText: '1パック想定', estimatedPriceText: '約220円', sourcePriceText: '特売価格に合わせて調整' },
-      { name: '小松菜', amount: '1', unit: '束', countText: '1束', estimatedPriceText: '約100円', sourcePriceText: '特売価格に合わせて調整' },
-      { name: '卵', amount: '2', unit: '個', countText: '2個', estimatedPriceText: '約80円', sourcePriceText: '特売価格に合わせて調整' },
+      { name: '豚こま切れ', amount: '160', unit: 'g', countText: '1パック想定', estimatedPriceText: 'チラシ価格' },
+      { name: '小松菜', amount: '1', unit: '束', countText: '1束', estimatedPriceText: 'チラシ価格' },
+      { name: '卵', amount: '2', unit: '個', countText: '2個', estimatedPriceText: 'チラシ価格' },
     ],
     steps: [
       '小松菜は4cm幅、豚こまは食べやすく切る。',
@@ -40,11 +40,11 @@ const FALLBACK_RECIPE_LIBRARY = [
     title: '鶏むねときのこのバターしょうゆ炒め',
     summary: '火の通りが早く、疲れている日でも組みやすい定番。',
     servings: '2人前',
-    estimatedTotalPrice: '約460円',
+    estimatedTotalPrice: '',
     ingredients: [
-      { name: '鶏むね肉', amount: '220', unit: 'g', countText: '1枚', estimatedPriceText: '約260円', sourcePriceText: '特売価格に合わせて調整' },
-      { name: 'きのこ', amount: '1', unit: 'パック', countText: '1パック', estimatedPriceText: '約120円', sourcePriceText: '特売価格に合わせて調整' },
-      { name: 'ほうれん草', amount: '0.5', unit: '束', countText: '1/2束', estimatedPriceText: '約80円', sourcePriceText: '特売価格に合わせて調整' },
+      { name: '鶏むね肉', amount: '220', unit: 'g', countText: '1枚', estimatedPriceText: 'チラシ価格' },
+      { name: 'きのこ', amount: '1', unit: 'パック', countText: '1パック', estimatedPriceText: 'チラシ価格' },
+      { name: 'ほうれん草', amount: '0.5', unit: '束', countText: '1/2束', estimatedPriceText: 'チラシ価格' },
     ],
     steps: [
       '鶏むね肉はそぎ切りにして軽く塩を振る。',
