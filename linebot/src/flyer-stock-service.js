@@ -517,7 +517,7 @@ function extractAreaSearchTokens(locationLabel) {
 
 function parseTokubaiSearchResults(html) {
   const matches = [...String(html || '').matchAll(
-    /<li id='shop_(\d+)'>[\s\S]*?<a href="([^"]+)">[\s\S]*?<span class='shop_name'>\s*([^<]+?)\s*<span class='small'>[\s\S]*?<div class='shop_address'>\s*([\s\S]*?)\s*<\/div>/g
+    /<li[^>]*\bid='shop_(\d+)'[^>]*>[\s\S]*?<a class="shop_name" href="([^"]+)">([^<]+)<\/a>[\s\S]*?<div class='address'>\s*([\s\S]*?)\s*<\/div>/g
   )];
   return matches.map(match => ({
     shopId: match[1],
