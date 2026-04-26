@@ -109,7 +109,7 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
   // OSM とエリア直接検索を並列実行（OSM は閉店・改名が反映されないことがあるためエリア検索で補う）
   const [nearbyStores, areaDirectStores] = await Promise.all([
     queryNearbySupermarkets(requestedLatitude, requestedLongitude),
-    searchTokubaiStoresByArea(locationLabel),
+    searchTokubaiStoresByArea(locationLabel, requestedLatitude, requestedLongitude),
   ]);
 
   // OSM 店ごとに Tokubai URL を並列検索
@@ -424,11 +424,20 @@ async function findTokubaiStoreForCandidate(candidate, locationLabel = '') {
 
 // locationLabel の地名トークン（丁目前の町名・区名）で Tokubai を直接検索する。
 // OSM のデータが古く、閉店済み店舗名しか返さない場合でも正しい店を発見できる。
-async function searchTokubaiStoresByArea(locationLabel) {
-  const tokens = extractAreaSearchTokens(locationLabel);
+async function searchTokubaiStoresByArea(locationLabel, latitude, longitude) {
+  // locationLabel のトークン + GPS 逆ジオコードのトークンを統合
+  // → locationLabel が「東京」などの短い文字列でも正しい地名が取れる
+  const labelTokens = extractAreaSearchTokens(locationLabel);
+  const { tokens: geoTokens, prefecture: geoPref } = (
+    Number.isFinite(latitude) && Number.isFinite(longitude)
+      ? await reverseGeocodeArea(latitude, longitude).catch(() => ({ tokens: [], prefecture: '' }))
+      : { tokens: [], prefecture: '' }
+  );
+  const tokens = uniqueStrings([...labelTokens, ...geoTokens]).slice(0, 3);
   if (!tokens.length) return [];
 
-  const locPref = extractPrefecture(locationLabel);
+  // 都道府県フィルタ: locationLabel か GPS から取得した方を優先
+  const locPref = extractPrefecture(locationLabel) || geoPref;
   const seen = new Set();
   const results = [];
 
@@ -440,7 +449,6 @@ async function searchTokubaiStoresByArea(locationLabel) {
       ).catch(() => '');
       for (const store of parseTokubaiSearchResults(html)) {
         if (seen.has(store.shopId)) continue;
-        // 都道府県が違う店は除外（例: 「江古田」で埼玉の店が引っかかるケースを防ぐ）
         const storePref = extractPrefecture(store.address);
         if (locPref && storePref && locPref !== storePref) continue;
         seen.add(store.shopId);
@@ -450,6 +458,33 @@ async function searchTokubaiStoresByArea(locationLabel) {
   );
 
   return results;
+}
+
+// GPS 座標から Nominatim 逆ジオコードで地名トークンと都道府県を取得する。
+// OSM の store 名が古くても、座標さえ正しければ正しいエリア名を返す。
+async function reverseGeocodeArea(latitude, longitude) {
+  const url = `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&accept-language=ja`;
+  const text = await fetchText(url, 8000).catch(() => '');
+  if (!text) return { tokens: [], prefecture: '' };
+  let data;
+  try { data = JSON.parse(text); } catch (_) { return { tokens: [], prefecture: '' }; }
+
+  const addr = data?.address || {};
+  // quarter (例: 「江原町」) と neighbourhood から丁目部分を除いた地名を取得
+  // neighbourhood は「江原町二丁目」のように kanji 数字 + 丁目 の形になるため \S*丁目 で除去
+  const quarter = String(addr.quarter || '').trim();
+  const neighbourhood = String(addr.neighbourhood || '').replace(/\S*丁目$/, '').trim();
+  const tokens = uniqueStrings([quarter, neighbourhood]).filter(t => t.length >= 2);
+
+  // display_name はカンマ区切りなので分割して都道府県を探す
+  // extractPrefecture をそのまま使うと「, 東京都」と前置コンマが混入するため、
+  // カンマ分割 → trim → [都道府県] 末尾一致で取り出す
+  const prefecture = String(data?.display_name || '')
+    .split(',')
+    .map(s => s.trim())
+    .find(s => /[都道府県]$/.test(s)) || '';
+
+  return { tokens, prefecture };
 }
 
 // locationLabel から Tokubai エリア検索に使う地名トークンを抽出する。
