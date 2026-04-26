@@ -6,6 +6,7 @@ const { middleware, Client } = require('@line/bot-sdk');
 const webhook = require('./src/webhook');
 const { runEventReminderSweep, hasReminderWorkerSecrets } = require('./src/event-reminder-worker');
 const { runWakeAlarmSweep, hasWakeWorkerSecrets } = require('./src/wake-alarm-worker');
+const { hasGithubActionsDispatchToken, maybeDispatchSchedulerWorkflow } = require('./src/github-actions-dispatcher');
 
 const config = {
   channelSecret:     process.env.LINE_CHANNEL_SECRET,
@@ -31,6 +32,9 @@ app.get('/health', (_req, res) => res.json({
   workers: {
     eventReminders: hasReminderWorkerSecrets(),
     wakeAlarms: hasWakeWorkerSecrets(),
+  },
+  githubActions: {
+    dispatchEnabled: hasGithubActionsDispatchToken(),
   },
 }));
 
@@ -76,6 +80,10 @@ if (hasReminderWorkerSecrets()) {
 
 if (hasWakeWorkerSecrets()) {
   startBackgroundSweep('wake-alarms', runWakeAlarmSweep, BACKGROUND_DELIVERY_POLL_MS);
+}
+
+if (hasGithubActionsDispatchToken()) {
+  startBackgroundSweep('github-actions-dispatch', maybeDispatchSchedulerWorkflow, 5 * 60 * 1000);
 }
 
 app.listen(port, () => console.log(`[server] listening on port ${port}`));
