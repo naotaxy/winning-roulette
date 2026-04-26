@@ -1,12 +1,42 @@
-name: 秘書トラペル子 日次日記
+name: 秘書トラペル子 定期処理
 
 on:
   schedule:
+    - cron: '2-57/5 * * * *'
     - cron: '0 22 * * *'   # 毎日 07:00 JST (= UTC 22:00 前日)
-  workflow_dispatch:         # 手動実行も可能
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 実行したい処理
+        required: false
+        default: scheduler
+        type: choice
+        options:
+          - scheduler
+          - reminders
+          - wake
+          - diary
+          - all
 
 jobs:
+  send-event-reminders:
+    if: |
+      (github.event_name == 'schedule' && github.event.schedule == '2-57/5 * * * *') ||
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.task == 'scheduler' || github.event.inputs.task == 'reminders' || github.event.inputs.task == 'all'))
+    uses: ./.github/workflows/event-reminder.yml
+    secrets: inherit
+
+  send-wake-alarms:
+    if: |
+      (github.event_name == 'schedule' && github.event.schedule == '2-57/5 * * * *') ||
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.task == 'scheduler' || github.event.inputs.task == 'wake' || github.event.inputs.task == 'all'))
+    uses: ./.github/workflows/wake-alarm.yml
+    secrets: inherit
+
   generate-diary:
+    if: |
+      (github.event_name == 'schedule' && github.event.schedule == '0 22 * * *') ||
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.task == 'diary' || github.event.inputs.task == 'all'))
     runs-on: ubuntu-latest
     permissions:
       contents: write        # blog/ へのコミットに必要
@@ -39,6 +69,7 @@ jobs:
           DIARY_PHOTO_CAPTION:      ${{ secrets.DIARY_PHOTO_CAPTION }}
           DIARY_GEMINI_MODEL:       ${{ vars.DIARY_GEMINI_MODEL }}
           DIARY_GEMINI_FALLBACK_MODELS: ${{ vars.DIARY_GEMINI_FALLBACK_MODELS }}
+          DIARY_GROUP_SOURCE_ID:    ${{ secrets.DIARY_GROUP_SOURCE_ID }}
         run: node scripts/generate-diary.js
 
       - name: Commit blog archive
