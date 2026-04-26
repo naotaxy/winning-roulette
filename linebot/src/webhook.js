@@ -628,6 +628,13 @@ async function handleText(event, client) {
     if (bookingAwaitingReply) return bookingAwaitingReply;
 
     if (!isDirectChat) {
+      const bareWakeIntent = detectWakeAlarmIntent(text);
+      if (bareWakeIntent) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: '起床セットは受け取れるよ。グループでは朝からみんなを起こしちゃうから、1対1のトークで「1分後に起こして」や「平日毎朝6時半に起こして」って言ってくれたら、そのまま迎えに行くね。',
+        });
+      }
       const bareReminderIntent = detectReminderIntent(text);
       if (bareReminderIntent) {
         return client.replyMessage(event.replyToken, {
@@ -944,6 +951,7 @@ async function handleText(event, client) {
       weatherPlace,
       weatherLatitude: Number.isFinite(Number(latestLocation?.latitude)) ? Number(latestLocation.latitude) : null,
       weatherLongitude: Number.isFinite(Number(latestLocation?.longitude)) ? Number(latestLocation.longitude) : null,
+      testBriefing: !intent.recurring && Number(intent.relativeMinutes) > 0 && Number(intent.relativeMinutes) <= 15,
       status: 'active',
       createdAt: Date.now(),
       createdAtIso: new Date().toISOString(),

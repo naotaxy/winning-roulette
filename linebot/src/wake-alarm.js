@@ -106,8 +106,11 @@ function formatWakeAlarmSetReply(intent, senderName = null) {
   return [
     title,
     cadence,
+    intent?.testBriefing
+      ? '今は朝じゃない時間でも、確認しやすいように朝ニュースのブリーフィングも一緒に流すね。'
+      : '',
     '通知の仕組み上、数分くらい前後することはあるけど、ちゃんと迎えに行くね。',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 function formatWakeAlarmStatusReply(alarm) {

@@ -164,11 +164,21 @@ async function buildWakeMessages(alarm) {
       text: `まず外まわりだけ。\n${weatherLine}`,
     });
   }
-  if (isMorningAlarm(alarm)) {
+  if (shouldIncludeWakeBriefing(alarm)) {
+    if (!isMorningAlarm(alarm) && alarm?.testBriefing) {
+      messages.push({
+        type: 'text',
+        text: 'これは確認しやすいように、朝じゃない時間でも朝のブリーフィングを一緒に流してるよ。',
+      });
+    }
     const briefingMessages = await buildMorningBriefingMessages(alarm).catch(() => []);
     messages.push(...briefingMessages);
   }
   return messages.filter(item => item?.text).slice(0, 5);
+}
+
+function shouldIncludeWakeBriefing(alarm) {
+  return isMorningAlarm(alarm) || alarm?.testBriefing === true;
 }
 
 async function runWakeAlarmSweep() {
