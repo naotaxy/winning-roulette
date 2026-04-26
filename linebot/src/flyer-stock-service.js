@@ -116,7 +116,23 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
       enriched.push(snapshot);
     }
   }
-  if (!enriched.length) return null;
+  if (!enriched.length) {
+    // Tokubai でチラシ価格が取れなくても、Overpass の店名・距離だけで partial snapshot を返す
+    // （キャッシュしない: store.url が null なので shouldReuseCachedSnapshot が false を返す）
+    if (!nearbyStores.length) return null;
+    const [main, ...rest] = nearbyStores.slice(0, 3);
+    return {
+      source: 'overpass-only',
+      dayKey,
+      locationLabel,
+      queryLocation: { latitude: requestedLatitude, longitude: requestedLongitude, label: locationLabel || '' },
+      store: { name: main.name, address: main.address, distanceMeters: main.distanceMeters, url: null },
+      items: [],
+      competitors: rest.map(s => ({ name: s.name, distanceMeters: s.distanceMeters, url: null, avgItemPrice: null })),
+      fetchedAt: Date.now(),
+      fetchedAtIso: new Date().toISOString(),
+    };
+  }
 
   // 距離順で最大3店を取り、その中から特売品の平均単価が最安の店を選ぶ
   const top3 = enriched.slice(0, 3);
@@ -245,7 +261,7 @@ function formatFlyerRecipeReply(snapshot, recipe) {
     return '今夜はまだ、特売から組めるレシピをきれいにまとめ切れなかったの。少し時間を置いてもう一回聞いてね。';
   }
   const storeHeader = snapshot?.store?.name
-    ? `${snapshot.store.name}${formatDistance(snapshot.store.distanceMeters)}の特売をもとに、今夜の一皿を組んだよ。`
+    ? `${snapshot.store.name}${formatDistance(snapshot.store.distanceMeters)}の近くで、今夜の一皿を組んだよ。`
     : '今週使いやすい食材で、今夜の一皿を組んだよ。';
   const lines = [
     storeHeader,
@@ -254,20 +270,27 @@ function formatFlyerRecipeReply(snapshot, recipe) {
   if (recipe.summary) lines.push(recipe.summary);
   if (recipe.estimatedTotalPrice) lines.push(`めやす合計: ${recipe.estimatedTotalPrice}`);
 
-  // 近隣店の比較（常に表示）
+  // 近隣店の比較 — store 情報があれば必ず表示
   if (snapshot?.store?.name) {
-    const chosenAvg = computeAvgItemPrice(snapshot.items);
+    const competitors = Array.isArray(snapshot.competitors) ? snapshot.competitors : [];
+    const hasItems = Array.isArray(snapshot.items) && snapshot.items.length > 0;
+    const chosenAvg = hasItems ? computeAvgItemPrice(snapshot.items) : null;
+
     lines.push('');
-    if (Array.isArray(snapshot.competitors) && snapshot.competitors.length) {
-      lines.push('【近くのお店を比べたよ】');
-      lines.push(`◎ ${snapshot.store.name}${formatDistance(snapshot.store.distanceMeters)} — 平均 約${Math.round(chosenAvg)}円 ← いちばん安い`);
-      for (const comp of snapshot.competitors.slice(0, 2)) {
-        lines.push(`・${comp.name}${formatDistance(comp.distanceMeters)} — 平均 約${Math.round(comp.avgItemPrice)}円`);
-      }
-    } else {
-      lines.push(`【お店】${snapshot.store.name}${formatDistance(snapshot.store.distanceMeters)}`);
-      if (snapshot.store.address) lines.push(snapshot.store.address);
+    lines.push('【近くのお店】');
+
+    // 選ばれた店
+    const chosenPriceText = chosenAvg !== null ? ` — 特売平均 約${Math.round(chosenAvg)}円` : '';
+    const chosenSuffix = competitors.length && chosenAvg !== null ? ' ← いちばん安い' : '';
+    lines.push(`◎ ${snapshot.store.name}${formatDistance(snapshot.store.distanceMeters)}${chosenPriceText}${chosenSuffix}`);
+
+    // 比較店
+    for (const comp of competitors.slice(0, 2)) {
+      const compPriceText = comp.avgItemPrice != null ? ` — 特売平均 約${Math.round(comp.avgItemPrice)}円` : '';
+      lines.push(`・${comp.name}${formatDistance(comp.distanceMeters)}${compPriceText}`);
     }
+
+    if (!hasItems) lines.push('（チラシ価格はまだ取れなかったよ。帰りに確認してね）');
   }
 
   lines.push('');
@@ -295,13 +318,13 @@ function formatFlyerRecipeReply(snapshot, recipe) {
 
 async function queryNearbySupermarkets(latitude, longitude) {
   const query = `
-[out:json][timeout:12];
+[out:json][timeout:20];
 (
-  node[shop="supermarket"](around:3000,${latitude},${longitude});
-  way[shop="supermarket"](around:3000,${latitude},${longitude});
-  relation[shop="supermarket"](around:3000,${latitude},${longitude});
+  node[shop="supermarket"](around:5000,${latitude},${longitude});
+  way[shop="supermarket"](around:5000,${latitude},${longitude});
+  relation[shop="supermarket"](around:5000,${latitude},${longitude});
 );
-out center tags 20;
+out center tags 30;
   `.trim();
 
   const res = await fetch(OVERPASS_URL, {
@@ -311,7 +334,7 @@ out center tags 20;
       ...HTTP_HEADERS,
     },
     body: query,
-    signal: AbortSignal.timeout(12000),
+    signal: AbortSignal.timeout(20000),
   });
   if (!res.ok) return [];
   const data = await res.json();
