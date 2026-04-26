@@ -4,6 +4,8 @@ require('dotenv').config();
 const express = require('express');
 const { middleware, Client } = require('@line/bot-sdk');
 const webhook = require('./src/webhook');
+const { runEventReminderSweep, hasReminderWorkerSecrets } = require('./src/event-reminder-worker');
+const { runWakeAlarmSweep, hasWakeWorkerSecrets } = require('./src/wake-alarm-worker');
 
 const config = {
   channelSecret:     process.env.LINE_CHANNEL_SECRET,
@@ -15,6 +17,7 @@ process.on('unhandledRejection',   err => console.error('[unhandledRejection]', 
 
 const app  = express();
 const port = process.env.PORT || 3000;
+const BACKGROUND_DELIVERY_POLL_MS = 60 * 1000;
 
 /* ── ヘルスチェック（UptimeRobot用） ── */
 app.get('/health', (_req, res) => res.json({
@@ -24,6 +27,10 @@ app.get('/health', (_req, res) => res.json({
   line: {
     channelSecret: !!process.env.LINE_CHANNEL_SECRET,
     channelAccessToken: !!process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  },
+  workers: {
+    eventReminders: hasReminderWorkerSecrets(),
+    wakeAlarms: hasWakeWorkerSecrets(),
   },
 }));
 
@@ -43,5 +50,32 @@ app.use((err, req, res, next) => {
   }
   return next(err);
 });
+
+function startBackgroundSweep(name, task, intervalMs) {
+  let running = false;
+  const tick = async () => {
+    if (running) return;
+    running = true;
+    try {
+      await task();
+    } catch (err) {
+      console.error(`[background:${name}]`, err?.message || err);
+    } finally {
+      running = false;
+    }
+  };
+
+  setTimeout(tick, 15 * 1000);
+  const timer = setInterval(tick, intervalMs);
+  if (typeof timer.unref === 'function') timer.unref();
+}
+
+if (hasReminderWorkerSecrets()) {
+  startBackgroundSweep('event-reminders', runEventReminderSweep, BACKGROUND_DELIVERY_POLL_MS);
+}
+
+if (hasWakeWorkerSecrets()) {
+  startBackgroundSweep('wake-alarms', runWakeAlarmSweep, BACKGROUND_DELIVERY_POLL_MS);
+}
 
 app.listen(port, () => console.log(`[server] listening on port ${port}`));
