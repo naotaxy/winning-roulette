@@ -69,7 +69,7 @@ function formatReminderSetReply(intent, senderName) {
   const lines = [
     senderName ? `${senderName}さん、了解だよ。` : '了解だよ。',
     `${when}${advLabel}に「${intent.title}」をリマインドするね。`,
-    'GitHub Actions 経由だから1〜5分くらい前後することはあるけど、ちゃんと声をかけに来るよ。',
+    '通知の仕組み上1〜5分くらい前後することはあるけど、ちゃんと声をかけに来るよ。',
   ];
   if (intent.detail) {
     lines.push(intent.detail);
@@ -80,18 +80,26 @@ function formatReminderSetReply(intent, senderName) {
   return lines.join('\n');
 }
 
-function formatReminderListReply(reminders) {
+function formatReminderListReply(reminders, wakeAlarm = null, options = {}) {
   const active = (reminders || []).filter(r => r.status === 'active');
-  if (!active.length) {
-    return 'リマインドは今は何も入ってないよ。「〇〇を△時にリマインドして」で追加できるよ。';
+  const wakeSection = String(options.wakeSection || '').trim();
+  const totalCount = active.length + (wakeSection ? 1 : 0);
+  if (!totalCount) {
+    return [
+      'リマインドは今は何も入ってないよ。',
+      '「〇〇を△時にリマインドして」で予定を足せるし、1対1なら「7時に起こして」で起床セットも入れられるよ。',
+    ].join('\n');
   }
-  const lines = [`リマインド一覧（${active.length}件）`];
+  const lines = [`リマインド一覧（${totalCount}件）`];
   for (const r of active) {
     const detail = r.detail ? ` (${String(r.detail).replace(/^補足:\s*/, '')})` : '';
     lines.push(`• ${formatJst(r.reminderAt)} — ${r.title}${detail}`);
   }
+  if (wakeSection) {
+    lines.push(wakeSection);
+  }
   lines.push('');
-  lines.push('「リマインドキャンセル」で全解除、「〇〇のリマインド消して」で個別消去できるよ。');
+  lines.push('「リマインドキャンセル」で予定リマインドを外せるよ。起床セットは「起床状態」「起こすのやめて」で確認や解除ができるの。');
   return lines.join('\n');
 }
 

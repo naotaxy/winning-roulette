@@ -202,6 +202,7 @@ const {
   detectWakeAlarmIntent,
   formatWakeAlarmSetReply,
   formatWakeAlarmStatusReply,
+  formatWakeAlarmListSection,
   formatWakeAlarmCancelReply,
   formatWakeNewsModeReply,
   formatWakeNewsModeLabel,
@@ -3612,9 +3613,12 @@ async function handleEventReminderIntent({ event, client, sourceId, userId, send
 
   if (intent.action === 'list') {
     const reminders = await getEventReminders(sourceId).catch(() => []);
+    const wakeAlarm = await getWakeAlarm(sourceId).catch(() => null);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: formatReminderListReply(reminders),
+      text: formatReminderListReply(reminders, wakeAlarm, {
+        wakeSection: formatWakeAlarmListSection(wakeAlarm),
+      }),
     });
   }
 

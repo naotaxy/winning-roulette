@@ -39,6 +39,23 @@ function detectWakeAlarmIntent(text) {
 
   const recurring = /(毎朝|毎日|平日)/.test(normalized);
   const weekdayOnly = /(平日|月曜?から金曜?|月-?金|月〜金|月~金)/.test(normalized);
+  const relativeOffset = extractRelativeWakeOffset(normalized);
+  if (relativeOffset && !recurring && !weekdayOnly) {
+    const dueAt = buildRelativeDueAt(relativeOffset.totalMinutes);
+    const dueParts = getTokyoDateTimeParts(new Date(dueAt));
+    return {
+      type: 'wakeAlarm',
+      action: 'set',
+      hour: dueParts.hour,
+      minute: dueParts.minute,
+      recurring: false,
+      weekdayOnly: false,
+      explicitTomorrow: false,
+      dueAt,
+      relativeMinutes: relativeOffset.totalMinutes,
+      relativeLabel: relativeOffset.label,
+    };
+  }
   const time = parseHourMinute(normalized);
   if (!time) {
     const dayPart = detectDayPart(normalized);
@@ -83,11 +100,13 @@ function formatWakeAlarmSetReply(intent, senderName = null) {
     : `${when}に起こすね。`;
   const cadence = intent?.recurring
     ? `${intent?.weekdayOnly ? '平日の朝' : '毎朝'} ${formatHourMinute(intent.hour, intent.minute)} ごろに声をかけるよ。`
-    : `${formatHourMinute(intent.hour, intent.minute)} ごろに声をかけるよ。`;
+    : intent?.relativeLabel
+      ? `${intent.relativeLabel}のつもりで、${formatHourMinute(intent.hour, intent.minute)} ごろに声をかけるよ。`
+      : `${formatHourMinute(intent.hour, intent.minute)} ごろに声をかけるよ。`;
   return [
     title,
     cadence,
-    'GitHub Actions 経由だから、数分くらい前後することはあるけど、ちゃんと迎えに行くね。',
+    '通知の仕組み上、数分くらい前後することはあるけど、ちゃんと迎えに行くね。',
   ].join('\n');
 }
 
@@ -105,6 +124,17 @@ function formatWakeAlarmStatusReply(alarm) {
     alarm.recurring ? `次の予定は ${formatDateTime(alarm.dueAt)} ごろ。` : '',
     `朝のニュース設定は「${formatWakeNewsModeLabel(alarm?.newsMode)}」。`,
   ].filter(Boolean).join('\n');
+}
+
+function formatWakeAlarmListSection(alarm) {
+  if (!alarm?.dueAt) return '';
+  const head = alarm.recurring
+    ? `• 起床セット — ${alarm.weekdayOnly ? '平日' : '毎日'} ${formatHourMinute(alarm.hour, alarm.minute)}`
+    : `• 起床セット — 次は ${formatDateTime(alarm.dueAt)}`;
+  const tail = alarm.recurring
+    ? `（次回 ${formatDateTime(alarm.dueAt)} / 朝ニュース: ${formatWakeNewsModeLabel(alarm.newsMode)}）`
+    : `（朝ニュース: ${formatWakeNewsModeLabel(alarm.newsMode)}）`;
+  return `${head} ${tail}`;
 }
 
 function formatWakeAlarmCancelReply(alarm) {
@@ -157,6 +187,40 @@ function parseHourMinute(text) {
 
   const hourMinute = text.match(/(\d{1,2})\s*時(?:\s*(\d{1,2})\s*分?)?/);
   if (hourMinute) return { hour: Number(hourMinute[1]), minute: hourMinute[2] ? Number(hourMinute[2]) : 0 };
+
+  return null;
+}
+
+function extractRelativeWakeOffset(text) {
+  const hourMinute = text.match(/(\d{1,2})時間\s*(\d{1,2})分後/);
+  if (hourMinute) {
+    const hours = Number(hourMinute[1]);
+    const minutes = Number(hourMinute[2]);
+    const totalMinutes = hours * 60 + minutes;
+    if (totalMinutes > 0) {
+      return { totalMinutes, label: `${hours}時間${minutes}分後` };
+    }
+  }
+
+  const hourOnly = text.match(/(\d{1,2})時間後/);
+  if (hourOnly) {
+    const hours = Number(hourOnly[1]);
+    if (hours > 0) {
+      return { totalMinutes: hours * 60, label: `${hours}時間後` };
+    }
+  }
+
+  const minuteOnly = text.match(/(\d{1,3})分後/);
+  if (minuteOnly) {
+    const minutes = Number(minuteOnly[1]);
+    if (minutes > 0) {
+      return { totalMinutes: minutes, label: `${minutes}分後` };
+    }
+  }
+
+  if (/数分後/.test(text)) {
+    return { totalMinutes: 5, label: '5分後' };
+  }
 
   return null;
 }
@@ -257,6 +321,10 @@ function buildTokyoTimestamp(year, month, day, hour, minute) {
   return Date.UTC(year, month - 1, day, hour - 9, minute || 0, 0, 0);
 }
 
+function buildRelativeDueAt(totalMinutes, now = Date.now()) {
+  return now + (Number(totalMinutes) * 60 * 1000);
+}
+
 function formatDueLabel(dueAt, recurring) {
   if (!dueAt) return '次の朝';
   const when = formatDateTime(dueAt);
@@ -289,6 +357,7 @@ module.exports = {
   detectWakeAlarmIntent,
   formatWakeAlarmSetReply,
   formatWakeAlarmStatusReply,
+  formatWakeAlarmListSection,
   formatWakeAlarmCancelReply,
   formatWakeAlarmPushText,
   formatWakeNewsModeReply,
