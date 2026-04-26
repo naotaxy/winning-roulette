@@ -41,6 +41,8 @@ const {
   updateEventReminder,
   getEventReminders,
   cancelEventReminders,
+  getWakeRecipeHistory,
+  saveWakeRecipeHistoryEntry,
 } = require('./firebase-admin');
 const { resolveRealName, updateGroupProfiles, formatProfileForContext } = require('./member-profile');
 const { searchRestaurants, extractRestaurantParams, isRestaurantRequest, buildRestaurantCarousel } = require('./hotpepper');
@@ -203,6 +205,7 @@ const {
   buildFlyerLocationPrompt,
   getNearbyFlyerSnapshot,
   buildRecipeFromFlyerSnapshot,
+  buildFallbackRecipe,
   formatFlyerStockReply,
   formatFlyerRecipeReply,
 } = require('./flyer-stock-service');
@@ -406,7 +409,8 @@ async function handleLocation(event, client) {
       });
     }
     if (pendingRequest.action === 'recipe') {
-      const recipe = await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: [] }).catch(() => null);
+      const recipe = (await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: [] }).catch(() => null))
+        || buildFallbackRecipe(snapshot, []);
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: formatFlyerRecipeReply(snapshot, recipe),
@@ -914,15 +918,30 @@ async function handleText(event, client) {
         locationLabel: latestLocation.label || latestLocation.address || '',
       });
     }
-    if (!snapshot) {
+    if (!snapshot && intent.action !== 'recipeNext') {
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: '近くのお店の特売情報を今はうまく拾い切れなかったの。位置情報を送り直してくれたら、もう一回近いお店から探すね。',
       });
     }
 
-    if (intent.action === 'recipe') {
-      const recipe = await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: [] }).catch(() => null);
+    if (intent.action === 'recipe' || intent.action === 'recipeNext') {
+      const weekKey = getFlyerWeekKey();
+      const history = await getWakeRecipeHistory(sourceId, weekKey).catch(() => []);
+      const usedTitles = intent.action === 'recipeNext'
+        ? history.map(e => normalizeFlyerTitle(e?.title)).filter(Boolean)
+        : [];
+      const recipe = (await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: usedTitles }).catch(() => null))
+        || buildFallbackRecipe(snapshot, usedTitles);
+      if (recipe) {
+        await saveWakeRecipeHistoryEntry(sourceId, weekKey, {
+          title: recipe.title,
+          source: recipe.source,
+          summary: recipe.summary,
+          priceHint: recipe.estimatedTotalPrice || '',
+          storeName: snapshot?.store?.name || '',
+        }).catch(() => {});
+      }
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: formatFlyerRecipeReply(snapshot, recipe),
@@ -3877,6 +3896,21 @@ async function handleEventReminderIntent({ event, client, sourceId, userId, send
   }
 
   return null;
+}
+
+function getFlyerWeekKey(date = new Date()) {
+  const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  const weekday = jst.getUTCDay() || 7;
+  const monday = new Date(jst);
+  monday.setUTCDate(jst.getUTCDate() - (weekday - 1));
+  const y = monday.getUTCFullYear();
+  const m = String(monday.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(monday.getUTCDate()).padStart(2, '0');
+  return `${y}-W-${m}${d}`;
+}
+
+function normalizeFlyerTitle(text) {
+  return String(text || '').normalize('NFKC').replace(/\s+/g, '').trim().toLowerCase();
 }
 
 function shouldPushReminderImmediately(reminderAt, now = Date.now()) {

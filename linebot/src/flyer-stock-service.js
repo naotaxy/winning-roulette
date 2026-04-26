@@ -60,6 +60,11 @@ function detectFlyerStockIntent(text) {
   const normalized = normalize(text);
   if (!normalized) return null;
 
+  // 会話の続き: 別レシピ要求（flyer word なしで成立）
+  if (/(他のレシピ|別のレシピ|違うレシピ|次のレシピ|他には[？?]?$|ほかには[？?]?$|もう一品|ちがうやつ|別のやつ)/.test(normalized)) {
+    return { type: 'flyerStock', action: 'recipeNext' };
+  }
+
   const hasFlyerWord = /(チラシ|特売|広告掲載商品|価格リスト|広告商品|特売商品|食材リスト|買い物メモ|特売ストック|今日の買い物|安い食材)/.test(normalized);
   if (!hasFlyerWord) return null;
 
