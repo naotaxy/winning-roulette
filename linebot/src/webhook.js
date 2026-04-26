@@ -616,6 +616,16 @@ async function handleText(event, client) {
       text,
     });
     if (bookingAwaitingReply) return bookingAwaitingReply;
+
+    if (!isDirectChat) {
+      const bareReminderIntent = detectReminderIntent(text);
+      if (bareReminderIntent) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: 'リマインドは受け取れるよ。グループでは「@秘書トラペル子 9:19にテストとしてリマインド」みたいにメンション付きで呼んでくれたら、そのまま登録するね。',
+        });
+      }
+    }
   }
 
   const intent = detectTextIntent(effectiveText, { allowBareHelp: isDirectChat });

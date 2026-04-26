@@ -232,6 +232,9 @@ function extractReminderTitle(text) {
   // 括弧・「」で囲まれたタイトル
   const quoted = t.match(/「([^」]{2,20})」/);
   if (quoted) return quoted[1];
+  // 「テストを9:19にリマインドして」「9:19にテストとしてリマインド」形式
+  const timeBoundTitle = extractTimeBoundReminderTitle(t);
+  if (timeBoundTitle) return timeBoundTitle;
   // "〜のリマインド / 〜を通知" 形式
   const titled = t.match(/(.{2,15})(?:を?リマインド|を通知|を知らせ)/);
   if (titled) {
@@ -242,14 +245,30 @@ function extractReminderTitle(text) {
 
 function sanitizeReminderTitle(value) {
   const cleaned = String(value || '')
+    .replace(/^\d{1,2}\s*:\s*\d{1,2}\s*に?\s*/u, '')
+    .replace(/^\d{1,2}\s*時(?:\s*半|\s*\d{1,2}\s*分?)?\s*に?\s*/u, '')
     .replace(/^(今夜|今日|本日|明日|今朝|朝|昼|夜|午前|午後|夕方)\s*/u, '')
+    .replace(/(?:として|用|ぶん|分)$/u, '')
     .replace(/[をはに]$/u, '')
+    .replace(/(リマインド|通知|知らせ)(して|お願い)?$/u, '')
     .trim();
   if (!cleaned) return '';
   if (/^(今夜|今日|本日|明日|今朝|朝|昼|夜|午前|午後|夕方|朝に|昼に|夜に|予定)$/u.test(cleaned)) {
     return '';
   }
   return cleaned;
+}
+
+function extractTimeBoundReminderTitle(text) {
+  const t = String(text || '');
+  const timePattern = String.raw`(?:\d{1,2}\s*:\s*\d{1,2}|\d{1,2}\s*時(?:\s*半|\s*\d{1,2}\s*分?)?)`;
+  const afterTime = new RegExp(`^${timePattern}\\s*に\\s*(.{1,24}?)(?:として|を)?\\s*(?:リマインド|通知|知らせ)(?:して|お願い)?$`, 'u');
+  const beforeTime = new RegExp(`^(.{1,24}?)(?:を)?\\s*${timePattern}\\s*に\\s*(?:リマインド|通知|知らせ)(?:して|お願い)?$`, 'u');
+  const after = t.match(afterTime);
+  if (after) return sanitizeReminderTitle(after[1]);
+  const before = t.match(beforeTime);
+  if (before) return sanitizeReminderTitle(before[1]);
+  return '';
 }
 
 function buildReminderDetail(text, title = '', tags = [], participantCount = null) {
