@@ -1081,7 +1081,7 @@ async function handleText(event, client) {
       recurring: intent.recurring === true,
       weekdayOnly: intent.weekdayOnly === true,
       newsMode: normalizeWakeNewsMode(currentAlarm?.newsMode),
-      recipeMode: normalizeWakeRecipeMode(currentAlarm?.recipeMode),
+      recipeMode: normalizeWakeRecipeMode(currentAlarm?.recipeMode || 'flyer'),
       weatherPlace,
       weatherLatitude: Number.isFinite(Number(latestLocation?.latitude)) ? Number(latestLocation.latitude) : null,
       weatherLongitude: Number.isFinite(Number(latestLocation?.longitude)) ? Number(latestLocation.longitude) : null,

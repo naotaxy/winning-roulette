@@ -4,6 +4,7 @@ const { getWakeRecipeHistory, saveWakeRecipeHistoryEntry } = require('./firebase
 const {
   getNearbyFlyerSnapshot,
   buildRecipeFromFlyerSnapshot,
+  buildFallbackRecipe,
   formatFlyerRecipeReply,
 } = require('./flyer-stock-service');
 
@@ -25,7 +26,8 @@ async function buildWakeRecipeMessage(alarm = {}) {
     longitude: Number.isFinite(longitude) ? longitude : null,
     locationLabel: alarm.weatherPlace || '',
   }).catch(() => null);
-  const recipe = await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: usedTitles }).catch(() => null);
+  const recipe = (await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: usedTitles }).catch(() => null))
+    || buildFallbackRecipe(snapshot, usedTitles);
   if (!recipe) return null;
 
   await saveWakeRecipeHistoryEntry(sourceId, weekKey, {

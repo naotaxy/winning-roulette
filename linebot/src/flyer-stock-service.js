@@ -231,11 +231,14 @@ function formatFlyerStockReply(snapshot) {
 }
 
 function formatFlyerRecipeReply(snapshot, recipe) {
-  if (!snapshot?.store?.name || !recipe?.title) {
+  if (!recipe?.title) {
     return '今日はまだ、特売から組めるレシピをきれいにまとめ切れなかったの。少し時間を置いてもう一回聞いてね。';
   }
+  const storeHeader = snapshot?.store?.name
+    ? `${snapshot.store.name}${formatDistance(snapshot.store.distanceMeters)}の特売をもとに、今日の一皿を組んだよ。`
+    : '今週使いやすい食材で、今日の一皿を組んだよ。';
   const lines = [
-    `${snapshot.store.name}${formatDistance(snapshot.store.distanceMeters)}の特売をもとに、今日の一皿を組んだよ。`,
+    storeHeader,
     `「${recipe.title}」 (${recipe.servings || '2人前'})`,
   ];
   if (recipe.summary) lines.push(recipe.summary);
@@ -683,6 +686,7 @@ module.exports = {
   buildFlyerLocationPrompt,
   getNearbyFlyerSnapshot,
   buildRecipeFromFlyerSnapshot,
+  buildFallbackRecipe,
   formatFlyerStockReply,
   formatFlyerRecipeReply,
 };
