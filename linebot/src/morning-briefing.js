@@ -163,6 +163,17 @@ function parseYahooTrainStatus(line, html) {
 }
 
 function buildCommuteProfile(profile, alarm = {}) {
+  const storedLines = Array.isArray(alarm?.commuteLines)
+    ? alarm.commuteLines
+      .filter(line => line && typeof line === 'object' && line.name && line.url)
+      .map(line => ({
+        name: line.name,
+        source: line.source,
+        url: line.url,
+        routeLabel: line.routeLabel || '',
+      }))
+    : [];
+  const storedRouteLabel = String(alarm?.commuteRouteLabel || '').trim();
   const sourceText = [
     profile?.rawText,
     ...(profile?.summaryLines || []),
@@ -173,9 +184,9 @@ function buildCommuteProfile(profile, alarm = {}) {
   ].filter(Boolean).join(' ');
 
   const routeLabel = inferCommuteRouteLabel(sourceText);
-  const lines = [];
+  const inferredLines = [];
   if (/(都営大江戸線|大江戸線|新江古田|東中野)/.test(sourceText)) {
-    lines.push({
+    inferredLines.push({
       name: '都営大江戸線',
       source: 'yahoo',
       url: YAHOO_OEDO_STATUS_URL,
@@ -183,15 +194,15 @@ function buildCommuteProfile(profile, alarm = {}) {
     });
   }
   if (/(中央・総武|総武線各駅|総武線|水道橋)/.test(sourceText)) {
-    lines.push({
+    inferredLines.push({
       name: 'JR中央・総武各駅停車',
       source: 'jr',
       url: JR_SOBU_LOCAL_STATUS_URL,
       routeLabel: '東中野〜水道橋',
     });
   }
-  if (!lines.length && /(米澤|ヨ)/.test(sourceText)) {
-    lines.push(
+  if (!inferredLines.length && /(米澤|ヨ)/.test(sourceText)) {
+    inferredLines.push(
       {
         name: '都営大江戸線',
         source: 'yahoo',
@@ -206,7 +217,8 @@ function buildCommuteProfile(profile, alarm = {}) {
       },
     );
   }
-  const resolvedRouteLabel = routeLabel || (lines.length ? '東橋バス停 → 新江古田 → 東中野 → 水道橋' : '');
+  const lines = storedLines.length ? storedLines : inferredLines;
+  const resolvedRouteLabel = storedRouteLabel || routeLabel || (lines.length ? '東橋バス停 → 新江古田 → 東中野 → 水道橋' : '');
   return { routeLabel: resolvedRouteLabel, lines };
 }
 
@@ -341,4 +353,5 @@ function normalizeWakeNewsMode(value) {
 module.exports = {
   isMorningAlarm,
   buildMorningBriefingMessages,
+  buildCommuteProfile,
 };

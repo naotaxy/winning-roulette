@@ -36,6 +36,7 @@ const LOCATION_MEMORY_ROOT = 'locationMemory';
 const PENDING_LOCATION_REQUEST_ROOT = 'pendingLocationRequests';
 const WAKE_ALARM_ROOT = 'wakeAlarms';
 const WAKE_RECIPE_HISTORY_ROOT = 'wakeRecipeHistory';
+const FLYER_STOCK_CACHE_ROOT = 'flyerStockCache';
 const EVENT_REMINDER_ROOT = 'eventReminders';
 const PRIVATE_PROFILE_ROOT = 'privateProfiles';
 const LOCATION_MEMORY_TTL_MS = 12 * 60 * 60 * 1000;
@@ -359,6 +360,24 @@ async function saveWakeRecipeHistoryEntry(sourceId, weekKey, entry = {}) {
     createdAtIso: new Date(now).toISOString(),
   };
   await getDb().ref(`${WAKE_RECIPE_HISTORY_ROOT}/${sourceId}/${weekKey}`).push(payload);
+  return payload;
+}
+
+async function getFlyerStockSnapshot(sourceId, dayKey) {
+  if (!sourceId || !dayKey) return null;
+  const snap = await getDb().ref(`${FLYER_STOCK_CACHE_ROOT}/${sourceId}/${dayKey}`).once('value');
+  return snap.val() || null;
+}
+
+async function saveFlyerStockSnapshot(sourceId, dayKey, snapshot = {}) {
+  if (!sourceId || !dayKey || !snapshot) return null;
+  const now = Date.now();
+  const payload = {
+    ...snapshot,
+    updatedAt: now,
+    updatedAtIso: new Date(now).toISOString(),
+  };
+  await getDb().ref(`${FLYER_STOCK_CACHE_ROOT}/${sourceId}/${dayKey}`).set(payload);
   return payload;
 }
 
@@ -1097,6 +1116,8 @@ module.exports = {
   clearWakeAlarm,
   getWakeRecipeHistory,
   saveWakeRecipeHistoryEntry,
+  getFlyerStockSnapshot,
+  saveFlyerStockSnapshot,
   getPrivateUserProfile,
   savePrivateUserProfile,
   saveScreenshotCandidate,

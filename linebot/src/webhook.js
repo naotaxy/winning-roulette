@@ -199,6 +199,14 @@ const {
   formatNearbyReply,
 } = require('./nearby-guide');
 const {
+  detectFlyerStockIntent,
+  buildFlyerLocationPrompt,
+  getNearbyFlyerSnapshot,
+  buildRecipeFromFlyerSnapshot,
+  formatFlyerStockReply,
+  formatFlyerRecipeReply,
+} = require('./flyer-stock-service');
+const {
   detectWakeAlarmIntent,
   formatWakeAlarmSetReply,
   formatWakeAlarmStatusReply,
@@ -217,7 +225,7 @@ const {
   buildWakeNewsChoiceMessage,
   buildWakeRecipeChoiceMessage,
 } = require('./time-choice');
-const { isMorningAlarm } = require('./morning-briefing');
+const { isMorningAlarm, buildCommuteProfile } = require('./morning-briefing');
 const {
   getResolvedPrivateProfile,
   buildPrivateProfileContextText,
@@ -362,6 +370,34 @@ async function handleLocation(event, client) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: formatNearbyReply(result),
+    });
+  }
+
+  if (pendingRequest?.type === 'flyerStock' && Number.isFinite(locationPayload?.latitude) && Number.isFinite(locationPayload?.longitude)) {
+    await clearPendingLocationRequest(sourceId, userId).catch(() => {});
+    const snapshot = await getNearbyFlyerSnapshot({
+      sourceId,
+      latitude: locationPayload.latitude,
+      longitude: locationPayload.longitude,
+      locationLabel: locationPayload.label || locationPayload.address || '',
+      forceRefresh: true,
+    });
+    if (!snapshot) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '近くのお店の特売情報を今はうまく拾い切れなかったの。少し時間を置くか、もう少し広い場所で送り直してくれたらもう一回見てくるね。',
+      });
+    }
+    if (pendingRequest.action === 'recipe') {
+      const recipe = await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: [] }).catch(() => null);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatFlyerRecipeReply(snapshot, recipe),
+      });
+    }
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatFlyerStockReply(snapshot),
     });
   }
 
@@ -841,6 +877,47 @@ async function handleText(event, client) {
     });
   }
 
+  if (intent?.type === 'flyerStock') {
+    const latestLocation = await getLatestLocation(sourceId, userId);
+    let snapshot = await getNearbyFlyerSnapshot({ sourceId }).catch(() => null);
+    if (!snapshot && (!latestLocation?.latitude || !latestLocation?.longitude)) {
+      await savePendingLocationRequest(sourceId, userId, {
+        type: 'flyerStock',
+        action: intent.action,
+        text: mentionInfo.withoutMention,
+      }).catch(() => {});
+      return client.replyMessage(event.replyToken, buildFlyerLocationPrompt(intent, latestLocation));
+    }
+
+    if (!snapshot) {
+      snapshot = await getNearbyFlyerSnapshot({
+        sourceId,
+        latitude: Number(latestLocation.latitude),
+        longitude: Number(latestLocation.longitude),
+        locationLabel: latestLocation.label || latestLocation.address || '',
+      });
+    }
+    if (!snapshot) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '近くのお店の特売情報を今はうまく拾い切れなかったの。位置情報を送り直してくれたら、もう一回近いお店から探すね。',
+      });
+    }
+
+    if (intent.action === 'recipe') {
+      const recipe = await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: [] }).catch(() => null);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatFlyerRecipeReply(snapshot, recipe),
+      });
+    }
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatFlyerStockReply(snapshot),
+    });
+  }
+
   if (intent?.type === 'wakeAlarm') {
     if (!isDirectChat) {
       return client.replyMessage(event.replyToken, {
@@ -987,6 +1064,12 @@ async function handleText(event, client) {
       || latestLocation?.address
       || privateProfile?.defaultWakePlace
       || '東京';
+    const commute = buildCommuteProfile(privateProfile, {
+      weatherPlace,
+      senderName,
+      realName: senderName,
+      lineName: senderName,
+    });
     const alarm = await setWakeAlarm(sourceId, {
       sourceId,
       userId,
@@ -1002,6 +1085,8 @@ async function handleText(event, client) {
       weatherPlace,
       weatherLatitude: Number.isFinite(Number(latestLocation?.latitude)) ? Number(latestLocation.latitude) : null,
       weatherLongitude: Number.isFinite(Number(latestLocation?.longitude)) ? Number(latestLocation.longitude) : null,
+      commuteRouteLabel: commute.routeLabel || '',
+      commuteLines: Array.isArray(commute.lines) ? commute.lines : [],
       testBriefing: !intent.recurring && Number(intent.relativeMinutes) > 0 && Number(intent.relativeMinutes) <= 15,
       status: 'active',
       createdAt: Date.now(),
@@ -1739,6 +1824,9 @@ function detectTextIntent(text, options = {}) {
 
   const nearbyIntent = detectNearbyIntent(targetText);
   if (nearbyIntent) return nearbyIntent;
+
+  const flyerStockIntent = detectFlyerStockIntent(targetText);
+  if (flyerStockIntent) return flyerStockIntent;
 
   const wakeAlarmIntent = detectWakeAlarmIntent(targetText);
   if (wakeAlarmIntent) return wakeAlarmIntent;
