@@ -461,16 +461,10 @@ async function searchTokubaiStoresByArea(locationLabel, latitude, longitude) {
       return '';
     });
     const stores = parseTokubaiSearchResults(html);
-    console.log(`[flyer-stock] Tokubai geo-search html=${html.length}bytes stores=${stores.length}`);
+    console.log(`[flyer-stock] Tokubai geo-search html=${html.length}bytes stores=${stores.length} locPref="${extractPrefecture(locationLabel)}"`);
+    // GPS 座標で検索済みなので都道府県フィルタは不要（位置検索は周辺のみ返す）
     if (stores.length) {
-      const locPref = extractPrefecture(locationLabel);
-      return stores
-        .filter(s => {
-          if (!locPref) return true;
-          const sp = extractPrefecture(s.address);
-          return !sp || sp === locPref;
-        })
-        .map(s => ({ ...s, distanceMeters: null }));
+      return stores.map(s => ({ ...s, distanceMeters: null }));
     }
   }
 
