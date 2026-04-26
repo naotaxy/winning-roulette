@@ -373,6 +373,23 @@ async function handleLocation(event, client) {
     });
   }
 
+  if (pendingRequest?.type === 'wakeAlarm' && Number.isFinite(locationPayload?.latitude) && Number.isFinite(locationPayload?.longitude)) {
+    await clearPendingLocationRequest(sourceId, userId).catch(() => {});
+    const existingAlarm = await getWakeAlarm(sourceId).catch(() => null);
+    if (existingAlarm) {
+      await setWakeAlarm(sourceId, {
+        ...existingAlarm,
+        weatherLatitude: locationPayload.latitude,
+        weatherLongitude: locationPayload.longitude,
+        weatherPlace: locationPayload.label || locationPayload.address || existingAlarm.weatherPlace || '東京',
+      }).catch(() => {});
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `${locationPayload.label || locationPayload.address || 'この場所'}を起床セットに登録したよ。次のリマインドから近くのスーパーのチラシで夜ごはんのレシピを提案するね。`,
+      });
+    }
+  }
+
   if (pendingRequest?.type === 'flyerStock' && Number.isFinite(locationPayload?.latitude) && Number.isFinite(locationPayload?.longitude)) {
     await clearPendingLocationRequest(sourceId, userId).catch(() => {});
     const snapshot = await getNearbyFlyerSnapshot({
@@ -1100,12 +1117,21 @@ async function handleText(event, client) {
     };
     const setTextMsg = { type: 'text', text: formatWakeAlarmSetReply(alarm, senderName), quickReply: confirmQuickReply };
     const messages = [setTextMsg];
-    if (isMorningAlarm(alarm)) {
+    if (isMorningAlarm(alarm) || alarm.testBriefing) {
       messages.push(buildWakeNewsChoiceMessage(alarm));
       messages.push(buildWakeRecipeChoiceMessage(alarm));
-    } else if (alarm.testBriefing) {
-      messages.push(buildWakeNewsChoiceMessage(alarm));
-      messages.push(buildWakeRecipeChoiceMessage(alarm));
+    }
+    // 位置情報が未登録の場合、今すぐ場所を聞く
+    const hasLocation = Number.isFinite(Number(latestLocation?.latitude)) && Number.isFinite(Number(latestLocation?.longitude));
+    if (!hasLocation) {
+      await savePendingLocationRequest(sourceId, userId, { type: 'wakeAlarm' }).catch(() => {});
+      messages.push({
+        type: 'text',
+        text: '近くのスーパーのチラシで夜ごはんのレシピを提案するには、場所が必要だよ。今の位置情報を送ってくれたら登録しておくね。',
+        quickReply: {
+          items: [{ type: 'action', action: { type: 'location', label: '位置情報を送る' } }],
+        },
+      });
     }
     return client.replyMessage(event.replyToken, messages);
   }
