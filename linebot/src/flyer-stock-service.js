@@ -136,6 +136,7 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
     }
   }
   for (const areaStore of areaDirectStores) {
+    if (!looksLikeFoodStore(areaStore.name)) continue;
     if (!seenUrls.has(areaStore.url)) {
       seenUrls.add(areaStore.url);
       fetchTargets.push({ tokubaiStore: areaStore, nearbyStore: { distanceMeters: null } });
@@ -155,10 +156,11 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
   console.log(`[flyer-stock] enriched=${enriched.length} areaDirectStores=${areaDirectStores.length} nearbyStores=${nearbyStores.length} fetchTargets=${fetchTargets.length} lat=${requestedLatitude} lon=${requestedLongitude}`);
 
   if (!enriched.length) {
-    if (areaDirectStores.length) {
-      // Tokubai 位置情報検索で見つかった店を表示（OSM より信頼できる）
-      console.log(`[flyer-stock] overpass-only from areaDirectStores: ${areaDirectStores[0]?.name}`);
-      const stores = areaDirectStores.slice(0, 3);
+    const foodStores = areaDirectStores.filter(s => looksLikeFoodStore(s.name));
+    if (foodStores.length) {
+      // Tokubai 位置情報検索で見つかった食品系の店を表示（OSM より信頼できる）
+      console.log(`[flyer-stock] overpass-only from areaDirectStores: ${foodStores[0]?.name}`);
+      const stores = foodStores.slice(0, 3);
       return {
         source: 'overpass-only',
         dayKey,
@@ -669,7 +671,7 @@ async function extractTokubaiLeafletItemsWithGemini(storeHtml, baseUrl) {
 
 function parseTokubaiLeafletLinks(html, baseUrl) {
   const matches = [...String(html || '').matchAll(
-    /<a class="image_element scroll[^"]*"[^>]*href="([^"]*\/leaflets\/\d+[^"]*)"/g
+    /<a class="image_element[^"]*"[^>]*href="([^"]*\/leaflets\/\d+[^"]*)"/g
   )];
   const links = matches
     .map(match => {
@@ -685,7 +687,9 @@ function parseTokubaiLeafletLinks(html, baseUrl) {
 
 async function fetchTokubaiLeafletImagePart(leafletUrl) {
   const html = await fetchText(leafletUrl);
-  const src = html.match(/<img class="leaflet transparent"[^>]*src="([^"]+)"/)?.[1]
+  const src = html.match(/data-src="(https?:\/\/[^"]*\/bargain_office_leaflets\/o=true\/[^"]+)"/)?.[1]
+    || html.match(/<img[^>]*class="leaflet_image[^"]*"[^>]*data-src="([^"]+)"/)?.[1]
+    || html.match(/<img class="leaflet transparent"[^>]*src="([^"]+)"/)?.[1]
     || html.match(/high_resolution_image_url&quot;:&quot;([^"&]+(?:\\u0026[^"&]+)*)&quot;/)?.[1]?.replace(/\\u0026/g, '&');
   if (!src) return null;
 
@@ -789,6 +793,11 @@ function trimLocationLabel(value) {
 
 function uniqueStrings(values) {
   return [...new Set(values.map(value => String(value || '').trim()).filter(Boolean))];
+}
+
+function looksLikeFoodStore(name) {
+  if (!name) return false;
+  return !/おそうじ|クリーニング|学研|くもん|公文|塾|整骨|接骨|歯科|クリニック|病院|医院|美容院|美容室|サロン|ヘアカット|眼科|耳鼻|皮膚科|保険|不動産|ハウス/.test(name);
 }
 
 function countSharedTokens(left, right) {
