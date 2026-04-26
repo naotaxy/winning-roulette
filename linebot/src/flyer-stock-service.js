@@ -106,37 +106,73 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
 
   if (!Number.isFinite(requestedLatitude) || !Number.isFinite(requestedLongitude)) return null;
 
-  const nearbyStores = await queryNearbySupermarkets(requestedLatitude, requestedLongitude);
-  // Tokubai 呼び出しを並列化（逐次だと 5店 × 2回 × 8s = 80s になりタイムアウトする）
-  const settled = await Promise.allSettled(
+  // OSM とエリア直接検索を並列実行（OSM は閉店・改名が反映されないことがあるためエリア検索で補う）
+  const [nearbyStores, areaDirectStores] = await Promise.all([
+    queryNearbySupermarkets(requestedLatitude, requestedLongitude),
+    searchTokubaiStoresByArea(locationLabel),
+  ]);
+
+  // OSM 店ごとに Tokubai URL を並列検索
+  const osmResults = await Promise.allSettled(
     nearbyStores.slice(0, 5).map(async nearbyStore => {
       const tokubaiStore = await findTokubaiStoreForCandidate(nearbyStore, locationLabel).catch(() => null);
       if (!tokubaiStore?.url) return null;
-      return fetchTokubaiStoreSnapshot(tokubaiStore, nearbyStore).catch(() => null);
+      return { tokubaiStore, nearbyStore };
     })
+  );
+
+  // フェッチ対象を統合（OSM マッチ優先、エリア直接は URL 重複除去して追加）
+  const seenUrls = new Set();
+  const fetchTargets = [];
+  for (const r of osmResults) {
+    if (r.status === 'fulfilled' && r.value) {
+      const { tokubaiStore, nearbyStore } = r.value;
+      if (!seenUrls.has(tokubaiStore.url)) {
+        seenUrls.add(tokubaiStore.url);
+        fetchTargets.push({ tokubaiStore, nearbyStore });
+      }
+    }
+  }
+  for (const areaStore of areaDirectStores) {
+    if (!seenUrls.has(areaStore.url)) {
+      seenUrls.add(areaStore.url);
+      fetchTargets.push({ tokubaiStore: areaStore, nearbyStore: { distanceMeters: null } });
+    }
+  }
+
+  // チラシ価格を並列取得（最大 7 店）
+  const settled = await Promise.allSettled(
+    fetchTargets.slice(0, 7).map(({ tokubaiStore, nearbyStore }) =>
+      fetchTokubaiStoreSnapshot(tokubaiStore, nearbyStore).catch(() => null)
+    )
   );
   const enriched = settled
     .filter(r => r.status === 'fulfilled' && r.value?.items?.length)
     .map(r => r.value);
+
   if (!enriched.length) {
-    // Tokubai でチラシ価格が取れなくても、Overpass の店名・距離だけで partial snapshot を返す
-    // （キャッシュしない: store.url が null なので shouldReuseCachedSnapshot が false を返す）
-    if (!nearbyStores.length) return null;
-    const [main, ...rest] = nearbyStores.slice(0, 3);
+    // チラシ情報なし: 既知の店名・距離だけで partial snapshot を返す（キャッシュしない）
+    const allKnown = [
+      ...nearbyStores.slice(0, 3),
+      ...areaDirectStores.slice(0, 3).map(s => ({ name: s.name, address: s.address, distanceMeters: null })),
+    ];
+    if (!allKnown.length) return null;
+    const [main, ...rest] = allKnown.slice(0, 3);
     return {
       source: 'overpass-only',
       dayKey,
       locationLabel,
       queryLocation: { latitude: requestedLatitude, longitude: requestedLongitude, label: locationLabel || '' },
-      store: { name: main.name, address: main.address, distanceMeters: main.distanceMeters, url: null },
+      store: { name: main.name, address: main.address, distanceMeters: main.distanceMeters ?? null, url: null },
       items: [],
-      competitors: rest.map(s => ({ name: s.name, distanceMeters: s.distanceMeters, url: null, avgItemPrice: null })),
+      competitors: rest.map(s => ({ name: s.name, distanceMeters: s.distanceMeters ?? null, url: null, avgItemPrice: null })),
       fetchedAt: Date.now(),
       fetchedAtIso: new Date().toISOString(),
     };
   }
 
-  // 距離順で最大3店を取り、その中から特売品の平均単価が最安の店を選ぶ
+  // 距離 null（エリア直接店）は距離あり店の後ろに回し、上位 3 店から最安値を選ぶ
+  enriched.sort((a, b) => (a.store.distanceMeters ?? Infinity) - (b.store.distanceMeters ?? Infinity));
   const top3 = enriched.slice(0, 3);
   const chosen = pickCheapestStore(top3);
   const competitors = top3
@@ -384,6 +420,53 @@ async function findTokubaiStoreForCandidate(candidate, locationLabel = '') {
   }
   if (!best || best.score < 40) return null;
   return best;
+}
+
+// locationLabel の地名トークン（丁目前の町名・区名）で Tokubai を直接検索する。
+// OSM のデータが古く、閉店済み店舗名しか返さない場合でも正しい店を発見できる。
+async function searchTokubaiStoresByArea(locationLabel) {
+  const tokens = extractAreaSearchTokens(locationLabel);
+  if (!tokens.length) return [];
+
+  const locPref = extractPrefecture(locationLabel);
+  const seen = new Set();
+  const results = [];
+
+  await Promise.allSettled(
+    tokens.map(async token => {
+      const html = await fetchText(
+        `${TOKUBAI_SEARCH_URL}?bargain_keyword=${encodeURIComponent(token)}`,
+        8000,
+      ).catch(() => '');
+      for (const store of parseTokubaiSearchResults(html)) {
+        if (seen.has(store.shopId)) continue;
+        // 都道府県が違う店は除外（例: 「江古田」で埼玉の店が引っかかるケースを防ぐ）
+        const storePref = extractPrefecture(store.address);
+        if (locPref && storePref && locPref !== storePref) continue;
+        seen.add(store.shopId);
+        results.push({ ...store, distanceMeters: null });
+      }
+    })
+  );
+
+  return results;
+}
+
+// locationLabel から Tokubai エリア検索に使う地名トークンを抽出する。
+// 例: 「東京都中野区江古田3丁目2-14」→ ["江古田", "中野区"]
+function extractAreaSearchTokens(locationLabel) {
+  const text = String(locationLabel || '').normalize('NFKC').replace(/\s+/g, '');
+  const tokens = [];
+
+  // 丁目の前の地名: 「江古田3丁目」→「江古田」
+  const neighborhoodMatch = text.match(/([^\d都道府県市区町村]{2,})(?=\d+丁目)/);
+  if (neighborhoodMatch?.[1]) tokens.push(neighborhoodMatch[1]);
+
+  // 区名: 「中野区」
+  const wardMatch = text.match(/([^\s都道府]{2,4}区)/);
+  if (wardMatch?.[1]) tokens.push(wardMatch[1]);
+
+  return uniqueStrings(tokens).slice(0, 2);
 }
 
 function parseTokubaiSearchResults(html) {
