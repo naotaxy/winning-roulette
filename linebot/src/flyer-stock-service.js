@@ -424,23 +424,33 @@ async function findTokubaiStoreForCandidate(candidate, locationLabel = '') {
 
 // locationLabel の地名トークン（丁目前の町名・区名）で Tokubai を直接検索する。
 // OSM のデータが古く、閉店済み店舗名しか返さない場合でも正しい店を発見できる。
+// GPS 座標があれば Tokubai の位置情報検索を直接使う（外部 API 一切不要）。
+// 座標がない場合のみ locationLabel のキーワードで検索する。
 async function searchTokubaiStoresByArea(locationLabel, latitude, longitude) {
-  // locationLabel のトークン + GPS 逆ジオコードのトークンを統合
-  // → locationLabel が「東京」などの短い文字列でも正しい地名が取れる
-  const labelTokens = extractAreaSearchTokens(locationLabel);
-  const { tokens: geoTokens, prefecture: geoPref } = (
-    Number.isFinite(latitude) && Number.isFinite(longitude)
-      ? await reverseGeocodeArea(latitude, longitude).catch(() => ({ tokens: [], prefecture: '' }))
-      : { tokens: [], prefecture: '' }
-  );
-  const tokens = uniqueStrings([...labelTokens, ...geoTokens]).slice(0, 3);
-  if (!tokens.length) return [];
+  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    const html = await fetchText(
+      `${TOKUBAI_SEARCH_URL}?latitude=${latitude}&longitude=${longitude}`,
+      8000,
+    ).catch(() => '');
+    const stores = parseTokubaiSearchResults(html);
+    if (stores.length) {
+      const locPref = extractPrefecture(locationLabel);
+      return stores
+        .filter(s => {
+          if (!locPref) return true;
+          const sp = extractPrefecture(s.address);
+          return !sp || sp === locPref;
+        })
+        .map(s => ({ ...s, distanceMeters: null }));
+    }
+  }
 
-  // 都道府県フィルタ: locationLabel か GPS から取得した方を優先
-  const locPref = extractPrefecture(locationLabel) || geoPref;
+  // 座標なし: locationLabel のキーワードで Tokubai を検索
+  const tokens = extractAreaSearchTokens(locationLabel);
+  if (!tokens.length) return [];
+  const locPref = extractPrefecture(locationLabel);
   const seen = new Set();
   const results = [];
-
   await Promise.allSettled(
     tokens.map(async token => {
       const html = await fetchText(
@@ -456,46 +466,10 @@ async function searchTokubaiStoresByArea(locationLabel, latitude, longitude) {
       }
     })
   );
-
   return results;
 }
 
-// 都道府県コード（muniCd 先頭2桁）→ 都道府県名
-const PREF_NAMES = {
-  '01':'北海道','02':'青森県','03':'岩手県','04':'宮城県','05':'秋田県',
-  '06':'山形県','07':'福島県','08':'茨城県','09':'栃木県','10':'群馬県',
-  '11':'埼玉県','12':'千葉県','13':'東京都','14':'神奈川県','15':'新潟県',
-  '16':'富山県','17':'石川県','18':'福井県','19':'山梨県','20':'長野県',
-  '21':'岐阜県','22':'静岡県','23':'愛知県','24':'三重県','25':'滋賀県',
-  '26':'京都府','27':'大阪府','28':'兵庫県','29':'奈良県','30':'和歌山県',
-  '31':'鳥取県','32':'島根県','33':'岡山県','34':'広島県','35':'山口県',
-  '36':'徳島県','37':'香川県','38':'愛媛県','39':'高知県','40':'福岡県',
-  '41':'佐賀県','42':'長崎県','43':'熊本県','44':'大分県','45':'宮崎県',
-  '46':'鹿児島県','47':'沖縄県',
-};
-
-// GPS 座標から国土地理院 API で地名トークンと都道府県を取得する。
-// Nominatim より確実（日本国内限定の日本政府 API）。
-async function reverseGeocodeArea(latitude, longitude) {
-  const url = `https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress?lon=${longitude}&lat=${latitude}`;
-  const text = await fetchText(url, 8000).catch(() => '');
-  if (!text) return { tokens: [], prefecture: '' };
-  let data;
-  try { data = JSON.parse(text); } catch (_) { return { tokens: [], prefecture: '' }; }
-
-  // lv01Nm: 「江原町二丁目」→ kanji/数字 + 丁目 を末尾から除去 → 「江原町」
-  const lv01Nm = String(data?.results?.lv01Nm || '').trim();
-  const areaName = lv01Nm.replace(/[一二三四五六七八九十\d]+丁目$/, '').trim();
-  const tokens = areaName.length >= 2 ? [areaName] : [];
-
-  // muniCd 先頭2桁で都道府県名を取得（例: "13114" → "13" → "東京都"）
-  const muniCd = String(data?.results?.muniCd || '');
-  const prefecture = PREF_NAMES[muniCd.slice(0, 2)] || '';
-
-  return { tokens, prefecture };
-}
-
-// locationLabel から Tokubai エリア検索に使う地名トークンを抽出する。
+// locationLabel から Tokubai キーワード検索用の地名トークンを抽出する（座標なし時のフォールバック）。
 // 例: 「東京都中野区江古田3丁目2-14」→ ["江古田", "中野区"]
 function extractAreaSearchTokens(locationLabel) {
   const text = String(locationLabel || '').normalize('NFKC').replace(/\s+/g, '');
