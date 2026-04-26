@@ -107,15 +107,17 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
   if (!Number.isFinite(requestedLatitude) || !Number.isFinite(requestedLongitude)) return null;
 
   const nearbyStores = await queryNearbySupermarkets(requestedLatitude, requestedLongitude);
-  const enriched = [];
-  for (const nearbyStore of nearbyStores.slice(0, 5)) {
-    const tokubaiStore = await findTokubaiStoreForCandidate(nearbyStore, locationLabel).catch(() => null);
-    if (!tokubaiStore?.url) continue;
-    const snapshot = await fetchTokubaiStoreSnapshot(tokubaiStore, nearbyStore).catch(() => null);
-    if (snapshot?.items?.length) {
-      enriched.push(snapshot);
-    }
-  }
+  // Tokubai 呼び出しを並列化（逐次だと 5店 × 2回 × 8s = 80s になりタイムアウトする）
+  const settled = await Promise.allSettled(
+    nearbyStores.slice(0, 5).map(async nearbyStore => {
+      const tokubaiStore = await findTokubaiStoreForCandidate(nearbyStore, locationLabel).catch(() => null);
+      if (!tokubaiStore?.url) return null;
+      return fetchTokubaiStoreSnapshot(tokubaiStore, nearbyStore).catch(() => null);
+    })
+  );
+  const enriched = settled
+    .filter(r => r.status === 'fulfilled' && r.value?.items?.length)
+    .map(r => r.value);
   if (!enriched.length) {
     // Tokubai でチラシ価格が取れなくても、Overpass の店名・距離だけで partial snapshot を返す
     // （キャッシュしない: store.url が null なので shouldReuseCachedSnapshot が false を返す）
@@ -360,15 +362,16 @@ out center tags 30;
 }
 
 async function findTokubaiStoreForCandidate(candidate, locationLabel = '') {
+  // 地域指定クエリを先に試す（例: "西友 練馬区"）→ 同都市の店を優先する
   const queries = uniqueStrings([
-    candidate?.name,
     [candidate?.name, trimLocationLabel(locationLabel)].filter(Boolean).join(' '),
+    candidate?.name,
   ]);
   let best = null;
 
   for (const query of queries) {
     if (!query) continue;
-    const html = await fetchText(`${TOKUBAI_SEARCH_URL}?bargain_keyword=${encodeURIComponent(query)}`).catch(() => '');
+    const html = await fetchText(`${TOKUBAI_SEARCH_URL}?bargain_keyword=${encodeURIComponent(query)}`, 8000).catch(() => '');
     if (!html) continue;
     const results = parseTokubaiSearchResults(html);
     for (const result of results) {
@@ -414,11 +417,23 @@ function scoreTokubaiResult(result, candidate, locationLabel) {
     score += Math.min(sharedAddressTokens * 6, 18);
   }
   if (location && resultAddress.includes(location)) score += 12;
+
+  // 都道府県ミスマッチペナルティ: 東京都 vs 埼玉県 など別の都道府県は -45
+  const locPref = extractPrefecture(locationLabel);
+  const resPref = extractPrefecture(result?.address || '');
+  if (locPref && resPref && locPref !== resPref) {
+    score -= 45;
+  }
+
   return score;
 }
 
+function extractPrefecture(text) {
+  return String(text || '').normalize('NFKC').match(/(.{2,4}[都道府県])/)?.[1] || '';
+}
+
 async function fetchTokubaiStoreSnapshot(tokubaiStore, nearbyStore) {
-  const html = await fetchText(tokubaiStore.url);
+  const html = await fetchText(tokubaiStore.url, 8000);
   let items = parseTokubaiStoreItems(html, tokubaiStore.url);
   let source = 'tokubai-html';
   if (!items.length) {
@@ -699,8 +714,8 @@ function formatDistance(distanceMetersValue) {
   return ` (${(distance / 1000).toFixed(1)}kmくらい)`;
 }
 
-async function fetchText(url) {
-  const res = await fetch(url, { headers: HTTP_HEADERS, signal: AbortSignal.timeout(12000) });
+async function fetchText(url, timeoutMs = 10000) {
+  const res = await fetch(url, { headers: HTTP_HEADERS, signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.text();
 }
