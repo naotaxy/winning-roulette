@@ -136,7 +136,11 @@ async function main() {
   console.log(`[wake] sent=${sent} failed=${failed}`);
 }
 
-main().catch(err => {
-  console.error('[wake] fatal', err);
-  process.exitCode = 1;
-});
+main()
+  .catch(err => {
+    console.error('[wake] fatal', err);
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    admin.app().delete().catch(() => {});
+  });

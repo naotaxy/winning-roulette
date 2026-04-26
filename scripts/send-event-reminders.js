@@ -89,7 +89,11 @@ async function main() {
   console.log(`[reminder] sent=${sent} failed=${failed}`);
 }
 
-main().catch(err => {
-  console.error('[reminder] fatal', err);
-  process.exitCode = 1;
-});
+main()
+  .catch(err => {
+    console.error('[reminder] fatal', err);
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    admin.app().delete().catch(() => {});
+  });
