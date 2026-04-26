@@ -150,24 +150,45 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
     .filter(r => r.status === 'fulfilled' && r.value?.items?.length)
     .map(r => r.value);
 
+  console.log(`[flyer-stock] enriched=${enriched.length} areaDirectStores=${areaDirectStores.length} nearbyStores=${nearbyStores.length} fetchTargets=${fetchTargets.length} lat=${requestedLatitude} lon=${requestedLongitude}`);
+
   if (!enriched.length) {
-    // チラシ情報なし: 既知の店名・距離だけで partial snapshot を返す（キャッシュしない）
-    // Tokubai 位置情報検索の結果を優先（OSM は閉店・改名が反映されないことがあるため）
-    const tokubaiForFallback = areaDirectStores
-      .slice(0, 3)
-      .map(s => ({ name: s.name, address: s.address, distanceMeters: null }));
-    const osmForFallback = nearbyStores.slice(0, 3);
-    const allKnown = tokubaiForFallback.length ? tokubaiForFallback : osmForFallback;
-    if (!allKnown.length) return null;
-    const [main, ...rest] = allKnown.slice(0, 3);
+    if (areaDirectStores.length) {
+      // Tokubai 位置情報検索で見つかった店を表示（OSM より信頼できる）
+      console.log(`[flyer-stock] overpass-only from areaDirectStores: ${areaDirectStores[0]?.name}`);
+      const stores = areaDirectStores.slice(0, 3);
+      return {
+        source: 'overpass-only',
+        dayKey,
+        locationLabel,
+        queryLocation: { latitude: requestedLatitude, longitude: requestedLongitude, label: locationLabel || '' },
+        store: { name: stores[0].name, address: stores[0].address, distanceMeters: null, url: null },
+        items: [],
+        competitors: stores.slice(1).map(s => ({ name: s.name, distanceMeters: null, url: null, avgItemPrice: null })),
+        fetchedAt: Date.now(),
+        fetchedAtIso: new Date().toISOString(),
+      };
+    }
+
+    // GPS 座標があるのに Tokubai で店が見つからない → OSM のステールデータは使わない
+    // null を返すと店情報なしのフォールバックレシピになる（誤った店名表示を避けるため）
+    if (Number.isFinite(requestedLatitude) && Number.isFinite(requestedLongitude)) {
+      console.log('[flyer-stock] GPS available but no Tokubai stores found — skip stale OSM data');
+      return null;
+    }
+
+    // GPS なし → OSM を最終手段として使う
+    if (!nearbyStores.length) return null;
+    console.log(`[flyer-stock] overpass-only from OSM (no GPS): ${nearbyStores[0]?.name}`);
+    const osmStores = nearbyStores.slice(0, 3);
     return {
       source: 'overpass-only',
       dayKey,
       locationLabel,
       queryLocation: { latitude: requestedLatitude, longitude: requestedLongitude, label: locationLabel || '' },
-      store: { name: main.name, address: main.address, distanceMeters: main.distanceMeters ?? null, url: null },
+      store: { name: osmStores[0].name, address: osmStores[0].address, distanceMeters: osmStores[0].distanceMeters ?? null, url: null },
       items: [],
-      competitors: rest.map(s => ({ name: s.name, distanceMeters: s.distanceMeters ?? null, url: null, avgItemPrice: null })),
+      competitors: osmStores.slice(1).map(s => ({ name: s.name, distanceMeters: s.distanceMeters ?? null, url: null, avgItemPrice: null })),
       fetchedAt: Date.now(),
       fetchedAtIso: new Date().toISOString(),
     };
