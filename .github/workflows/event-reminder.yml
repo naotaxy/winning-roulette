@@ -1,8 +1,7 @@
 name: 秘書トラペル子 イベントリマインダー
 
 on:
-  schedule:
-    - cron: '2-57/5 * * * *'
+  workflow_call:
   workflow_dispatch:
 
 jobs:

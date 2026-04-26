@@ -12,8 +12,8 @@ async function buildMorningBriefingMessages(alarm = {}) {
   const newsMode = normalizeWakeNewsMode(alarm.newsMode);
   const profile = await getResolvedPrivateProfile({
     userId: alarm.userId || '',
-    lineName: alarm.senderName || '',
-    realName: alarm.senderName || '',
+    lineName: alarm.lineName || '',
+    realName: alarm.realName || alarm.senderName || '',
   }).catch(() => null);
   const commute = buildCommuteProfile(profile);
 

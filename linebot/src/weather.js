@@ -1,5 +1,7 @@
 'use strict';
 
+const { fetchYahooWeather } = require('./yahoo-api');
+
 const WEATHER_CODES = {
   0: '快晴', 1: '晴れ', 2: '一部曇り', 3: '曇り',
   45: '霧', 48: '霧氷',
@@ -99,6 +101,7 @@ async function fetchWeatherByCoords(latitude, longitude) {
       hourly: 'weathercode,temperature_2m,precipitation_probability',
       current: 'weathercode,temperature_2m',
       timezone: 'Asia/Tokyo',
+      past_days: '1',
       forecast_days: '3',
     });
     const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`, { signal: controller.signal });
@@ -120,6 +123,7 @@ async function fetchWeatherByCoords(latitude, longitude) {
 async function fetchWakeWeather(placeQuery = '', latitude = null, longitude = null) {
   let location = null;
   let weather = null;
+  let yahooWeather = null;
 
   if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
     weather = await fetchWeatherByCoords(latitude, longitude);
@@ -134,7 +138,10 @@ async function fetchWakeWeather(placeQuery = '', latitude = null, longitude = nu
   }
 
   if (!weather || !location) return null;
-  return { location, ...weather };
+  if (Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude))) {
+    yahooWeather = await fetchYahooWeather(Number(location.latitude), Number(location.longitude)).catch(() => null);
+  }
+  return { location, yahooWeather, ...weather };
 }
 
 function formatWakeWeatherSummary(result) {
@@ -142,15 +149,16 @@ function formatWakeWeatherSummary(result) {
   const daily = result.forecast;
   const current = result.current || {};
   const hourly = result.hourly || {};
-  const todayIndex = Math.min(1, Math.max((daily.time?.length || 0) - 2, 0));
-  const yesterdayIndex = todayIndex > 0 ? todayIndex - 1 : todayIndex;
+  const todayIndex = findTodayDailyIndex(daily.time);
+  const yesterdayIndex = todayIndex > 0 ? todayIndex - 1 : null;
 
   const todayCode = daily.weathercode?.[todayIndex];
+  const currentCode = Number.isFinite(Number(current.weathercode)) ? Number(current.weathercode) : todayCode;
   const todayMax = daily.temperature_2m_max?.[todayIndex];
   const todayMin = daily.temperature_2m_min?.[todayIndex];
   const todayRain = daily.precipitation_probability_max?.[todayIndex];
-  const yesterdayMax = daily.temperature_2m_max?.[yesterdayIndex];
-  const yesterdayMin = daily.temperature_2m_min?.[yesterdayIndex];
+  const yesterdayMax = yesterdayIndex != null ? daily.temperature_2m_max?.[yesterdayIndex] : null;
+  const yesterdayMin = yesterdayIndex != null ? daily.temperature_2m_min?.[yesterdayIndex] : null;
 
   const tempDiff = Number.isFinite(todayMax) && Number.isFinite(yesterdayMax)
     ? todayMax - yesterdayMax
@@ -159,14 +167,14 @@ function formatWakeWeatherSummary(result) {
     ? todayMin - yesterdayMin
     : null;
 
-  const rainTrend = summarizeRainTrend(current, hourly, todayRain);
+  const rainTrend = summarizeRainTrend(result.yahooWeather, current, hourly, todayRain);
   const tempTrend = summarizeTemperatureTrend(tempDiff, minDiff);
-  const desc = WEATHER_CODES[todayCode] || '天気不明';
-  const emoji = WEATHER_EMOJI[todayCode] || '🌡';
+  const desc = WEATHER_CODES[currentCode] || WEATHER_CODES[todayCode] || '天気不明';
+  const emoji = WEATHER_EMOJI[currentCode] || WEATHER_EMOJI[todayCode] || '🌡';
   const place = result.location?.name || 'このあたり';
 
   return [
-    `${place}は ${emoji} ${desc} 寄り。`,
+    `${place}はいま ${emoji} ${desc}。`,
     Number.isFinite(todayMax) && Number.isFinite(todayMin) ? `最高${todayMax}℃ / 最低${todayMin}℃。` : '',
     tempTrend,
     todayRain != null ? `降水確率は高いところで ${todayRain}% くらい。` : '',
@@ -181,7 +189,17 @@ function summarizeTemperatureTrend(tempDiff, minDiff) {
   return '';
 }
 
-function summarizeRainTrend(current, hourly, todayRain) {
+function summarizeRainTrend(yahooWeather, current, hourly, todayRain) {
+  if (yahooWeather) {
+    if (yahooWeather.isRaining && yahooWeather.currentRain > 0) {
+      return `いまは雨を拾ってるから、傘があったほうが安心。`;
+    }
+    if (yahooWeather.willRain && yahooWeather.maxFutureRain > 0) {
+      return `このあと1時間くらいで降る可能性があるから、折りたたみがあると安心。`;
+    }
+    return '少なくとも今からしばらくは、雨の心配はかなり薄め。';
+  }
+
   const precipitation = Array.isArray(hourly?.precipitation_probability)
     ? hourly.precipitation_probability
     : [];
@@ -205,6 +223,29 @@ function summarizeRainTrend(current, hourly, todayRain) {
   if (peak <= 25 && window[0] >= 45) return '今ふってても、時間が進めば止みそう。';
   if (peak <= 25) return '少なくとも出かける時点では雨の心配は薄め。';
   return '';
+}
+
+function findTodayDailyIndex(times) {
+  const values = Array.isArray(times) ? times : [];
+  if (!values.length) return 0;
+  const todayKey = formatTokyoDateKey(new Date());
+  const exact = values.findIndex(value => String(value) === todayKey);
+  if (exact >= 0) return exact;
+  const next = values.findIndex(value => String(value) >= todayKey);
+  return next >= 0 ? next : 0;
+}
+
+function formatTokyoDateKey(date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 function buildPlaceCandidates(placeQuery) {

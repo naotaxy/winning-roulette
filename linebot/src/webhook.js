@@ -517,8 +517,16 @@ async function getSenderName(event, client, fallback = null) {
   if (lineName && lineName !== fallback) {
     initMemberProfileStub(userId, lineName).catch(() => {});
   }
-  // Firebase に実名登録があれば優先する
-  return resolveRealName(userId, lineName);
+  const memberRealName = await resolveRealName(userId, lineName);
+  if (memberRealName && memberRealName !== lineName) return memberRealName;
+
+  const privateProfile = await getResolvedPrivateProfile({
+    userId,
+    lineName: lineName || '',
+    realName: memberRealName || '',
+  }).catch(() => null);
+
+  return privateProfile?.realName || memberRealName || lineName || fallback;
 }
 
 function withTimeout(promise, timeoutMs, fallback) {
