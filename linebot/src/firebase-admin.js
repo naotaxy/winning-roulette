@@ -35,6 +35,7 @@ const BEAST_MODE_ROOT = 'beastMode';
 const LOCATION_MEMORY_ROOT = 'locationMemory';
 const PENDING_LOCATION_REQUEST_ROOT = 'pendingLocationRequests';
 const WAKE_ALARM_ROOT = 'wakeAlarms';
+const WAKE_RECIPE_HISTORY_ROOT = 'wakeRecipeHistory';
 const EVENT_REMINDER_ROOT = 'eventReminders';
 const PRIVATE_PROFILE_ROOT = 'privateProfiles';
 const LOCATION_MEMORY_TTL_MS = 12 * 60 * 60 * 1000;
@@ -337,6 +338,28 @@ async function setWakeAlarm(sourceId, alarm = {}) {
 async function clearWakeAlarm(sourceId) {
   if (!sourceId) return;
   await getDb().ref(`${WAKE_ALARM_ROOT}/${sourceId}`).remove();
+}
+
+async function getWakeRecipeHistory(sourceId, weekKey) {
+  if (!sourceId || !weekKey) return [];
+  const snap = await getDb().ref(`${WAKE_RECIPE_HISTORY_ROOT}/${sourceId}/${weekKey}`).once('value');
+  const raw = snap.val();
+  if (!raw) return [];
+  return Object.values(raw)
+    .filter(entry => entry && typeof entry === 'object')
+    .sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+}
+
+async function saveWakeRecipeHistoryEntry(sourceId, weekKey, entry = {}) {
+  if (!sourceId || !weekKey || !entry) return null;
+  const now = Date.now();
+  const payload = {
+    ...entry,
+    createdAt: now,
+    createdAtIso: new Date(now).toISOString(),
+  };
+  await getDb().ref(`${WAKE_RECIPE_HISTORY_ROOT}/${sourceId}/${weekKey}`).push(payload);
+  return payload;
 }
 
 // ─── イベントリマインダー ──────────────────────────────────────────────────────
@@ -1072,6 +1095,8 @@ module.exports = {
   getWakeAlarm,
   setWakeAlarm,
   clearWakeAlarm,
+  getWakeRecipeHistory,
+  saveWakeRecipeHistoryEntry,
   getPrivateUserProfile,
   savePrivateUserProfile,
   saveScreenshotCandidate,

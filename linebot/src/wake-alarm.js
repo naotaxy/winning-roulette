@@ -9,6 +9,11 @@ const WAKE_NEWS_MODE_LABELS = {
   none: 'ニュースなし',
 };
 
+const WAKE_RECIPE_MODE_LABELS = {
+  flyer: 'チラシ発想の節約レシピあり',
+  none: 'レシピなし',
+};
+
 function detectWakeAlarmIntent(text) {
   const raw = String(text || '');
   const normalized = normalize(text);
@@ -23,6 +28,17 @@ function detectWakeAlarmIntent(text) {
       return { type: 'wakeAlarm', action: 'setNewsMode', newsMode };
     }
     return { type: 'wakeAlarm', action: 'newsChoice' };
+  }
+
+  if (/(起床レシピ|朝レシピ|朝のレシピ|レシピ設定)/.test(normalized)) {
+    if (/(状態|確認|どう|何|見せ)/.test(normalized)) {
+      return { type: 'wakeAlarm', action: 'recipeStatus' };
+    }
+    const recipeMode = extractWakeRecipeMode(raw, normalized);
+    if (recipeMode) {
+      return { type: 'wakeAlarm', action: 'setRecipeMode', recipeMode };
+    }
+    return { type: 'wakeAlarm', action: 'recipeChoice' };
   }
 
   if (/(起こすのやめて|起こさなくていい|起床解除|アラーム解除|目覚まし解除|起こして解除|起こすの停止)/.test(normalized)) {
@@ -126,6 +142,7 @@ function formatWakeAlarmStatusReply(alarm) {
       : `次は ${formatDueLabel(alarm.dueAt, false)} に起こす予定だよ。`,
     alarm.recurring ? `次の予定は ${formatDateTime(alarm.dueAt)} ごろ。` : '',
     `朝のニュース設定は「${formatWakeNewsModeLabel(alarm?.newsMode)}」。`,
+    `朝のレシピ設定は「${formatWakeRecipeModeLabel(alarm?.recipeMode)}」。`,
   ].filter(Boolean).join('\n');
 }
 
@@ -135,8 +152,8 @@ function formatWakeAlarmListSection(alarm) {
     ? `• 起床セット — ${alarm.weekdayOnly ? '平日' : '毎日'} ${formatHourMinute(alarm.hour, alarm.minute)}`
     : `• 起床セット — 次は ${formatDateTime(alarm.dueAt)}`;
   const tail = alarm.recurring
-    ? `（次回 ${formatDateTime(alarm.dueAt)} / 朝ニュース: ${formatWakeNewsModeLabel(alarm.newsMode)}）`
-    : `（朝ニュース: ${formatWakeNewsModeLabel(alarm.newsMode)}）`;
+    ? `（次回 ${formatDateTime(alarm.dueAt)} / 朝ニュース: ${formatWakeNewsModeLabel(alarm.newsMode)} / 朝レシピ: ${formatWakeRecipeModeLabel(alarm.recipeMode)}）`
+    : `（朝ニュース: ${formatWakeNewsModeLabel(alarm.newsMode)} / 朝レシピ: ${formatWakeRecipeModeLabel(alarm.recipeMode)}）`;
   return `${head} ${tail}`;
 }
 
@@ -165,6 +182,19 @@ function formatWakeNewsModeReply(newsMode, senderName = null) {
     newsMode === 'none'
       ? '起きた時は、天気と通勤まわりを静かに持っていくね。'
       : '起きた時は、天気や通勤のあとに、その設定に合わせて小さく報告するよ。',
+  ].join('\n');
+}
+
+function formatWakeRecipeModeReply(recipeMode, senderName = null) {
+  const label = formatWakeRecipeModeLabel(recipeMode);
+  const title = senderName
+    ? `${senderName}さん、朝のレシピは「${label}」にしておくね。`
+    : `朝のレシピは「${label}」にしておくね。`;
+  return [
+    title,
+    normalizeWakeRecipeMode(recipeMode) === 'none'
+      ? '朝は天気と通勤とニュースだけ、静かに持っていくね。'
+      : '起きた時に、今週かぶらない朝のおすすめを小さく添えるよ。チラシが取れた日は、節約寄りで寄せるね。',
   ].join('\n');
 }
 
@@ -236,6 +266,12 @@ function extractWakeNewsMode(rawText, normalizedText) {
   return null;
 }
 
+function extractWakeRecipeMode(rawText, normalizedText) {
+  if (/(なし|いらない|不要|オフ|off)/i.test(rawText)) return 'none';
+  if (/(ほしい|欲しい|あり|つけて|節約|おすすめ|on|お願い)/i.test(rawText) || /(レシピ)/.test(normalizedText)) return 'flyer';
+  return null;
+}
+
 function normalizeWakeNewsMode(value) {
   const mode = String(value || '').trim().toLowerCase();
   if (mode === 'wbs') return 'wbs';
@@ -244,8 +280,18 @@ function normalizeWakeNewsMode(value) {
   return 'all';
 }
 
+function normalizeWakeRecipeMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'flyer') return 'flyer';
+  return 'none';
+}
+
 function formatWakeNewsModeLabel(value) {
   return WAKE_NEWS_MODE_LABELS[normalizeWakeNewsMode(value)] || WAKE_NEWS_MODE_LABELS.all;
+}
+
+function formatWakeRecipeModeLabel(value) {
+  return WAKE_RECIPE_MODE_LABELS[normalizeWakeRecipeMode(value)] || WAKE_RECIPE_MODE_LABELS.none;
 }
 
 function computeWakeDueAt({ hour, minute, recurring, weekdayOnly, explicitTomorrow, explicitToday, now }) {
@@ -366,5 +412,8 @@ module.exports = {
   formatWakeNewsModeReply,
   formatWakeNewsModeLabel,
   normalizeWakeNewsMode,
+  formatWakeRecipeModeReply,
+  formatWakeRecipeModeLabel,
+  normalizeWakeRecipeMode,
   computeNextRecurringDueAt,
 };

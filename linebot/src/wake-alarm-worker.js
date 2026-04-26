@@ -4,6 +4,7 @@ const admin = require('firebase-admin');
 const {
   computeNextRecurringDueAt,
   formatWakeAlarmPushText,
+  normalizeWakeRecipeMode,
 } = require('./wake-alarm');
 const {
   fetchWakeWeather,
@@ -13,6 +14,7 @@ const {
   isMorningAlarm,
   buildMorningBriefingMessages,
 } = require('./morning-briefing');
+const { buildWakeRecipeMessage } = require('./wake-recipe-service');
 
 const WAKE_ALARM_ROOT = 'wakeAlarms';
 const LOOKBACK_MS = 25 * 60 * 1000;
@@ -174,11 +176,33 @@ async function buildWakeMessages(alarm) {
     const briefingMessages = await buildMorningBriefingMessages(alarm).catch(() => []);
     messages.push(...briefingMessages);
   }
-  return messages.filter(item => item?.text).slice(0, 5);
+  if (normalizeWakeRecipeMode(alarm?.recipeMode) !== 'none') {
+    const recipeMessage = await buildWakeRecipeMessage(alarm).catch(() => null);
+    if (recipeMessage) messages.push(recipeMessage);
+  }
+  return trimWakeMessages(messages);
 }
 
 function shouldIncludeWakeBriefing(alarm) {
   return isMorningAlarm(alarm) || alarm?.testBriefing === true;
+}
+
+function trimWakeMessages(messages) {
+  const filtered = messages.filter(item => item?.text);
+  while (filtered.length > 5) {
+    const testNoteIndex = filtered.findIndex(item => /^これは確認しやすいように/.test(item.text || ''));
+    if (testNoteIndex >= 0) {
+      filtered.splice(testNoteIndex, 1);
+      continue;
+    }
+    const majorNewsIndex = filtered.findIndex(item => /^世の中の大きめニュースも/.test(item.text || ''));
+    if (majorNewsIndex >= 0) {
+      filtered.splice(majorNewsIndex, 1);
+      continue;
+    }
+    filtered.pop();
+  }
+  return filtered;
 }
 
 async function runWakeAlarmSweep() {

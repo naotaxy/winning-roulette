@@ -55,6 +55,11 @@ const WAKE_NEWS_MODE_LABELS = {
   none: 'ニュースなし',
 };
 
+const WAKE_RECIPE_MODE_LABELS = {
+  flyer: 'チラシ発想の節約レシピあり',
+  none: 'レシピなし',
+};
+
 function detectDayPart(text) {
   const normalized = normalize(text);
   if (!normalized) return null;
@@ -129,6 +134,19 @@ function buildWakeNewsChoiceMessage(alarm = {}) {
   );
 }
 
+function buildWakeRecipeChoiceMessage(alarm = {}) {
+  const currentMode = normalizeWakeRecipeMode(alarm.recipeMode);
+  const currentLabel = WAKE_RECIPE_MODE_LABELS[currentMode] || WAKE_RECIPE_MODE_LABELS.none;
+  return buildQuickReplyText(
+    `朝のレシピ提案はどうしようか？ 今は「${currentLabel}」になってるよ。`,
+    [
+      { label: 'レシピあり', text: '起床レシピ ほしい' },
+      { label: 'レシピなし', text: '起床レシピ なし' },
+      { label: '設定確認', text: '起床レシピ 状態' },
+    ],
+  );
+}
+
 function buildWakeQualifier(intent) {
   if (intent.weekdayOnly) return '平日 ';
   if (intent.recurring) return '毎朝 ';
@@ -165,6 +183,12 @@ function normalizeWakeNewsMode(value) {
   return 'all';
 }
 
+function normalizeWakeRecipeMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'flyer') return 'flyer';
+  return 'none';
+}
+
 function normalize(text) {
   return String(text || '')
     .normalize('NFKC')
@@ -177,4 +201,5 @@ module.exports = {
   buildWakeTimeChoiceMessage,
   buildReminderTimeChoiceMessage,
   buildWakeNewsChoiceMessage,
+  buildWakeRecipeChoiceMessage,
 };

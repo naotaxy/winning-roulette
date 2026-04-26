@@ -15,7 +15,8 @@ async function buildMorningBriefingMessages(alarm = {}) {
     lineName: alarm.lineName || '',
     realName: alarm.realName || alarm.senderName || '',
   }).catch(() => null);
-  const commute = buildCommuteProfile(profile);
+  const commute = buildCommuteProfile(profile, alarm);
+  const trainStatusesPromise = fetchCommuteStatuses(commute.lines);
 
   const [wbsHighlights, majorNews, trainStatuses] = await Promise.all([
     newsMode === 'all' || newsMode === 'wbs'
@@ -24,7 +25,7 @@ async function buildMorningBriefingMessages(alarm = {}) {
     newsMode === 'all' || newsMode === 'major'
       ? fetchMajorNewsHighlights().catch(() => [])
       : Promise.resolve([]),
-    Promise.all(commute.lines.map(fetchTrainStatus)).catch(() => []),
+    trainStatusesPromise,
   ]);
 
   const messages = [];
@@ -38,6 +39,20 @@ async function buildMorningBriefingMessages(alarm = {}) {
   if (majorNewsText) messages.push({ type: 'text', text: majorNewsText });
 
   return messages.slice(0, 3);
+}
+
+async function fetchCommuteStatuses(lines = []) {
+  if (!Array.isArray(lines) || !lines.length) return [];
+  const settled = await Promise.allSettled(lines.map(fetchTrainStatus));
+  return settled.map((result, index) => {
+    if (result.status === 'fulfilled' && result.value) return result.value;
+    return {
+      name: lines[index]?.name || '通勤路線',
+      routeLabel: lines[index]?.routeLabel || '',
+      isNormal: null,
+      summary: '運行情報の取得が今ちょっと鈍いみたい。出る前にだけ公式の詳細を見ておくと安心だよ。',
+    };
+  }).filter(Boolean);
 }
 
 function isMorningAlarm(alarm = {}) {
@@ -147,10 +162,14 @@ function parseYahooTrainStatus(line, html) {
   };
 }
 
-function buildCommuteProfile(profile) {
+function buildCommuteProfile(profile, alarm = {}) {
   const sourceText = [
     profile?.rawText,
     ...(profile?.summaryLines || []),
+    alarm?.weatherPlace,
+    alarm?.senderName,
+    alarm?.realName,
+    alarm?.lineName,
   ].filter(Boolean).join(' ');
 
   const routeLabel = inferCommuteRouteLabel(sourceText);
@@ -171,7 +190,24 @@ function buildCommuteProfile(profile) {
       routeLabel: '東中野〜水道橋',
     });
   }
-  return { routeLabel, lines };
+  if (!lines.length && /(米澤|ヨ)/.test(sourceText)) {
+    lines.push(
+      {
+        name: '都営大江戸線',
+        source: 'yahoo',
+        url: YAHOO_OEDO_STATUS_URL,
+        routeLabel: '新江古田〜東中野',
+      },
+      {
+        name: 'JR中央・総武各駅停車',
+        source: 'jr',
+        url: JR_SOBU_LOCAL_STATUS_URL,
+        routeLabel: '東中野〜水道橋',
+      },
+    );
+  }
+  const resolvedRouteLabel = routeLabel || (lines.length ? '東橋バス停 → 新江古田 → 東中野 → 水道橋' : '');
+  return { routeLabel: resolvedRouteLabel, lines };
 }
 
 function inferCommuteRouteLabel(text) {
@@ -184,10 +220,14 @@ function inferCommuteRouteLabel(text) {
 }
 
 function formatCommuteBriefing(commute, statuses) {
-  if (!Array.isArray(statuses) || !statuses.length) return '';
+  if ((!Array.isArray(statuses) || !statuses.length) && !commute?.routeLabel) return '';
   const lines = ['そのあと、通勤まわりだけ先に見てきたよ。'];
   if (commute?.routeLabel) {
     lines.push(`いつもの筋は ${commute.routeLabel} で見てる。`);
+  }
+  if (!Array.isArray(statuses) || !statuses.length) {
+    lines.push('運行情報の取得が今ちょっと鈍いみたい。出る前にだけ、公式の詳細を見てね。');
+    return lines.join('\n');
   }
   for (const status of statuses.filter(Boolean)) {
     lines.push(`・${status.name}${status.routeLabel ? ` (${status.routeLabel})` : ''}: ${status.summary}`);

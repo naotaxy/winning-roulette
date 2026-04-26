@@ -207,11 +207,15 @@ const {
   formatWakeNewsModeReply,
   formatWakeNewsModeLabel,
   normalizeWakeNewsMode,
+  formatWakeRecipeModeReply,
+  formatWakeRecipeModeLabel,
+  normalizeWakeRecipeMode,
 } = require('./wake-alarm');
 const {
   buildWakeTimeChoiceMessage,
   buildReminderTimeChoiceMessage,
   buildWakeNewsChoiceMessage,
+  buildWakeRecipeChoiceMessage,
 } = require('./time-choice');
 const { isMorningAlarm } = require('./morning-briefing');
 const {
@@ -857,8 +861,9 @@ async function handleText(event, client) {
         type: 'text',
         text: formatWakeAlarmStatusReply(alarm),
       }];
-      if (isMorningAlarm(alarm)) {
+      if (isMorningAlarm(alarm) || alarm.testBriefing) {
         messages.push(buildWakeNewsChoiceMessage(alarm));
+        messages.push(buildWakeRecipeChoiceMessage(alarm));
       }
       return client.replyMessage(event.replyToken, messages);
     }
@@ -897,6 +902,23 @@ async function handleText(event, client) {
       ]);
     }
 
+    if (intent.action === 'recipeChoice' || intent.action === 'recipeStatus') {
+      const alarm = await getWakeAlarm(sourceId);
+      if (!alarm) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: 'まだ起床セットが入っていないみたい。先に「平日毎朝6時半に起こして」みたいに時間を決めてくれたら、そのあとレシピの持ち方を選べるよ。',
+        });
+      }
+      return client.replyMessage(event.replyToken, [
+        {
+          type: 'text',
+          text: `今の朝レシピは「${formatWakeRecipeModeLabel(alarm.recipeMode)}」だよ。`,
+        },
+        buildWakeRecipeChoiceMessage(alarm),
+      ]);
+    }
+
     if (intent.action === 'setNewsMode') {
       const currentAlarm = await getWakeAlarm(sourceId);
       if (!currentAlarm) {
@@ -924,6 +946,33 @@ async function handleText(event, client) {
       ]);
     }
 
+    if (intent.action === 'setRecipeMode') {
+      const currentAlarm = await getWakeAlarm(sourceId);
+      if (!currentAlarm) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: 'まだ起床セットが入っていないみたい。先に「平日毎朝6時半に起こして」みたいに時間を決めてくれたら、そのあとレシピの持ち方を選べるよ。',
+        });
+      }
+      const alarm = await setWakeAlarm(sourceId, {
+        ...currentAlarm,
+        recipeMode: normalizeWakeRecipeMode(intent.recipeMode),
+      });
+      return client.replyMessage(event.replyToken, [
+        {
+          type: 'text',
+          text: formatWakeRecipeModeReply(alarm.recipeMode, senderName),
+          quickReply: {
+            items: [
+              { type: 'action', action: { type: 'message', label: 'レシピ設定確認', text: '起床レシピ 状態' } },
+              { type: 'action', action: { type: 'message', label: '起床状態', text: '起床状態' } },
+              { type: 'action', action: { type: 'message', label: 'キャンセル', text: '起こすのやめて' } },
+            ],
+          },
+        },
+      ]);
+    }
+
     if (intent.action === 'invalidTime') {
       return client.replyMessage(event.replyToken, {
         type: 'text',
@@ -942,12 +991,14 @@ async function handleText(event, client) {
       sourceId,
       userId,
       senderName,
+      realName: senderName,
       hour: intent.hour,
       minute: intent.minute,
       dueAt: intent.dueAt,
       recurring: intent.recurring === true,
       weekdayOnly: intent.weekdayOnly === true,
       newsMode: normalizeWakeNewsMode(currentAlarm?.newsMode),
+      recipeMode: normalizeWakeRecipeMode(currentAlarm?.recipeMode),
       weatherPlace,
       weatherLatitude: Number.isFinite(Number(latestLocation?.latitude)) ? Number(latestLocation.latitude) : null,
       weatherLongitude: Number.isFinite(Number(latestLocation?.longitude)) ? Number(latestLocation.longitude) : null,
@@ -966,6 +1017,10 @@ async function handleText(event, client) {
     const messages = [setTextMsg];
     if (isMorningAlarm(alarm)) {
       messages.push(buildWakeNewsChoiceMessage(alarm));
+      messages.push(buildWakeRecipeChoiceMessage(alarm));
+    } else if (alarm.testBriefing) {
+      messages.push(buildWakeNewsChoiceMessage(alarm));
+      messages.push(buildWakeRecipeChoiceMessage(alarm));
     }
     return client.replyMessage(event.replyToken, messages);
   }
