@@ -54,10 +54,12 @@ async function fetchWbsHighlights() {
   const rows = data?.props?.pageProps?.dataFromServer?.detailResult?.data || [];
   if (!Array.isArray(rows) || !rows.length) return [];
 
-  const yesterday = formatJstDate(shiftTokyoDay(-1));
+  const today = formatJstDate(shiftTokyoDay(0));
+  const targetDate = pickLatestWbsBroadcastDate(rows, today);
+  if (!targetDate) return [];
   const seen = new Set();
   return rows
-    .filter(item => item?.broadcast_date === yesterday)
+    .filter(item => item?.broadcast_date === targetDate)
     .filter(item => {
       const key = String(item.episode_name || '').trim();
       if (!key || seen.has(key)) return false;
@@ -70,6 +72,20 @@ async function fetchWbsHighlights() {
       summary: summarizeJapaneseText(item.header, 52),
       date: item.broadcast_date,
     }));
+}
+
+function pickLatestWbsBroadcastDate(rows, today) {
+  const dates = [...new Set(
+    rows
+      .map(item => String(item?.broadcast_date || '').trim())
+      .filter(value => /^\d{4}\/\d{2}\/\d{2}$/.test(value))
+  )].sort();
+  if (!dates.length) return '';
+
+  const pastOrYesterday = dates.filter(date => date < today);
+  if (pastOrYesterday.length) return pastOrYesterday[pastOrYesterday.length - 1];
+
+  return dates[dates.length - 1] || '';
 }
 
 async function fetchMajorNewsHighlights() {
