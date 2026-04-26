@@ -12,7 +12,9 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 const HTTP_HEADERS = {
-  'User-Agent': 'traperuko-linebot/1.0',
+  'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'ja-JP,ja;q=0.9',
 };
 
 const FALLBACK_RECIPE_LIBRARY = [
@@ -454,8 +456,12 @@ async function searchTokubaiStoresByArea(locationLabel, latitude, longitude) {
     const html = await fetchText(
       `${TOKUBAI_SEARCH_URL}?latitude=${latitude}&longitude=${longitude}`,
       8000,
-    ).catch(() => '');
+    ).catch((err) => {
+      console.warn(`[flyer-stock] Tokubai geo-search failed: ${err?.message}`);
+      return '';
+    });
     const stores = parseTokubaiSearchResults(html);
+    console.log(`[flyer-stock] Tokubai geo-search html=${html.length}bytes stores=${stores.length}`);
     if (stores.length) {
       const locPref = extractPrefecture(locationLabel);
       return stores
