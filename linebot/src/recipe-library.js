@@ -2,6 +2,8 @@
 
 // season: 'all' | 'spring' | 'summer' | 'fall' | 'winter'
 // spring=3-5月 summer=6-8月 fall=9-11月 winter=12-2月
+// genre: '和食' | '中華' | '洋食'
+// mainIngredient: '豚こま'|'豚バラ'|'豚ひき'|'豚しゃぶ'|'豚ロース'|'鶏もも'|'鶏むね'|'鶏ひき'|'手羽先'|'魚'|'豆腐'|'卵'
 // estimatedPriceText は常に 'チラシ価格' （flyer 未取得時のフォールバック用）
 
 const RECIPE_LIBRARY = [
@@ -9,7 +11,7 @@ const RECIPE_LIBRARY = [
   // ── 春（3〜5月） ─────────────────────────────────────────────────────
   {
     title: '春キャベツと豚こまの塩昆布炒め',
-    season: 'spring',
+    season: 'spring', genre: '和食', mainIngredient: '豚こま',
     summary: 'やわらかい春キャベツに旨みが絡む、10分でまとまる一品。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -28,7 +30,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '新玉ねぎと鶏もも肉のあっさり煮',
-    season: 'spring',
+    season: 'spring', genre: '和食', mainIngredient: '鶏もも',
     summary: '甘い新玉ねぎが汁ごと食べられる、だし少なめの煮物。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -46,7 +48,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'アスパラと豚こまの炒め物',
-    season: 'spring',
+    season: 'spring', genre: '和食', mainIngredient: '豚こま',
     summary: '食感のコントラストが気持ちいい、シンプルな春の炒め物。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -64,7 +66,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'たけのこと鶏肉の煮物',
-    season: 'spring',
+    season: 'spring', genre: '和食', mainIngredient: '鶏もも',
     summary: '水煮たけのこで手軽に。春らしい風味の定番おかず。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -82,7 +84,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '菜の花と厚揚げの煮浸し',
-    season: 'spring',
+    season: 'spring', genre: '和食', mainIngredient: '豆腐',
     summary: 'ほろ苦さと旨みがやさしくまとまる、春の副菜。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -99,7 +101,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'キャベツたっぷりお好み焼き',
-    season: 'spring',
+    season: 'spring', genre: '和食', mainIngredient: '豚こま',
     summary: '春キャベツが甘くてふわふわ。小麦粉・卵・キャベツで完結。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -119,7 +121,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '豚こまとそら豆の卵とじ',
-    season: 'spring',
+    season: 'spring', genre: '和食', mainIngredient: '豚こま',
     summary: '鮮やかな緑と卵のやわらかさが春らしい主菜。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -137,7 +139,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '豚こまと新じゃがの炒め煮',
-    season: 'spring',
+    season: 'spring', genre: '和食', mainIngredient: '豚こま',
     summary: '新じゃがのほくほく感が楽しい春のおかず。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -156,7 +158,7 @@ const RECIPE_LIBRARY = [
   // ── 夏（6〜8月） ─────────────────────────────────────────────────────
   {
     title: 'ゴーヤと豚こまの卵炒め',
-    season: 'summer',
+    season: 'summer', genre: '和食', mainIngredient: '豚こま',
     summary: '苦みをやわらげながらスタミナを補う、夏の定番。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -176,7 +178,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'ナスと豚ひき肉の味噌炒め',
-    season: 'summer',
+    season: 'summer', genre: '和食', mainIngredient: '豚ひき',
     summary: '油を吸ったナスに甘辛味噌が絡む夏の定番おかず。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -195,7 +197,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'オクラの豚巻き',
-    season: 'summer',
+    season: 'summer', genre: '和食', mainIngredient: '豚こま',
     summary: 'シャキシャキのオクラを豚こまで巻いてボリューム感を出す。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -213,7 +215,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '夏野菜と鶏むね肉の炒め物',
-    season: 'summer',
+    season: 'summer', genre: '和食', mainIngredient: '鶏むね',
     summary: 'ズッキーニ・パプリカの彩りが鮮やかな、さっぱり炒め。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -232,7 +234,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'トマトと卵の中華炒め',
-    season: 'summer',
+    season: 'summer', genre: '中華', mainIngredient: '卵',
     summary: '酸味と甘みのバランスがクセになる、中国家庭料理の定番。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -250,7 +252,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '豚しゃぶとたっぷり野菜の冷しゃぶ',
-    season: 'summer',
+    season: 'summer', genre: '和食', mainIngredient: '豚しゃぶ',
     summary: 'ゆでて冷やすだけ。タレは市販でOKのさっぱり夏おかず。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -269,7 +271,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'ピーマンと豚肉の細切り炒め（青椒肉絲風）',
-    season: 'summer',
+    season: 'summer', genre: '中華', mainIngredient: '豚ロース',
     summary: 'ピーマン最盛期に合わせた、シンプルな中華炒め。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -290,7 +292,7 @@ const RECIPE_LIBRARY = [
   // ── 秋（9〜11月） ────────────────────────────────────────────────────
   {
     title: 'きのこたっぷり炊き込みご飯',
-    season: 'fall',
+    season: 'fall', genre: '和食', mainIngredient: '豆腐',
     summary: 'しいたけ・えのき・しめじを使った香り豊かな秋のご飯。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -309,7 +311,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'さつまいもと豚こまの甘煮',
-    season: 'fall',
+    season: 'fall', genre: '和食', mainIngredient: '豚こま',
     summary: 'さつまいもの甘みが豚肉に絡む、弁当にも使えるおかず。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -327,7 +329,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '秋鮭ときのこのホイル焼き',
-    season: 'fall',
+    season: 'fall', genre: '和食', mainIngredient: '魚',
     summary: '旬の秋鮭をオーブンやフライパンで手軽に仕上げる一皿。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -346,7 +348,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'れんこんと豚こまのきんぴら',
-    season: 'fall',
+    season: 'fall', genre: '和食', mainIngredient: '豚こま',
     summary: 'シャキッとしたれんこんの食感が楽しい常備菜にもなるおかず。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -364,7 +366,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'かぼちゃと豚こまの煮物',
-    season: 'fall',
+    season: 'fall', genre: '和食', mainIngredient: '豚こま',
     summary: 'かぼちゃの甘みが染みた、ほっこりする秋の定番おかず。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -382,7 +384,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'ごぼうと鶏肉のきんぴら',
-    season: 'fall',
+    season: 'fall', genre: '和食', mainIngredient: '鶏もも',
     summary: '歯ごたえと旨みが詰まった、日持ちのする秋の常備菜。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -401,7 +403,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '里芋と鶏肉の煮物',
-    season: 'fall',
+    season: 'fall', genre: '和食', mainIngredient: '鶏もも',
     summary: 'とろっとした里芋と鶏肉の旨みが合わさる秋冬のおかず。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -419,7 +421,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'さんまの大根おろしポン酢',
-    season: 'fall',
+    season: 'fall', genre: '和食', mainIngredient: '魚',
     summary: '旬のさんまを焼いてポン酢でさっぱりと食べる秋の定番。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -439,7 +441,7 @@ const RECIPE_LIBRARY = [
   // ── 冬（12〜2月） ────────────────────────────────────────────────────
   {
     title: '白菜と豚肉のミルフィーユ蒸し',
-    season: 'winter',
+    season: 'winter', genre: '和食', mainIngredient: '豚バラ',
     summary: '白菜と豚肉を重ねて蒸すだけ。ポン酢でさっぱり食べる冬の鍋風一品。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -457,7 +459,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '大根と手羽先の煮物',
-    season: 'winter',
+    season: 'winter', genre: '和食', mainIngredient: '手羽先',
     summary: '手羽先のコラーゲンが染み出た、とろっとした大根の煮物。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -475,7 +477,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '豚汁',
-    season: 'winter',
+    season: 'winter', genre: '和食', mainIngredient: '豚こま',
     summary: '根菜と豚肉が入った体の芯から温まる汁物。おかずと一品で完結。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -494,7 +496,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'ほうれん草とベーコンのグラタン',
-    season: 'winter',
+    season: 'winter', genre: '洋食', mainIngredient: '豚バラ',
     summary: 'バター・小麦粉・牛乳でシンプルなホワイトソースを作る冬のグラタン。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -514,7 +516,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '小松菜と厚揚げの煮浸し',
-    season: 'winter',
+    season: 'winter', genre: '和食', mainIngredient: '豆腐',
     summary: '出汁が染みた厚揚げと小松菜の、手軽で体にやさしい副菜。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -531,7 +533,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'かぶと鶏ひき肉のとろみ煮',
-    season: 'winter',
+    season: 'winter', genre: '和食', mainIngredient: '鶏ひき',
     summary: 'かぶのやわらかさと鶏ひき肉の旨みがとろとろに絡む一品。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -549,7 +551,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '根菜たっぷりけんちん汁',
-    season: 'winter',
+    season: 'winter', genre: '和食', mainIngredient: '豆腐',
     summary: '体の中から温まる精進料理のような一椀。具だくさんで腹持ちもいい。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -568,7 +570,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '白菜と豚こまのとろとろ塩鍋',
-    season: 'winter',
+    season: 'winter', genre: '和食', mainIngredient: '豚こま',
     summary: '白菜の甘みと豚肉の旨みだけで成立する、ごくシンプルな鍋もの。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -589,7 +591,7 @@ const RECIPE_LIBRARY = [
   // ── 通年 ──────────────────────────────────────────────────────────────
   {
     title: '鶏もも肉の照り焼き',
-    season: 'all',
+    season: 'all', genre: '和食', mainIngredient: '鶏もも',
     summary: 'ご飯が進む甘辛の照り焼きは、平日の献立を決める定番おかず。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -607,7 +609,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '肉豆腐',
-    season: 'all',
+    season: 'all', genre: '和食', mainIngredient: '豆腐',
     summary: '甘辛の煮汁が豆腐に染みた、ご飯のお供になるおかず。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -626,7 +628,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '鶏むね肉の親子丼',
-    season: 'all',
+    season: 'all', genre: '和食', mainIngredient: '鶏むね',
     summary: '鶏むね肉でもしっとり仕上がる、コスパ最高の一皿。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -645,7 +647,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '豚こまと玉ねぎの生姜焼き',
-    season: 'all',
+    season: 'all', genre: '和食', mainIngredient: '豚こま',
     summary: '定食の定番。玉ねぎと豚こまで手軽に作れる生姜焼き。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -664,7 +666,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '豚こまともやしの中華炒め',
-    season: 'all',
+    season: 'all', genre: '中華', mainIngredient: '豚こま',
     summary: '5分で仕上がる時短メニュー。もやしのシャキシャキ感が命。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -683,7 +685,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '麻婆豆腐（家庭版）',
-    season: 'all',
+    season: 'all', genre: '中華', mainIngredient: '豚ひき',
     summary: '豆板醤の辛みと豆腐のやさしさが合わさる人気のおかず。辛さは調整可。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -702,7 +704,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '厚揚げと豚こまの甘辛煮',
-    season: 'all',
+    season: 'all', genre: '和食', mainIngredient: '豚こま',
     summary: '厚揚げが旨みを吸って満足感のある一皿。豆腐系の中で一番腹持ちがいい。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -720,7 +722,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '鶏むね肉のレモン蒸し',
-    season: 'all',
+    season: 'all', genre: '洋食', mainIngredient: '鶏むね',
     summary: 'さっぱりレモン風味で飽きずに食べられる、ヘルシーなおかず。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -738,7 +740,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '豆腐と卵の中華スープ',
-    season: 'all',
+    season: 'all', genre: '中華', mainIngredient: '豆腐',
     summary: 'ふわっとした卵と豆腐が優しい、5分で作れる主食にもなるスープ。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -757,7 +759,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '鶏ひき肉と豆腐のとろみ煮',
-    season: 'all',
+    season: 'all', genre: '和食', mainIngredient: '鶏ひき',
     summary: '鶏ひき肉のあっさりした旨みが豆腐に絡む、やさしい主菜。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -776,7 +778,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '豚こまとキャベツの味噌炒め',
-    season: 'all',
+    season: 'all', genre: '和食', mainIngredient: '豚こま',
     summary: '豚とキャベツは鉄板の組み合わせ。味噌がご飯によく合う。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -794,7 +796,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: 'さばの味噌煮',
-    season: 'all',
+    season: 'all', genre: '和食', mainIngredient: '魚',
     summary: '臭みを取る下処理さえすれば、あとは煮るだけの和食の定番。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -813,7 +815,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '豚こまと大根の煮物',
-    season: 'all',
+    season: 'all', genre: '和食', mainIngredient: '豚こま',
     summary: '大根が豚の旨みをたっぷり吸った、冷めても美味しいおかず。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -831,7 +833,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '鮭の塩焼きと大根おろし',
-    season: 'all',
+    season: 'all', genre: '和食', mainIngredient: '魚',
     summary: 'シンプルでいちばん飽きない。大根おろしがさっぱりさせてくれる定番魚料理。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -849,7 +851,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '玉子焼き',
-    season: 'all',
+    season: 'all', genre: '和食', mainIngredient: '卵',
     summary: 'だし入り卵焼きは弁当にも副菜にもなる万能おかず。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -866,7 +868,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '豚こまと卵のカレー炒め',
-    season: 'all',
+    season: 'all', genre: '洋食', mainIngredient: '豚こま',
     summary: 'カレー粉でパンチをきかせた、あと引く辛みのシンプルな炒め物。',
     servings: '2人前',
     estimatedTotalPrice: '',
@@ -886,7 +888,7 @@ const RECIPE_LIBRARY = [
   },
   {
     title: '豚こまとにんじんのきんぴら',
-    season: 'all',
+    season: 'all', genre: '和食', mainIngredient: '豚こま',
     summary: '常備菜の定番。にんじんの甘みと豚こまの旨みが合う。',
     servings: '2人前',
     estimatedTotalPrice: '',

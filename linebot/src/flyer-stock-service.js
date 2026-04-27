@@ -57,6 +57,29 @@ const FALLBACK_RECIPE_LIBRARY = [
   },
 ];
 
+function detectGenre(normalized) {
+  if (/(中華|中国料理|チャイニーズ|中華風)/.test(normalized)) return '中華';
+  if (/(洋食|フレンチ|イタリアン|洋風|グラタン|パスタ|洋食系)/.test(normalized)) return '洋食';
+  if (/(和食|日本料理|和風料理)/.test(normalized)) return '和食';
+  return null;
+}
+
+function detectMainIngredient(normalized) {
+  if (/(豚こま|豚こま切れ)/.test(normalized)) return '豚こま';
+  if (/(豚バラ|バラ肉)/.test(normalized)) return '豚バラ';
+  if (/(豚ひき|豚挽き|ひき肉)/.test(normalized)) return '豚ひき';
+  if (/(豚しゃぶ|しゃぶしゃぶ)/.test(normalized)) return '豚しゃぶ';
+  if (/(豚ロース|ロース肉)/.test(normalized)) return '豚ロース';
+  if (/(鶏もも|もも肉|とりもも)/.test(normalized)) return '鶏もも';
+  if (/(鶏むね|むね肉|胸肉|とりむね)/.test(normalized)) return '鶏むね';
+  if (/(鶏ひき|鶏挽き|とりひき)/.test(normalized)) return '鶏ひき';
+  if (/(手羽先|手羽元|てばさき)/.test(normalized)) return '手羽先';
+  if (/(魚|さかな|鮭|さけ|サーモン|さば|サバ|さんま|アジ|あじ|タラ|たら|ぶり|ブリ)/.test(normalized)) return '魚';
+  if (/(豆腐|とうふ|厚揚げ|あつあげ)/.test(normalized)) return '豆腐';
+  if (/(卵|たまご|玉子)/.test(normalized)) return '卵';
+  return null;
+}
+
 function detectFlyerStockIntent(text) {
   const normalized = normalize(text);
   if (!normalized) return null;
@@ -66,11 +89,20 @@ function detectFlyerStockIntent(text) {
     return { type: 'flyerStock', action: 'recipeNext' };
   }
 
+  const genre = detectGenre(normalized);
+  const mainIngredient = detectMainIngredient(normalized);
+  const hasRecipeWord = /(レシピ|料理|何作|なにつく|献立|晩ご飯|夕飯|何が作|何つく|何作れ|作れる|つくれる|使って|つかって)/.test(normalized);
+
+  // 素材・ジャンル指定でのレシピ要求はチラシワード不要
+  if ((genre || mainIngredient) && hasRecipeWord) {
+    return { type: 'flyerStock', action: 'recipe', genre, mainIngredient };
+  }
+
   const hasFlyerWord = /(チラシ|特売|広告掲載商品|価格リスト|広告商品|特売商品|食材リスト|買い物メモ|特売ストック|今日の買い物|安い食材)/.test(normalized);
   if (!hasFlyerWord) return null;
 
-  if (/(レシピ|料理|何作|なにつく|献立|晩ご飯|夕飯|何が作|何つく|何作れ)/.test(normalized)) {
-    return { type: 'flyerStock', action: 'recipe' };
+  if (hasRecipeWord) {
+    return { type: 'flyerStock', action: 'recipe', genre, mainIngredient };
   }
   return { type: 'flyerStock', action: 'list' };
 }
@@ -238,14 +270,19 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
   return payload;
 }
 
-async function buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles = [] } = {}) {
+async function buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles = [], filters = {} } = {}) {
   if (!snapshot?.store?.name || !Array.isArray(snapshot.items) || !snapshot.items.length) {
     return null;
   }
 
   if (!GEMINI_API_KEY || typeof fetch !== 'function') {
-    return buildFallbackRecipe(snapshot, excludedTitles);
+    return buildFallbackRecipe(snapshot, excludedTitles, filters);
   }
+
+  const filterHints = [
+    filters.genre ? `ジャンル指定: ${filters.genre}` : '',
+    filters.mainIngredient ? `メイン食材指定: ${filters.mainIngredient}` : '',
+  ].filter(Boolean).join(' / ');
 
   const prompt = [
     'あなたは、忙しい社会人のために帰宅後すぐ作れる節約夕食レシピを提案する生活秘書です。',
@@ -253,6 +290,7 @@ async function buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles = [] } = 
     `住所: ${snapshot.store.address || '不明'}`,
     '以下の広告掲載商品と価格リストだけを材料候補として使って、今週まだ提案していないレシピを1つ提案してください。',
     `除外タイトル: ${excludedTitles.length ? excludedTitles.join(' / ') : 'なし'}`,
+    filterHints ? `条件: ${filterHints}（この条件を優先して選ぶこと）` : '',
     '出力はJSONのみ。',
     'キーは title, summary, servings, estimatedTotalPrice, ingredients, steps, reason。',
     'ingredients は配列で、各要素に name, amount, unit, countText, estimatedPriceText, sourcePriceText を入れる。',
@@ -283,14 +321,14 @@ async function buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles = [] } = 
     signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) {
-    return buildFallbackRecipe(snapshot, excludedTitles);
+    return buildFallbackRecipe(snapshot, excludedTitles, filters);
   }
 
   const data = await res.json();
   const text = data?.candidates?.[0]?.content?.parts?.map(part => part?.text || '').join('\n').trim();
   const parsed = parseJson(text);
-  if (!parsed?.title) return buildFallbackRecipe(snapshot, excludedTitles);
-  if (excludedTitles.includes(normalize(parsed.title))) return buildFallbackRecipe(snapshot, excludedTitles);
+  if (!parsed?.title) return buildFallbackRecipe(snapshot, excludedTitles, filters);
+  if (excludedTitles.includes(normalize(parsed.title))) return buildFallbackRecipe(snapshot, excludedTitles, filters);
   return {
     title: parsed.title,
     summary: parsed.summary || '',
@@ -724,13 +762,24 @@ function getCurrentSeason() {
   return 'winter';
 }
 
-function buildFallbackRecipe(snapshot, excludedTitles = []) {
+function buildFallbackRecipe(snapshot, excludedTitles = [], filters = {}) {
   const season = getCurrentSeason();
   const excluded = new Set((excludedTitles || []).map(t => normalize(t)));
   const allRecipes = [...RECIPE_LIBRARY, ...FALLBACK_RECIPE_LIBRARY];
   const pool = allRecipes.filter(r => !excluded.has(normalize(r.title)));
-  const seasonal = pool.filter(r => r.season === season || r.season === 'all' || !r.season);
-  const candidates = seasonal.length ? seasonal : pool.length ? pool : allRecipes;
+
+  // ジャンル・食材フィルタ（段階的フォールバック）
+  let filtered = pool;
+  if (filters.genre || filters.mainIngredient) {
+    const byGenre = filters.genre ? pool.filter(r => r.genre === filters.genre) : pool;
+    const byBoth = filters.mainIngredient ? byGenre.filter(r => r.mainIngredient === filters.mainIngredient) : byGenre;
+    if (byBoth.length) filtered = byBoth;
+    else if (byGenre.length) filtered = byGenre;
+    // マッチなし → 全プールにフォールバック（filtered のまま pool）
+  }
+
+  const seasonal = filtered.filter(r => r.season === season || r.season === 'all' || !r.season);
+  const candidates = seasonal.length ? seasonal : filtered.length ? filtered : pool;
   const availableNames = new Set((snapshot?.items || []).map(item => normalize(item?.name)).filter(Boolean));
   const scored = candidates
     .map(recipe => ({

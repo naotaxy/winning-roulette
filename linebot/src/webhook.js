@@ -931,8 +931,9 @@ async function handleText(event, client) {
       const usedTitles = intent.action === 'recipeNext'
         ? history.map(e => normalizeFlyerTitle(e?.title)).filter(Boolean)
         : [];
-      const recipe = (await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: usedTitles }).catch(() => null))
-        || buildFallbackRecipe(snapshot, usedTitles);
+      const filters = { genre: intent.genre || null, mainIngredient: intent.mainIngredient || null };
+      const recipe = (await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: usedTitles, filters }).catch(() => null))
+        || buildFallbackRecipe(snapshot, usedTitles, filters);
       if (recipe) {
         await saveWakeRecipeHistoryEntry(sourceId, weekKey, {
           title: recipe.title,
