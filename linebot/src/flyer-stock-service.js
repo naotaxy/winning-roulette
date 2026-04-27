@@ -316,6 +316,8 @@ async function buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles = [], fil
       generationConfig: {
         temperature: 0.5,
         responseMimeType: 'application/json',
+        maxOutputTokens: 600,
+        thinkingConfig: { thinkingBudget: 0 },
       },
     }),
     signal: AbortSignal.timeout(15000),
@@ -689,6 +691,8 @@ async function extractTokubaiLeafletItemsWithGemini(storeHtml, baseUrl) {
       generationConfig: {
         temperature: 0.2,
         responseMimeType: 'application/json',
+        maxOutputTokens: 800,
+        thinkingConfig: { thinkingBudget: 0 },
       },
     }),
     signal: AbortSignal.timeout(30000),

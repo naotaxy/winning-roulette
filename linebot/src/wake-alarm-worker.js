@@ -205,6 +205,37 @@ function trimWakeMessages(messages) {
   return filtered;
 }
 
+// 繰り返しアラームが LOOKBACK_MS を超えてスキップされ続けると dueAt が永久に更新されない。
+// 送信せずに次回予定日時へ前進させる。
+async function advanceMissedRecurringAlarms(alarms, now) {
+  let advanced = 0;
+  for (const [sourceId, alarm] of Object.entries(alarms)) {
+    const dueAt = Number(alarm?.dueAt);
+    if (alarm?.status !== 'active' || !alarm?.recurring || !Number.isFinite(dueAt)) continue;
+    if (dueAt >= now - LOOKBACK_MS) continue; // まだウィンドウ内か未来 → 対象外
+
+    const nextDueAt = computeNextRecurringDueAt(alarm, new Date(now));
+    if (!nextDueAt || nextDueAt <= now) continue; // 次回予定が過去 or 取得失敗 → スキップ
+
+    const ref = getDb().ref(`${WAKE_ALARM_ROOT}/${sourceId}`);
+    const result = await ref.transaction(current => {
+      if (!current || current.status !== 'active' || Number(current.dueAt) !== dueAt) return current;
+      return {
+        ...current,
+        dueAt: nextDueAt,
+        lastMissedAt: now,
+        lastMissedAtIso: new Date(now).toISOString(),
+      };
+    }).catch(() => null);
+
+    if (result?.committed) {
+      advanced++;
+      console.log(`[wake] missed alarm advanced sourceId=${sourceId} from=${new Date(dueAt).toISOString()} to=${new Date(nextDueAt).toISOString()}`);
+    }
+  }
+  return advanced;
+}
+
 async function runWakeAlarmSweep() {
   if (!hasWakeWorkerSecrets()) {
     console.log('[wake] required secrets missing; skip');
@@ -236,8 +267,9 @@ async function runWakeAlarmSweep() {
     }
   }
 
-  console.log(`[wake] sent=${sent} failed=${failed} claimed=${claimedCount}`);
-  return { sent, failed, claimed: claimedCount };
+  const advanced = await advanceMissedRecurringAlarms(alarms, now).catch(() => 0);
+  console.log(`[wake] sent=${sent} failed=${failed} claimed=${claimedCount} advanced=${advanced}`);
+  return { sent, failed, claimed: claimedCount, advanced };
 }
 
 module.exports = {
