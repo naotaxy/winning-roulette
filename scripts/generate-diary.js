@@ -4,7 +4,7 @@
  *
  * 1. YouTube Data API v3 でウイコレ関連動画を収集
  * 2. eFootball 公式 RSS でニュースを収集
- * 3. ショップアイテム紹介・音楽（週1）・90年代カルチャーをキュレーション
+ * 3. ショップアイテム紹介・90年代カルチャーをキュレーション
  * 4. Gemini で長文・人間らしい日記を生成
  * 5. はてなブログ AtomPub API で投稿
  * 6. Firebase にアーカイブ保存（Bot の知識源）
@@ -147,53 +147,7 @@ const SHOP_ITEM_TOPICS = [
   },
 ];
 
-const MUSIC_QUERIES = [
-  {
-    category: 'J-POP音楽ニュース',
-    query: 'J-POP 音楽ニュース 新曲 ライブ 日本',
-  },
-  {
-    category: '日本の音楽トピック',
-    query: '日本 音楽 話題 アーティスト ランキング',
-  },
-];
-
 const NINETIES_TRENDS = [
-  {
-    id: 'eight-cm-cd',
-    title: '8cm CDとCDショップの棚',
-    category: '1990年代の音楽文化',
-    description: '短冊みたいな8cm CDが棚に並び、ジャケットを見ながら選ぶ時間そのものが娯楽だった。',
-    perspective: '25歳の私から見ると、サブスクで一瞬で聴ける今より、曲を一枚ずつ迎えに行く感じが少し羨ましい。',
-  },
-  {
-    id: 'komuro-sound',
-    title: '小室サウンドとダンス系J-POP',
-    category: '1990年代の音楽文化',
-    description: 'シンセの音、強いビート、テレビ番組の熱気が一体になって、街全体が同じ曲を知っているような時代だった。',
-    perspective: '25歳の私には、ヒット曲が共通言語として強かった世界に見える。今の細かく分かれた好きとは別の眩しさがある。',
-  },
-  {
-    id: 'shibuya-kei',
-    title: '渋谷系とCDショップ巡り',
-    category: '1990年代の音楽文化',
-    description: '渋谷のレコード店や雑誌から、洋楽の匂いをまとったポップスやおしゃれな選曲文化が広がっていた。',
-    perspective: '25歳の私から見ると、検索ではなく足で見つける音楽という感じがして、少し大人びた遊びに見える。',
-  },
-  {
-    id: 'karaoke-million',
-    title: 'カラオケボックスとミリオンセラー',
-    category: '1990年代の音楽文化',
-    description: 'ミリオンセラーが次々に生まれ、学校帰りや会社帰りのカラオケで同じ曲を歌う時間が共有されていた。',
-    perspective: '25歳の私には、歌える曲が人間関係の潤滑油だった時代に見える。得意曲を持つって、ちょっと名刺みたいで可愛い。',
-  },
-  {
-    id: 'md-best',
-    title: 'MDウォークマンと自分だけのベスト盤',
-    category: '1990年代の音楽文化',
-    description: '好きな曲を録音して並べ替え、自分だけの一枚を作るMD文化が、通学や移動の気分を支えていた。',
-    perspective: '25歳の私から見ると、プレイリストより少し手間があるぶん、選んだ曲への愛着が濃そうに感じる。',
-  },
   {
     id: 'pager-short-message',
     title: 'ポケベルと短い数字メッセージ',
@@ -264,58 +218,6 @@ const AOZORA_STORY_MOTIFS = [
       '忙しさに追われていた彼女は、その明るさを自分だけで持っているのが惜しくなり、今日の記録にそっと混ぜる。',
       '夕方、読み返した日記の端に、みかんの皮みたいな明るさが残る。明日も誰かに渡せそうだと思う。',
     ],
-  },
-];
-
-// ── 音楽トピック（週1回のキュレーション・RSSに依存しない） ────────────
-const CURATED_MUSIC_TOPICS = [
-  {
-    id: 'city-pop-discovery',
-    theme: 'シティポップの空気',
-    angle: '竹内まりやや山下達郎あたりのシティポップが今また見直されている理由を考えてみた。「洗練」と「生活感」が共存している音楽。',
-    depth: '夜の移動中にふと流れてくると、会話の余白みたいな感触がある。サブスクで偶然出会う発見の楽しさと、狙って探す時の違い。',
-  },
-  {
-    id: 'game-bgm-effect',
-    theme: 'ゲーム中に流す音楽の話',
-    angle: 'ウイコレをプレイしながら流す音楽が集中力に影響する気がする。無音派・ゲーム音派・自分の曲派でかなり感覚が変わる。',
-    depth: '興奮しやすい曲だと判断が雑になるかもしれない。静かな曲の方が実は冷静に動けるパターンもある。試合前の選曲は戦術に近い。',
-  },
-  {
-    id: 'jpop-title-observation',
-    theme: 'J-POPの曲名を眺めていて気づいたこと',
-    angle: '最近の曲タイトルは「短くて強い言葉」が多い。90年代は長い説明的なタイトルが目立った。タイトルの変化が時代の空気を映している。',
-    depth: '「勝手にしやがれ」「夜に駆ける」「Bling-Bang-Bang-Born」——タイトルだけ並べると時代の質感が見える。',
-  },
-  {
-    id: 'music-and-memory',
-    theme: '音楽と記憶の結びつき',
-    angle: '特定の曲を聞くとその時の場所や感情が一瞬だけ戻ってくる。音楽が記憶のタグになる仕組みが面白いと思った。',
-    depth: '移動中に音楽を聞く習慣がある人ほど起きやすい。ゲームのBGMと勝負の記憶が結びつくのも同じ仕組みかもしれない。',
-  },
-  {
-    id: 'band-vs-solo-feel',
-    theme: 'バンドとソロの聴こえ方の違い',
-    angle: 'バンドの演奏には「合わせている」感触がある。ソロはその分、個人の色が強く出る。聞く時の気持ちの向け方が少し違う。',
-    depth: '試合前に聞くならソロの強い意志の方が向いている気がする。気持ちの作り方に使いどきがある音楽の話。',
-  },
-  {
-    id: 'lyrics-dont-matter',
-    theme: '歌詞を気にしない日と気にする日',
-    angle: '忙しい日は音楽が背景音になる。余裕がある日は歌詞がちゃんと届く。自分のコンディションが音楽の聴こえ方を変える。',
-    depth: '同じ曲でも聴く状況で全然違うものになる。繰り返し聴けるのはそのせいだと思う。',
-  },
-  {
-    id: 'music-streaming-paradox',
-    theme: 'サブスクで何でも聴けるのに「迷う」話',
-    angle: '選択肢が増えすぎると何を聴けばいいかわからない状態になる。無限にある中から一曲を選ぶ難しさ。',
-    depth: 'CDを一枚買ってそれだけを聴いていた時代と、全部選べる今の違い。選ぶ手間が愛着を生む、という90年代の感覚とも繋がる。',
-  },
-  {
-    id: 'live-vs-recorded',
-    theme: 'ライブと音源、どちらで先に好きになるか',
-    angle: 'ライブで先に知るとその場の熱量が判断基準になる。音源から入ると完璧な音で判断する。出会い方が好みを作る話。',
-    depth: 'YouTubeのライブ映像が増えたことで「ライブで先に出会う」体験が身近になった。ゲームも実況プレイで先に知ると感覚が変わるのと似ている。',
   },
 ];
 
@@ -449,25 +351,6 @@ async function hydrateStateFromFirebase(state) {
       entries.flatMap(entry => entry?.sources?.videos || []),
       160,
     );
-    const firebaseMusicTopicIds = entries
-      .map(entry => entry?.sources?.musicTopicId)
-      .filter(Boolean);
-    if (firebaseMusicTopicIds.length) {
-      const merged = new Set([...(state.seenMusicTopicIds || []), ...firebaseMusicTopicIds]);
-      state.seenMusicTopicIds = [...merged].slice(-CURATED_MUSIC_TOPICS.length);
-    }
-    // lastMusicUsedDate: 最後に音楽を使った日をFirebaseアーカイブから復元
-    const musicUsedEntries = entries
-      .filter(entry => entry?.sources?.musicTopicId)
-      .map(entry => entry?.createdAt || 0);
-    if (musicUsedEntries.length) {
-      const latestMs = Math.max(...musicUsedEntries);
-      const latestDate = new Date(latestMs + 9 * 3600 * 1000);
-      const y = latestDate.getUTCFullYear();
-      const m = String(latestDate.getUTCMonth() + 1).padStart(2, '0');
-      const d = String(latestDate.getUTCDate()).padStart(2, '0');
-      state.lastMusicUsedDate = state.lastMusicUsedDate || `${y}-${m}-${d}`;
-    }
     state.seenNinetiesTitles = mergeUniqueTitles(
       state.seenNinetiesTitles,
       entries.flatMap(entry => entry?.sources?.nineties || []),
@@ -546,47 +429,6 @@ function analyzeYouTubeFreshness(videos, state) {
   };
 }
 
-function extractMusicArtistKey(title) {
-  const norm = normalizeForSignature(title);
-  // Katakana or ASCII artist name that typically leads a music headline
-  const katakana = norm.match(/^([ァ-ヶーa-z][ァ-ヶーa-z\s]{1,10})/)?.[1]?.trim();
-  if (katakana && katakana.length >= 2) return katakana;
-  return norm.slice(0, 6);
-}
-
-function analyzeMusicFreshness(musicItems, state) {
-  const items = (musicItems || [])
-    .filter(item => item?.title)
-    .map(item => ({
-      title: item.title,
-      desc: item.desc || item.description || '',
-      source: item.source || '',
-    }));
-  const seenTitles = [
-    ...(state.seenMusicTitles || []),
-    ...(state.lastMusicTitles || []),
-  ];
-  const seenArtists = [
-    ...(state.seenMusicArtists || []),
-    ...(state.lastMusicArtists || []),
-  ];
-  const freshItems = items.filter(item => {
-    if (isSimilarTitle(item.title, seenTitles)) return false;
-    const artistKey = extractMusicArtistKey(item.title);
-    if (artistKey && seenArtists.includes(artistKey)) return false;
-    return true;
-  }).slice(0, 2);
-  const repeated = items.length > 0 && freshItems.length === 0;
-
-  return {
-    items: freshItems,
-    repeated,
-    note: freshItems.length
-      ? '過去日記と似ていない音楽ネタだけ使う。'
-      : '音楽ネタは過去と被る可能性があるので、今日は無理に使わない。',
-  };
-}
-
 function selectNinetiesTopic(state) {
   const seenTitles = [
     ...(state.seenNinetiesTitles || []),
@@ -604,22 +446,6 @@ function selectNinetiesTopic(state) {
       ? '過去日記にない90年代カルチャーを一つだけ紹介する。'
       : '90年代カルチャーは一巡しているので、同じ題材でも別角度で紹介する。',
   };
-}
-
-function shouldUseMusicToday(state) {
-  const last = state.lastMusicUsedDate;
-  if (!last) return true;
-  const diffDays = (Date.now() - new Date(`${last}T00:00:00+09:00`).getTime()) / 86400000;
-  return diffDays >= 7;
-}
-
-function selectMusicTopic(state) {
-  if (!shouldUseMusicToday(state)) return null;
-  const seenIds = state.seenMusicTopicIds || [];
-  const fresh = CURATED_MUSIC_TOPICS.filter(t => !seenIds.includes(t.id));
-  const pool = fresh.length ? fresh : CURATED_MUSIC_TOPICS;
-  const daySeed = Number(getJSTDate().replace(/-/g, ''));
-  return pool[daySeed % pool.length];
 }
 
 function selectInterestTopic(state) {
@@ -839,7 +665,7 @@ function getDiaryPhoto() {
 }
 
 function updateDiaryStateAfterSuccess(state, date, inputs) {
-  const { youtube, worldCup, musicTopic, nineties, storyPlan, interestTopic } = inputs;
+  const { youtube, worldCup, nineties, storyPlan, interestTopic } = inputs;
   state.lastRunDate = date;
 
   if (youtube.signature) {
@@ -861,14 +687,6 @@ function updateDiaryStateAfterSuccess(state, date, inputs) {
     ].slice(-80);
   }
 
-
-  if (musicTopic?.id) {
-    state.lastMusicUsedDate = date;
-    state.seenMusicTopicIds = [
-      ...(state.seenMusicTopicIds || []),
-      musicTopic.id,
-    ].slice(-CURATED_MUSIC_TOPICS.length);
-  }
 
   if (nineties?.title) {
     state.lastNinetiesTitles = [nineties.title];
@@ -957,18 +775,6 @@ async function fetchEfootballNews() {
   return [];
 }
 
-async function fetchMusicTopics() {
-  const groups = await Promise.all(MUSIC_QUERIES.map(async topic => {
-    const items = await fetchRSS(googleNewsRssUrl(topic.query));
-    return items.map(item => ({
-      ...item,
-      source: topic.category,
-    }));
-  }));
-
-  return groups.flat().slice(0, 5);
-}
-
 // ── Gemini 日記生成 ──────────────────────────────────────
 async function generateDiary(dateLabel, inputs) {
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
@@ -976,7 +782,6 @@ async function generateDiary(dateLabel, inputs) {
     youtube,
     news,
     worldCup,
-    musicTopic,
     nineties,
     storyPlan,
     interestTopic,
@@ -1019,14 +824,6 @@ async function generateDiary(dateLabel, inputs) {
     ? groupHighlights.messages.join('\n')
     : `（直近のグループ会話ハイライトはなし）`;
 
-  const musicBlock = musicTopic
-    ? [
-      `テーマ: ${musicTopic.theme}`,
-      `切り口: ${musicTopic.angle}`,
-      `深掘り: ${musicTopic.depth}`,
-    ].join('\n')
-    : '【音楽の話は今日書かない】今週はすでに音楽ネタを書いた。音楽・曲名・アーティスト・音楽シーンについて一切触れないこと。他の話題を広げる。';
-
   const ninetiesBlock = nineties?.title
     ? [
       `・${nineties.category}: ${nineties.title}`,
@@ -1061,11 +858,7 @@ ${worldCupBlock}
 ▼今日の注目アイテム（IKEA・百均・UNICO・スタンダードプロダクツから1点）
 ${shopItemBlock}
 
-▼音楽・1990年代カルチャー
-音楽ネタ:
-${musicBlock}
-
-1990年代に流行っていたもの:
+▼1990年代カルチャー
 ${ninetiesBlock}
 
 ▼オーナーの興味テーマ（今日の一つ）
@@ -1089,8 +882,7 @@ ${groupHighlightsBlock}
 - 段落の長さにメリハリをつける。単なる要約でなく解釈・感想で膨らませる。同じ日常描写を毎回繰り返さない。
 - YouTube話題が前回と似ている場合は無理に書かず、他の話題を広げる。
 - ワールドカップは開催中かつ新情報がある場合だけ触れる。
-- 音楽ネタ欄に「【音楽の話は今日書かない】」とある場合、音楽・曲名・アーティストに一切触れない。テーマが書かれている場合のみ一段落で扱う。「聴いた」「聴いてみたい」は禁止。言及は「話題になっていた」「気になった」「見かけた」のみ。
-- 音楽を書かない日は90年代カルチャーを「知らない時代の空気を想像する」距離感で自然に紹介する。
+- 90年代カルチャーを「知らない時代の空気を想像する」距離感で自然に紹介する。
 - AI関連・収益化系の話題は書かない。
 - 注目アイテムは一段落、自分が気になったものとして秘書目線で紹介する。
 - 興味テーマは一つ、秘書の観察として自然に混ぜる。
@@ -1382,7 +1174,7 @@ function initFirebase() {
 
 async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
   const db = initFirebase();
-  const { videos, news, worldCup, musicTopic, nineties, interestTopic, shopItem } = sources;
+  const { videos, news, worldCup, nineties, interestTopic, shopItem } = sources;
 
   // Bot の「今のイベント」返答用サマリ
   const summaryItems = [
@@ -1390,7 +1182,6 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
     ...videos.slice(0, 2).map(v => v.title),
     ...(worldCup?.items || []).slice(0, 1).map(v => v.title),
     ...(shopItem ? [`${shopItem.shop}: ${shopItem.item}`] : []),
-    ...(musicTopic ? [musicTopic.theme] : []),
     ...(nineties?.title ? [nineties.title] : []),
   ];
   await db.ref('config/uicolleNews').set({
@@ -1411,7 +1202,6 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
       news:   news.map(n => n.title),
       videos: videos.map(v => v.title),
       worldCup: (worldCup?.items || []).map(n => n.title),
-      musicTopicId: musicTopic?.id || null,
       shopItemId: shopItem?.id || null,
       nineties: nineties?.title ? [nineties.title] : [],
       interestTopicId: interestTopic?.id || null,
@@ -1485,11 +1275,10 @@ async function main() {
       return { messages: [], note: 'グループ会話の取得に失敗した。' };
     }),
   ]);
-  const musicTopic = selectMusicTopic(state);
   const nineties = selectNinetiesTopic(state);
   const interestTopic = selectInterestTopic(state);
   const shopItem = selectShopItemTopic(state);
-  console.log(`[diary] worldCup=${worldCup.items.length} shopItem=${shopItem?.id || 'none'} music=${musicTopic?.id || 'none(weekly gate)'} nineties=${nineties?.title || 'none'} interest=${interestTopic?.id || 'none'} group=${groupHighlights.messages.length} gameEvent=${groupHighlights.hasGameEvent || false}`);
+  console.log(`[diary] worldCup=${worldCup.items.length} shopItem=${shopItem?.id || 'none'} nineties=${nineties?.title || 'none'} interest=${interestTopic?.id || 'none'} group=${groupHighlights.messages.length} gameEvent=${groupHighlights.hasGameEvent || false}`);
 
   const storyPlan = selectStoryPlan(state);
   console.log(`[story] ${storyPlan.motifId} phase=${storyPlan.phaseIndex + 1}${storyPlan.isFinal ? ' final' : ''}`);
@@ -1498,7 +1287,6 @@ async function main() {
     youtube,
     news,
     worldCup,
-    musicTopic,
     nineties,
     storyPlan,
     interestTopic,
@@ -1523,7 +1311,6 @@ async function main() {
       videos: youtube.videosForDiary,
       news,
       worldCup,
-      musicTopic,
       nineties,
       interestTopic,
       shopItem,

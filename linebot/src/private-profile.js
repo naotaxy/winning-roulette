@@ -149,10 +149,9 @@ function analyzePrivateProfileText(rawText, base = {}) {
   const drink = pick(/オーツミルク|BOSSCAFE|コーヒー|江古田ブレンド|シロカ/);
   const tech = pick(/AI|MCP|IOT|IoT|SwitchBot|秋月|基板|3Dプリンター|ラズパイ|自作/);
   const fashion = pick(/VAULTROOM|無印|HOKA|ミズノ|Mizuno|Vainlarchive|メゾンキツネ/);
-  const music = pick(/Oddre|Revival|米津|YOASOBI|花譜|OASIS|Queen|weezer|平沢進/);
   const game = pick(/Garage|クーロンズゲート|ティアキン|ロマサガ|MOTHER|龍が如く|メタファー|アスガルド/);
 
-  [weekday, work, food, outing, drink, tech, fashion, music, game]
+  [weekday, work, food, outing, drink, tech, fashion, game]
     .filter(Boolean)
     .forEach(line => {
       const short = compactSentence(line);
