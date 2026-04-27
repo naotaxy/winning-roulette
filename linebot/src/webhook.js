@@ -409,8 +409,21 @@ async function handleLocation(event, client) {
       });
     }
     if (pendingRequest.action === 'recipe') {
-      const recipe = (await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: [] }).catch(() => null))
-        || buildFallbackRecipe(snapshot, []);
+      const weekKey = getFlyerWeekKey();
+      const history = await getWakeRecipeHistory(sourceId, weekKey).catch(() => []);
+      const usedTitles = history.map(e => normalizeFlyerTitle(e?.title)).filter(Boolean);
+      const filters = { genre: pendingRequest.genre || null, mainIngredient: pendingRequest.mainIngredient || null };
+      const recipe = (await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: usedTitles, filters }).catch(() => null))
+        || buildFallbackRecipe(snapshot, usedTitles, filters);
+      if (recipe) {
+        await saveWakeRecipeHistoryEntry(sourceId, weekKey, {
+          title: recipe.title,
+          source: recipe.source,
+          summary: recipe.summary,
+          priceHint: recipe.estimatedTotalPrice || '',
+          storeName: snapshot?.store?.name || '',
+        }).catch(() => {});
+      }
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: formatFlyerRecipeReply(snapshot, recipe),
@@ -905,6 +918,8 @@ async function handleText(event, client) {
       await savePendingLocationRequest(sourceId, userId, {
         type: 'flyerStock',
         action: intent.action,
+        genre: intent.genre || null,
+        mainIngredient: intent.mainIngredient || null,
         text: mentionInfo.withoutMention,
       }).catch(() => {});
       return client.replyMessage(event.replyToken, buildFlyerLocationPrompt(intent, latestLocation));
