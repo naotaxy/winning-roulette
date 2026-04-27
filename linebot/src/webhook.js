@@ -943,9 +943,7 @@ async function handleText(event, client) {
     if (intent.action === 'recipe' || intent.action === 'recipeNext') {
       const weekKey = getFlyerWeekKey();
       const history = await getWakeRecipeHistory(sourceId, weekKey).catch(() => []);
-      const usedTitles = intent.action === 'recipeNext'
-        ? history.map(e => normalizeFlyerTitle(e?.title)).filter(Boolean)
-        : [];
+      const usedTitles = history.map(e => normalizeFlyerTitle(e?.title)).filter(Boolean);
       const filters = { genre: intent.genre || null, mainIngredient: intent.mainIngredient || null };
       const recipe = (await buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles: usedTitles, filters }).catch(() => null))
         || buildFallbackRecipe(snapshot, usedTitles, filters);
