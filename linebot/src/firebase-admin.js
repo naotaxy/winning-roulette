@@ -39,6 +39,7 @@ const WAKE_RECIPE_HISTORY_ROOT = 'wakeRecipeHistory';
 const FLYER_STOCK_CACHE_ROOT = 'flyerStockCache';
 const EVENT_REMINDER_ROOT = 'eventReminders';
 const PRIVATE_PROFILE_ROOT = 'privateProfiles';
+const INGREDIENT_PRICE_HISTORY_ROOT = 'ingredientPriceHistory';
 const LOCATION_MEMORY_TTL_MS = 12 * 60 * 60 * 1000;
 const PENDING_LOCATION_REQUEST_TTL_MS = 30 * 60 * 1000;
 
@@ -379,6 +380,40 @@ async function saveFlyerStockSnapshot(sourceId, dayKey, snapshot = {}) {
   };
   await getDb().ref(`${FLYER_STOCK_CACHE_ROOT}/${sourceId}/${dayKey}`).set(payload);
   return payload;
+}
+
+// ─── 食材価格履歴 ──────────────────────────────────────────────────────────────
+
+async function saveIngredientPrices(entries) {
+  if (!Array.isArray(entries) || !entries.length) return;
+  await Promise.all(
+    entries
+      .filter(e => e?.keyName && e?.dayKey)
+      .map(({ keyName, dayKey, ...data }) =>
+        getDb().ref(`${INGREDIENT_PRICE_HISTORY_ROOT}/${keyName}/${dayKey}`).push({
+          ...data,
+          savedAt: Date.now(),
+        }).catch(() => {})
+      )
+  );
+}
+
+async function getIngredientPriceHistory(keyName, limit = 30) {
+  if (!keyName) return [];
+  const snap = await getDb().ref(`${INGREDIENT_PRICE_HISTORY_ROOT}/${keyName}`).once('value');
+  const raw = snap.val();
+  if (!raw) return [];
+  const entries = [];
+  for (const [dayKey, dayData] of Object.entries(raw)) {
+    if (!dayData || typeof dayData !== 'object') continue;
+    for (const entry of Object.values(dayData)) {
+      if (!entry || typeof entry !== 'object') continue;
+      entries.push({ dayKey, ...entry });
+    }
+  }
+  return entries
+    .sort((a, b) => (Number(b.savedAt) || 0) - (Number(a.savedAt) || 0))
+    .slice(0, limit);
 }
 
 // ─── イベントリマインダー ──────────────────────────────────────────────────────
@@ -1145,4 +1180,6 @@ module.exports = {
   getEventReminders,
   updateEventReminder,
   cancelEventReminders,
+  saveIngredientPrices,
+  getIngredientPriceHistory,
 };

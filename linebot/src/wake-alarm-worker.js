@@ -177,8 +177,9 @@ async function buildWakeMessages(alarm) {
     messages.push(...briefingMessages);
   }
   if (normalizeWakeRecipeMode(alarm?.recipeMode || 'flyer') !== 'none') {
-    const recipeMessage = await buildWakeRecipeMessage(alarm).catch(() => null);
-    if (recipeMessage) messages.push(recipeMessage);
+    const recipeMessages = await buildWakeRecipeMessage(alarm).catch(() => null);
+    if (Array.isArray(recipeMessages)) messages.push(...recipeMessages.filter(Boolean));
+    else if (recipeMessages) messages.push(recipeMessages);
   }
   return trimWakeMessages(messages);
 }
@@ -188,8 +189,13 @@ function shouldIncludeWakeBriefing(alarm) {
 }
 
 function trimWakeMessages(messages) {
-  const filtered = messages.filter(item => item?.text);
+  const filtered = messages.filter(item => item && (item.type === 'flex' || item.text));
   while (filtered.length > 5) {
+    const ingredientFlexIndex = filtered.findIndex(item => item?.type === 'flex' && /材料価格|材料の値段|レシピ/.test(item.altText || ''));
+    if (ingredientFlexIndex >= 0) {
+      filtered.splice(ingredientFlexIndex, 1);
+      continue;
+    }
     const testNoteIndex = filtered.findIndex(item => /^これは確認しやすいように/.test(item.text || ''));
     if (testNoteIndex >= 0) {
       filtered.splice(testNoteIndex, 1);

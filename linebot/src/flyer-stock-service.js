@@ -3,6 +3,8 @@
 const {
   getFlyerStockSnapshot,
   saveFlyerStockSnapshot,
+  saveIngredientPrices,
+  getIngredientPriceHistory,
 } = require('./firebase-admin');
 const { getTokyoDateParts } = require('./date-utils');
 const RECIPE_LIBRARY = require('./recipe-library');
@@ -55,6 +57,52 @@ const FALLBACK_RECIPE_LIBRARY = [
     ],
     reason: '鶏むねと青菜は価格の波を受けにくく、組み合わせやすい。',
   },
+];
+
+// 東京スーパー相場めやす（2024-2025年平均帯）
+const INGREDIENT_MARKET_PRICE_TABLE = [
+  { keys: ['豚こま', '豚こま切れ'], label: '豚こま', min: 160, max: 220, per: '200g' },
+  { keys: ['豚バラ', 'バラ肉'], label: '豚バラ', min: 200, max: 280, per: '200g' },
+  { keys: ['豚ひき', '豚挽', 'ひき肉', '挽き肉'], label: '豚ひき', min: 180, max: 240, per: '200g' },
+  { keys: ['豚ロース', 'ロース肉'], label: '豚ロース', min: 200, max: 280, per: '200g' },
+  { keys: ['豚しゃぶ', 'しゃぶしゃぶ用豚'], label: '豚しゃぶ', min: 220, max: 320, per: '200g' },
+  { keys: ['鶏もも', 'もも肉', 'とりもも'], label: '鶏もも', min: 200, max: 280, per: '300g' },
+  { keys: ['鶏むね', 'むね肉', '胸肉', 'とりむね'], label: '鶏むね', min: 140, max: 200, per: '300g' },
+  { keys: ['鶏ひき', '鶏挽', 'とりひき'], label: '鶏ひき', min: 160, max: 220, per: '200g' },
+  { keys: ['手羽先', '手羽元', 'てばさき'], label: '手羽', min: 150, max: 220, per: '200g' },
+  { keys: ['鮭', 'サーモン'], label: '鮭', min: 100, max: 160, per: '1切' },
+  { keys: ['さば', 'サバ', 'さば缶'], label: 'サバ', min: 100, max: 150, per: '1切' },
+  { keys: ['あじ', 'アジ'], label: 'アジ', min: 80, max: 130, per: '1尾' },
+  { keys: ['たら', 'タラ'], label: 'タラ', min: 100, max: 160, per: '1切' },
+  { keys: ['ぶり', 'ブリ'], label: 'ブリ', min: 130, max: 200, per: '1切' },
+  { keys: ['小松菜'], label: '小松菜', min: 100, max: 150, per: '1束' },
+  { keys: ['ほうれん草', 'ほうれんそう'], label: 'ほうれん草', min: 100, max: 160, per: '1束' },
+  { keys: ['キャベツ'], label: 'キャベツ', min: 100, max: 180, per: '1/2個' },
+  { keys: ['白菜', 'はくさい'], label: '白菜', min: 150, max: 250, per: '1/4個' },
+  { keys: ['大根', 'だいこん'], label: '大根', min: 100, max: 180, per: '1/2本' },
+  { keys: ['玉ねぎ', 'たまねぎ', 'オニオン'], label: '玉ねぎ', min: 60, max: 120, per: '1個' },
+  { keys: ['にんじん', '人参', 'キャロット'], label: 'にんじん', min: 60, max: 100, per: '1本' },
+  { keys: ['じゃがいも', 'ジャガイモ', 'ポテト'], label: 'じゃがいも', min: 60, max: 100, per: '1個' },
+  { keys: ['ブロッコリー'], label: 'ブロッコリー', min: 150, max: 250, per: '1房' },
+  { keys: ['もやし'], label: 'もやし', min: 20, max: 50, per: '1袋' },
+  { keys: ['きのこ', 'しめじ', 'えのき', 'えのきだけ', 'まいたけ', 'しいたけ'], label: 'きのこ', min: 80, max: 150, per: '1パック' },
+  { keys: ['なす', 'ナス'], label: 'なす', min: 80, max: 130, per: '2本' },
+  { keys: ['ピーマン'], label: 'ピーマン', min: 80, max: 120, per: '1袋' },
+  { keys: ['長ねぎ', 'ながねぎ', 'ねぎ', 'ネギ'], label: '長ねぎ', min: 100, max: 180, per: '1本' },
+  { keys: ['卵', 'たまご', '玉子'], label: '卵', min: 180, max: 260, per: '10個' },
+  { keys: ['豆腐', 'とうふ', '木綿豆腐', '絹ごし', '絹豆腐'], label: '豆腐', min: 60, max: 100, per: '1丁' },
+  { keys: ['厚揚げ', 'あつあげ'], label: '厚揚げ', min: 80, max: 130, per: '1枚' },
+  { keys: ['ウインナー', 'ソーセージ', 'ウィンナー'], label: 'ウインナー', min: 150, max: 250, per: '1袋' },
+  { keys: ['ハム', 'スライスハム', 'ロースハム'], label: 'ハム', min: 150, max: 220, per: '1袋' },
+  { keys: ['しょうが', '生姜', 'ジンジャー'], label: 'しょうが', min: 50, max: 100, per: '1片' },
+  { keys: ['にんにく', 'ガーリック', 'ニンニク'], label: 'にんにく', min: 50, max: 100, per: '1個' },
+];
+
+const PANTRY_KEYWORDS = [
+  'しょうゆ', '醤油', 'みりん', 'みりん風', '料理酒', '砂糖', '塩', '胡椒', 'こしょう',
+  'サラダ油', 'ごま油', '油', '味噌', 'みそ', '片栗粉', '小麦粉', 'かたくり粉',
+  'だしの素', 'バター', 'マヨネーズ', 'ケチャップ', 'オリーブオイル', 'オリーブ油',
+  '鶏がらスープ', 'コンソメ', '中華だし', 'ガラスープ', '顆粒だし',
 ];
 
 function detectGenre(normalized) {
@@ -240,6 +288,7 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
   enriched.sort((a, b) => (a.store.distanceMeters ?? Infinity) - (b.store.distanceMeters ?? Infinity));
   const top3 = enriched.slice(0, 3);
   const chosen = pickCheapestStore(top3);
+  const ingredientComparisons = buildIngredientComparisons(top3);
   const competitors = top3
     .filter(s => s.store.url !== chosen.store.url)
     .map(c => ({
@@ -261,10 +310,12 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
     store: chosen.store,
     items: chosen.items.slice(0, 18),
     competitors,
+    ingredientComparisons,
     fetchedAt: Date.now(),
     fetchedAtIso: new Date().toISOString(),
   };
   if (sourceId) {
+    await saveIngredientPrices(buildIngredientHistoryEntries(top3, dayKey)).catch(() => {});
     await saveFlyerStockSnapshot(sourceId, dayKey, payload).catch(() => {});
   }
   return payload;
@@ -331,7 +382,7 @@ async function buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles = [], fil
   const parsed = parseJson(text);
   if (!parsed?.title) return buildFallbackRecipe(snapshot, excludedTitles, filters);
   if (excludedTitles.includes(normalize(parsed.title))) return buildFallbackRecipe(snapshot, excludedTitles, filters);
-  return {
+  return enrichRecipePricing({
     title: parsed.title,
     summary: parsed.summary || '',
     servings: parsed.servings || '2人前',
@@ -340,7 +391,7 @@ async function buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles = [], fil
     steps: Array.isArray(parsed.steps) ? parsed.steps : [],
     reason: parsed.reason || '',
     source: 'tokubai-gemini-text',
-  };
+  }, snapshot);
 }
 
 function formatFlyerStockReply(snapshot) {
@@ -801,7 +852,158 @@ function buildFallbackRecipe(snapshot, excludedTitles = [], filters = {}) {
     }))
     .sort((left, right) => right.score - left.score);
   const target = scored[0]?.recipe || null;
-  return target ? { ...target, source: 'fallback-library' } : null;
+  return target ? enrichRecipePricing({ ...target, source: 'fallback-library' }, snapshot) : null;
+}
+
+function enrichRecipePricing(recipe, snapshot) {
+  const ingredients = Array.isArray(recipe?.ingredients) ? recipe.ingredients : [];
+  const enrichedIngredients = ingredients.map(ingredient => enrichIngredientPrice(ingredient, snapshot));
+  const estimatedTotalPrice = recipe?.estimatedTotalPrice || buildRecipeTotalPriceText(enrichedIngredients);
+  return {
+    ...recipe,
+    ingredients: enrichedIngredients,
+    estimatedTotalPrice,
+  };
+}
+
+function enrichIngredientPrice(ingredient, snapshot) {
+  const name = String(ingredient?.name || '').trim();
+  if (!name) return { ...ingredient };
+
+  const keyName = getIngredientKeyName(name);
+  const market = estimateMarketPrice(name, ingredient);
+  const comparisonEntry = findBestComparisonEntry(snapshot, keyName, name);
+  const sourcePriceText = comparisonEntry
+    ? `近くの特売 ${comparisonEntry.priceText}${comparisonEntry.storeName ? ` (${comparisonEntry.storeName})` : ''}`
+    : market?.referenceText || String(ingredient?.sourcePriceText || '').trim();
+
+  return {
+    ...ingredient,
+    keyName,
+    estimatedPriceText: market?.priceText || normalizePricePlaceholder(ingredient?.estimatedPriceText),
+    sourcePriceText,
+  };
+}
+
+function buildRecipeTotalPriceText(ingredients) {
+  const ranges = ingredients
+    .map(ingredient => extractPriceRange(ingredient?.estimatedPriceText))
+    .filter(Boolean);
+  if (!ranges.length) return '';
+  const min = ranges.reduce((sum, range) => sum + range.min, 0);
+  const max = ranges.reduce((sum, range) => sum + range.max, 0);
+  return min === max ? `約${min}円` : `約${min}〜${max}円`;
+}
+
+function estimateMarketPrice(name, ingredient) {
+  const rule = findMarketPriceRule(name);
+  if (!rule) return null;
+
+  const factor = estimateIngredientFactor(ingredient, rule.per);
+  const min = Math.max(1, Math.round(rule.min * factor));
+  const max = Math.max(min, Math.round(rule.max * factor));
+  return {
+    keyName: rule.label,
+    min,
+    max,
+    priceText: formatPriceRange(min, max),
+    referenceText: `東京相場 ${rule.per} ${rule.min}〜${rule.max}円`,
+  };
+}
+
+function findMarketPriceRule(name) {
+  const normalizedName = normalize(name);
+  return INGREDIENT_MARKET_PRICE_TABLE.find(rule =>
+    rule.keys.some(key => normalizedName.includes(normalize(key)) || normalize(key).includes(normalizedName))
+  ) || null;
+}
+
+function getIngredientKeyName(name) {
+  const rule = findMarketPriceRule(name);
+  if (rule?.label) return rule.label;
+  return String(name || '').replace(/\s+/g, '').slice(0, 24);
+}
+
+function estimateIngredientFactor(ingredient, rulePer) {
+  const base = parseRulePer(rulePer);
+  const current = parseIngredientVolume(ingredient);
+  if (!base || !current) return 1;
+  if (normalizeUnit(base.unit) !== normalizeUnit(current.unit)) return 1;
+  return clampNumber(current.value / base.value, 0.5, 3);
+}
+
+function parseRulePer(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  const fraction = raw.match(/^(\d+)\/(\d+)(.+)$/);
+  if (fraction) {
+    return { value: Number(fraction[1]) / Number(fraction[2]), unit: fraction[3] };
+  }
+  const numeric = raw.match(/^(\d+(?:\.\d+)?)(.+)$/);
+  if (numeric) {
+    return { value: Number(numeric[1]), unit: numeric[2] };
+  }
+  return { value: 1, unit: raw };
+}
+
+function parseIngredientVolume(ingredient) {
+  const amount = Number(String(ingredient?.amount || '').replace(/[^\d.]/g, ''));
+  const unit = String(ingredient?.unit || '').trim();
+  if (Number.isFinite(amount) && amount > 0 && unit) {
+    return { value: amount, unit };
+  }
+
+  const countText = String(ingredient?.countText || '').trim();
+  const fraction = countText.match(/^(\d+)\/(\d+)(.+)$/);
+  if (fraction) {
+    return { value: Number(fraction[1]) / Number(fraction[2]), unit: fraction[3] };
+  }
+  const numeric = countText.match(/^(\d+(?:\.\d+)?)(.+)$/);
+  if (numeric) {
+    return { value: Number(numeric[1]), unit: numeric[2] };
+  }
+  return null;
+}
+
+function normalizeUnit(unit) {
+  return String(unit || '')
+    .replace(/\s+/g, '')
+    .replace(/グラム/g, 'g')
+    .replace(/ｇ/g, 'g')
+    .replace(/本分/g, '本')
+    .replace(/束分/g, '束')
+    .replace(/パック分/g, 'パック')
+    .replace(/切れ/g, '切')
+    .replace(/枚分/g, '枚')
+    .replace(/個分/g, '個');
+}
+
+function formatPriceRange(min, max) {
+  if (min === max) return `約${min}円`;
+  if (max - min <= 20) return `約${Math.round((min + max) / 2)}円`;
+  return `約${min}〜${max}円`;
+}
+
+function normalizePricePlaceholder(value) {
+  const text = String(value || '').trim();
+  if (!text || text === 'チラシ価格') return '相場を確認中';
+  return text;
+}
+
+function extractPriceRange(text) {
+  const raw = String(text || '').replace(/,/g, '');
+  const range = raw.match(/(\d+)\D+(\d+)円/);
+  if (range) {
+    const min = Number(range[1]);
+    const max = Number(range[2]);
+    return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
+  }
+  const single = raw.match(/(\d+)円/);
+  if (single) {
+    const value = Number(single[1]);
+    return Number.isFinite(value) ? { min: value, max: value } : null;
+  }
+  return null;
 }
 
 function pickCheapestStore(snapshots) {
@@ -824,6 +1026,210 @@ function computeAvgItemPrice(items = []) {
 function extractItemPrice(text) {
   const match = String(text || '').replace(/,/g, '').match(/(\d+)/);
   return match ? Number(match[1]) : 0;
+}
+
+function buildIngredientComparisons(storeSnapshots = []) {
+  const map = {};
+  for (const snapshot of storeSnapshots) {
+    for (const item of snapshot?.items || []) {
+      const keyName = getIngredientKeyName(item?.name);
+      if (!keyName) continue;
+      const numericPrice = extractItemPrice(item?.mainPriceText || item?.priceText || '');
+      const entry = {
+        keyName,
+        itemName: item.name,
+        storeName: snapshot?.store?.name || '',
+        storeUrl: snapshot?.store?.url || '',
+        distanceMeters: snapshot?.store?.distanceMeters ?? null,
+        priceText: item.mainPriceText || item.priceText || '',
+        numericPrice: numericPrice || null,
+        unitText: item.unitText || '',
+        taxIncludedText: item.taxIncludedText || '',
+      };
+      if (!map[keyName]) map[keyName] = [];
+      map[keyName].push(entry);
+    }
+  }
+
+  for (const keyName of Object.keys(map)) {
+    map[keyName] = map[keyName]
+      .sort((left, right) => {
+        const lp = Number.isFinite(left.numericPrice) ? left.numericPrice : Infinity;
+        const rp = Number.isFinite(right.numericPrice) ? right.numericPrice : Infinity;
+        if (lp !== rp) return lp - rp;
+        const ld = Number.isFinite(left.distanceMeters) ? left.distanceMeters : Infinity;
+        const rd = Number.isFinite(right.distanceMeters) ? right.distanceMeters : Infinity;
+        return ld - rd;
+      })
+      .slice(0, 3);
+  }
+
+  return map;
+}
+
+function buildIngredientHistoryEntries(storeSnapshots = [], dayKey = '') {
+  const entries = [];
+  for (const snapshot of storeSnapshots) {
+    for (const item of snapshot?.items || []) {
+      const keyName = getIngredientKeyName(item?.name);
+      const numericPrice = extractItemPrice(item?.mainPriceText || item?.priceText || '');
+      if (!keyName || !numericPrice) continue;
+      entries.push({
+        keyName,
+        dayKey,
+        itemName: item.name,
+        storeName: snapshot?.store?.name || '',
+        storeUrl: snapshot?.store?.url || '',
+        unitText: item.unitText || '',
+        priceText: item.mainPriceText || item.priceText || '',
+        numericPrice,
+        distanceMeters: snapshot?.store?.distanceMeters ?? null,
+      });
+    }
+  }
+  return entries;
+}
+
+function findBestComparisonEntry(snapshot, keyName, ingredientName = '') {
+  const candidates = snapshot?.ingredientComparisons?.[keyName] || [];
+  if (candidates.length) return candidates[0];
+
+  const fallbackKey = getIngredientKeyName(ingredientName);
+  const fallbackCandidates = snapshot?.ingredientComparisons?.[fallbackKey] || [];
+  return fallbackCandidates[0] || null;
+}
+
+function buildIngredientPriceFlex(snapshot, recipe) {
+  const buttons = (recipe?.ingredients || [])
+    .filter(ingredient => !isPantryIngredient(ingredient?.name))
+    .slice(0, 6)
+    .map(ingredient => buildIngredientButton(ingredient))
+    .filter(Boolean);
+  if (!buttons.length) return null;
+
+  return {
+    type: 'flex',
+    altText: `${recipe?.title || 'レシピ'}の材料価格`,
+    contents: {
+      type: 'bubble',
+      size: 'kilo',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        contents: [
+          {
+            type: 'text',
+            text: '材料の値段を見る',
+            weight: 'bold',
+            size: 'lg',
+          },
+          {
+            type: 'text',
+            text: '押すと近くのお店の比較と最近の推移を返すよ。',
+            size: 'sm',
+            color: '#666666',
+            wrap: true,
+          },
+          ...buttons,
+        ],
+      },
+    },
+  };
+}
+
+function buildIngredientButton(ingredient) {
+  const keyName = getIngredientKeyName(ingredient?.name);
+  if (!keyName) return null;
+  const label = clipButtonLabel(`${ingredient.name} ${ingredient.estimatedPriceText || ''}`.trim());
+  const data = `flyer:ingredient:${encodeURIComponent(keyName)}:${encodeURIComponent(String(ingredient.name || '').trim())}`;
+  return {
+    type: 'button',
+    style: 'secondary',
+    height: 'sm',
+    action: {
+      type: 'postback',
+      label,
+      data,
+      displayText: `${ingredient.name}の値段`,
+    },
+  };
+}
+
+async function buildIngredientPriceDrilldownReply(sourceId, keyName, ingredientName = '') {
+  const snapshot = await getNearbyFlyerSnapshot({ sourceId }).catch(() => null);
+  const history = await getIngredientPriceHistory(keyName, 30).catch(() => []);
+  const comparisons = snapshot?.ingredientComparisons?.[keyName] || [];
+  const marketRule = findMarketPriceRule(ingredientName || keyName);
+  const lines = [`${ingredientName || keyName}の値段メモだよ。`];
+
+  if (comparisons.length) {
+    lines.push('');
+    lines.push('近くのお店の比較:');
+    comparisons.forEach((entry, index) => {
+      const head = index === 0 ? '◎' : '・';
+      const text = [
+        `${head} ${entry.storeName || '近くのお店'}`,
+        formatDistance(entry.distanceMeters),
+        ` ${entry.priceText || '価格不明'}`,
+        entry.unitText ? ` / ${entry.unitText}` : '',
+      ].join('');
+      lines.push(text.trim());
+    });
+  }
+
+  if (marketRule) {
+    lines.push('');
+    lines.push(`東京スーパー相場のめやす: ${marketRule.per} ${marketRule.min}〜${marketRule.max}円`);
+  }
+
+  const recentHistory = compressIngredientHistory(history).slice(0, 6);
+  if (recentHistory.length) {
+    lines.push('');
+    lines.push('最近の推移:');
+    recentHistory.forEach(entry => {
+      lines.push(`・${formatHistoryDay(entry.dayKey)} ${entry.storeName || '記録'} ${entry.priceText || `${entry.numericPrice}円`}${entry.unitText ? ` / ${entry.unitText}` : ''}`);
+    });
+  } else {
+    lines.push('');
+    lines.push('まだ履歴が少ないから、これから少しずつ覚えていくね。');
+  }
+
+  return lines.join('\n');
+}
+
+function compressIngredientHistory(history = []) {
+  const seen = new Set();
+  const result = [];
+  for (const entry of history) {
+    const key = `${entry.dayKey}|${entry.storeName}|${entry.priceText}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(entry);
+  }
+  return result;
+}
+
+function formatHistoryDay(dayKey) {
+  const value = String(dayKey || '');
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value;
+  return `${Number(match[2])}/${Number(match[3])}`;
+}
+
+function isPantryIngredient(name) {
+  const normalized = normalize(name);
+  if (!normalized) return false;
+  return PANTRY_KEYWORDS.some(keyword => normalized.includes(normalize(keyword)));
+}
+
+function clipButtonLabel(text) {
+  const value = String(text || '').trim();
+  return value.length <= 20 ? value : `${value.slice(0, 19)}…`;
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function shouldReuseCachedSnapshot(snapshot, latitude, longitude) {
@@ -981,4 +1387,6 @@ module.exports = {
   buildFallbackRecipe,
   formatFlyerStockReply,
   formatFlyerRecipeReply,
+  buildIngredientPriceFlex,
+  buildIngredientPriceDrilldownReply,
 };

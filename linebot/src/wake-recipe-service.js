@@ -6,6 +6,7 @@ const {
   buildRecipeFromFlyerSnapshot,
   buildFallbackRecipe,
   formatFlyerRecipeReply,
+  buildIngredientPriceFlex,
 } = require('./flyer-stock-service');
 
 async function buildWakeRecipeMessage(alarm = {}) {
@@ -62,7 +63,10 @@ async function buildWakeRecipeMessage(alarm = {}) {
       }],
     };
   }
-  return message;
+  const messages = [message];
+  const priceFlex = buildIngredientPriceFlex(snapshot, recipe);
+  if (priceFlex) messages.push(priceFlex);
+  return messages;
 }
 
 function getTokyoWeekKey(date = new Date()) {

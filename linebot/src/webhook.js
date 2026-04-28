@@ -208,6 +208,8 @@ const {
   buildFallbackRecipe,
   formatFlyerStockReply,
   formatFlyerRecipeReply,
+  buildIngredientPriceFlex,
+  buildIngredientPriceDrilldownReply,
 } = require('./flyer-stock-service');
 const {
   detectWakeAlarmIntent,
@@ -424,10 +426,10 @@ async function handleLocation(event, client) {
           storeName: snapshot?.store?.name || '',
         }).catch(() => {});
       }
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: formatFlyerRecipeReply(snapshot, recipe),
-      });
+      const messages = [{ type: 'text', text: formatFlyerRecipeReply(snapshot, recipe) }];
+      const priceFlex = buildIngredientPriceFlex(snapshot, recipe);
+      if (priceFlex) messages.push(priceFlex);
+      return client.replyMessage(event.replyToken, messages);
     }
     return client.replyMessage(event.replyToken, {
       type: 'text',
@@ -956,10 +958,10 @@ async function handleText(event, client) {
           storeName: snapshot?.store?.name || '',
         }).catch(() => {});
       }
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: formatFlyerRecipeReply(snapshot, recipe),
-      });
+      const messages = [{ type: 'text', text: formatFlyerRecipeReply(snapshot, recipe) }];
+      const priceFlex = buildIngredientPriceFlex(snapshot, recipe);
+      if (priceFlex) messages.push(priceFlex);
+      return client.replyMessage(event.replyToken, messages);
     }
 
     return client.replyMessage(event.replyToken, {
@@ -1951,6 +1953,17 @@ function detectTextIntent(text, options = {}) {
 
 async function handlePostback(event, client) {
   const data = event.postback.data;
+  const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
+
+  if (data.startsWith('flyer:ingredient:')) {
+    const [, , encodedKeyName, encodedIngredientName = ''] = data.split(':');
+    const keyName = decodeURIComponent(encodedKeyName || '');
+    const ingredientName = decodeURIComponent(encodedIngredientName || '');
+    const reply = await buildIngredientPriceDrilldownReply(sourceId, keyName, ingredientName).catch(() =>
+      '材料の値段メモをうまく開けなかったの。少し置いてからもう一回押してね。'
+    );
+    return client.replyMessage(event.replyToken, { type: 'text', text: reply });
+  }
 
   if (data.startsWith('noblesse:')) {
     return handleNoblessePostback(event, client, data);

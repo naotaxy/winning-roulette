@@ -18,25 +18,31 @@ process.on('unhandledRejection',   err => console.error('[unhandledRejection]', 
 
 const app  = express();
 const port = process.env.PORT || 3000;
-const BACKGROUND_DELIVERY_POLL_MS = 60 * 1000;
+const BACKGROUND_DELIVERY_POLL_MS = 30 * 1000;
+const backgroundSweepTriggers = [];
 
 /* ── ヘルスチェック（UptimeRobot用） ── */
-app.get('/health', (_req, res) => res.json({
-  ok: true,
-  ts: new Date().toISOString(),
-  commit: process.env.RENDER_GIT_COMMIT ? process.env.RENDER_GIT_COMMIT.slice(0, 7) : null,
-  line: {
-    channelSecret: !!process.env.LINE_CHANNEL_SECRET,
-    channelAccessToken: !!process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  },
-  workers: {
-    eventReminders: hasReminderWorkerSecrets(),
-    wakeAlarms: hasWakeWorkerSecrets(),
-  },
-  githubActions: {
-    dispatchEnabled: hasGithubActionsDispatchToken(),
-  },
-}));
+app.get('/health', (_req, res) => {
+  for (const trigger of backgroundSweepTriggers) {
+    Promise.resolve(trigger()).catch(() => {});
+  }
+  res.json({
+    ok: true,
+    ts: new Date().toISOString(),
+    commit: process.env.RENDER_GIT_COMMIT ? process.env.RENDER_GIT_COMMIT.slice(0, 7) : null,
+    line: {
+      channelSecret: !!process.env.LINE_CHANNEL_SECRET,
+      channelAccessToken: !!process.env.LINE_CHANNEL_ACCESS_TOKEN,
+    },
+    workers: {
+      eventReminders: hasReminderWorkerSecrets(),
+      wakeAlarms: hasWakeWorkerSecrets(),
+    },
+    githubActions: {
+      dispatchEnabled: hasGithubActionsDispatchToken(),
+    },
+  });
+});
 
 /* ── LINE Webhook ── */
 app.post('/webhook', middleware(config), (req, res) => {
@@ -69,9 +75,11 @@ function startBackgroundSweep(name, task, intervalMs) {
     }
   };
 
-  setTimeout(tick, 15 * 1000);
+  setTimeout(tick, 5 * 1000);
   const timer = setInterval(tick, intervalMs);
   if (typeof timer.unref === 'function') timer.unref();
+  backgroundSweepTriggers.push(tick);
+  return tick;
 }
 
 if (hasReminderWorkerSecrets()) {
