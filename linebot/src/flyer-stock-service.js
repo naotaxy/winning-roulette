@@ -277,9 +277,11 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
       fetchTokubaiStoreSnapshot(tokubaiStore, nearbyStore).catch(() => null)
     )
   );
-  const enriched = settled
-    .filter(r => r.status === 'fulfilled' && r.value?.items?.length)
+  const fetchedSnapshots = settled
+    .filter(r => r.status === 'fulfilled' && r.value?.store?.name)
     .map(r => r.value);
+  const enriched = fetchedSnapshots.filter(snapshot => Array.isArray(snapshot.items) && snapshot.items.length);
+  const candidateSnapshots = fetchedSnapshots.filter(snapshot => !Array.isArray(snapshot.items) || !snapshot.items.length);
   const favoriteSettled = await Promise.allSettled(
     favoriteStores.slice(0, 2).map(store =>
       fetchTokubaiStoreSnapshot({
@@ -299,6 +301,29 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
   console.log(`[flyer-stock] enriched=${enriched.length} favorites=${favoriteSnapshots.length} areaDirectStores=${areaDirectStores.length} nearbyStores=${nearbyStores.length} fetchTargets=${fetchTargets.length} lat=${queryLatitude ?? 'none'} lon=${queryLongitude ?? 'none'} label="${locationLabel || ''}"`);
 
   if (!enriched.length && !favoriteSnapshots.length) {
+    if (candidateSnapshots.length) {
+      const comparisonPool = dedupeStoreSnapshots(candidateSnapshots).slice(0, 5);
+      const stores = comparisonPool.map((storeSnapshot, index) => serializeStoreSnapshotForDisplay(storeSnapshot, {
+        rank: index + 1,
+        chosenUrl: comparisonPool[0]?.store?.url || '',
+        favoriteUrlSet,
+      }));
+      return {
+        source: 'tokubai-candidate-links',
+        dayKey,
+        locationLabel,
+        queryLocation: { latitude: queryLatitude, longitude: queryLongitude, label: locationLabel || '' },
+        store: comparisonPool[0]?.store || null,
+        items: [],
+        competitors: [],
+        ingredientComparisons: {},
+        stores,
+        favoriteShopIds: favoriteStores.slice(0, 2).map(store => String(store.shopId || store.url || '')).filter(Boolean),
+        fetchedAt: Date.now(),
+        fetchedAtIso: new Date().toISOString(),
+      };
+    }
+
     const foodStores = areaDirectStores.filter(s => looksLikeFoodStore(s.name));
     if (foodStores.length) {
       // Tokubai 位置情報検索で見つかった食品系の店を表示（OSM より信頼できる）
@@ -309,15 +334,15 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
         dayKey,
         locationLabel,
         queryLocation: { latitude: queryLatitude, longitude: queryLongitude, label: locationLabel || '' },
-        store: { name: stores[0].name, address: stores[0].address, distanceMeters: null, url: null },
+        store: { shopId: stores[0].shopId || '', name: stores[0].name, address: stores[0].address, distanceMeters: null, url: stores[0].url || '' },
         items: [],
-        competitors: stores.slice(1).map(s => ({ name: s.name, distanceMeters: null, url: null, avgItemPrice: null })),
+        competitors: stores.slice(1).map(s => ({ shopId: s.shopId || '', name: s.name, distanceMeters: null, url: s.url || '', avgItemPrice: null })),
         stores: stores.map((store, index) => ({
           rank: index + 1,
-          shopId: '',
+          shopId: store.shopId || '',
           name: store.name,
           address: store.address,
-          url: '',
+          url: store.url || '',
           distanceMeters: null,
           avgItemPrice: null,
           isChosen: index === 0,
@@ -492,6 +517,35 @@ async function buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles = [], fil
 
 function formatFlyerStockReply(snapshot) {
   if (!snapshot?.store?.name || !Array.isArray(snapshot.items) || !snapshot.items.length) {
+    const stores = Array.isArray(snapshot?.stores) && snapshot.stores.length
+      ? snapshot.stores.slice(0, 5)
+      : snapshot?.store?.name
+        ? [{
+          rank: 1,
+          name: snapshot.store.name,
+          address: snapshot.store.address || '',
+          url: snapshot.store.url || '',
+          distanceMeters: snapshot.store.distanceMeters ?? null,
+          leafletLinks: snapshot.leafletLinks || snapshot.store.leafletLinks || [],
+        }]
+        : [];
+    if (stores.length) {
+      const lines = [
+        '近くのチラシ候補は拾えたよ。',
+        '価格リストの自動読み取りまでは安定しなかったから、まずTokubaiの店舗・チラシページを出すね。',
+      ];
+      stores.forEach(store => {
+        const leaflets = Array.isArray(store.leafletLinks) ? store.leafletLinks.filter(Boolean).slice(0, 2) : [];
+        lines.push('');
+        lines.push(`${store.rank || lines.length}. ${store.name}${formatDistance(store.distanceMeters)}`);
+        if (store.address) lines.push(store.address);
+        if (store.url) lines.push(`店舗: ${store.url}`);
+        leaflets.forEach((url, index) => lines.push(`チラシ画像${index + 1}: ${url}`));
+      });
+      lines.push('');
+      lines.push('「1番をお気に入り」「2番の特売」みたいに続けて聞けるよ。位置を変えて探す時だけ、位置情報を送り直してね。');
+      return lines.join('\n');
+    }
     return '特売商品の読み取りがまだ安定しなかったの。位置情報を送り直してくれたら、2km圏内と郵便番号検索の両方でもう一回見てくるね。';
   }
 
@@ -821,13 +875,14 @@ function extractPrefecture(text) {
 
 async function fetchTokubaiStoreSnapshot(tokubaiStore, nearbyStore) {
   const html = await fetchText(tokubaiStore.url, 8000);
+  const leafletLinks = parseTokubaiLeafletLinks(html, tokubaiStore.url).slice(0, 3);
   let items = parseTokubaiStoreItems(html, tokubaiStore.url);
   let source = 'tokubai-html';
   if (!items.length) {
     items = await extractTokubaiLeafletItemsWithGemini(html, tokubaiStore.url).catch(() => []);
     if (items.length) source = 'tokubai-leaflet-gemini';
   }
-  if (!items.length) return null;
+  if (!items.length) source = leafletLinks.length ? 'tokubai-leaflet-links' : 'tokubai-store-link';
   return {
     store: {
       shopId: tokubaiStore.shopId || '',
@@ -837,6 +892,7 @@ async function fetchTokubaiStoreSnapshot(tokubaiStore, nearbyStore) {
       distanceMeters: nearbyStore?.distanceMeters || null,
     },
     items,
+    leafletLinks,
     source,
   };
 }
@@ -1282,6 +1338,7 @@ function serializeStoreSnapshotForDisplay(snapshot, { rank = 1, chosenUrl = '', 
     address: snapshot?.store?.address || '',
     url,
     distanceMeters: snapshot?.store?.distanceMeters ?? null,
+    leafletLinks: Array.isArray(snapshot?.leafletLinks) ? snapshot.leafletLinks.slice(0, 3) : [],
     avgItemPrice: Number.isFinite(avgItemPrice) && avgItemPrice < 99999 ? avgItemPrice : null,
     isChosen: !!chosenUrl && chosenUrl === url,
     isFavorite: favorite,
@@ -1348,6 +1405,15 @@ function formatStoreSalesReply(snapshot, rank = 1) {
   (store.items || []).slice(0, 8).forEach(item => {
     lines.push(`・${item.name} — ${item.unitText || '単位不明'} / ${item.mainPriceText || item.priceText || '価格不明'}${item.taxIncludedText ? ` (${item.taxIncludedText})` : ''}`);
   });
+  if (!Array.isArray(store.items) || !store.items.length) {
+    const leaflets = Array.isArray(store.leafletLinks) ? store.leafletLinks.filter(Boolean).slice(0, 3) : [];
+    if (leaflets.length) {
+      lines.push('価格リストの自動読み取りはまだ不安定だけど、チラシ画像はここから見られるよ。');
+      leaflets.forEach((url, index) => lines.push(`・チラシ画像${index + 1}: ${url}`));
+    } else {
+      lines.push('価格リストの自動読み取りはまだ不安定だけど、上の店舗ページからチラシを確認できるよ。');
+    }
+  }
   if (store.itemCount > (store.items || []).length) {
     lines.push(`…ほか ${store.itemCount - store.items.length}件`);
   }

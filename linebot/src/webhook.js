@@ -410,7 +410,7 @@ async function handleLocation(event, client) {
       locationLabel: locationPayload.label || locationPayload.address || '',
       forceRefresh: true,
     });
-    if (!hasUsableFlyerStockSnapshot(snapshot)) {
+    if (!hasFlyerCandidateSnapshot(snapshot)) {
       await savePendingLocationRequest(sourceId, userId, {
         type: 'flyerStock',
         action: normalizeFlyerPendingAction(pendingRequest.action),
@@ -980,7 +980,7 @@ async function handleText(event, client) {
         locationLabel: latestLocation.label || latestLocation.address || '',
       });
     }
-    if (!hasUsableFlyerStockSnapshot(snapshot)) {
+    if (!hasFlyerCandidateSnapshot(snapshot)) {
       await savePendingLocationRequest(sourceId, userId, {
         type: 'flyerStock',
         action: normalizeFlyerPendingAction(intent.action),
@@ -4036,7 +4036,7 @@ function buildFlyerStockQuickReply(snapshot) {
 }
 
 function buildFlyerStockTextMessage(snapshot) {
-  if (!hasUsableFlyerStockSnapshot(snapshot)) {
+  if (!hasFlyerCandidateSnapshot(snapshot)) {
     return buildFlyerRetryMessage({ type: 'flyerStock', action: 'list' }, null, snapshot);
   }
   return {
@@ -4077,6 +4077,11 @@ function buildFlyerRetryMessage(intent = {}, latestLocation = null, snapshot = n
 
 function hasUsableFlyerStockSnapshot(snapshot) {
   return !!snapshot?.store?.name && Array.isArray(snapshot.items) && snapshot.items.length > 0;
+}
+
+function hasFlyerCandidateSnapshot(snapshot) {
+  if (snapshot?.store?.name) return true;
+  return Array.isArray(snapshot?.stores) && snapshot.stores.some(store => store?.name);
 }
 
 function normalizeFlyerPendingAction(action) {
