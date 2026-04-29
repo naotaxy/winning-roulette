@@ -316,13 +316,14 @@ async function handleLocation(event, client) {
   const userId = event.source?.userId || 'shared';
   const senderName = await getSenderName(event, client, '不明');
   const rawLocation = event.message || {};
+  const locationLabel = buildCombinedLocationLabel(rawLocation);
   const locationPayload = await saveLatestLocation(sourceId, userId, {
     sourceId,
     userId,
     senderName,
     title: rawLocation.title || '',
     address: rawLocation.address || '',
-    label: rawLocation.title || rawLocation.address || '',
+    label: locationLabel,
     latitude: Number(rawLocation.latitude),
     longitude: Number(rawLocation.longitude),
     lastRequestedAt: Date.now(),
@@ -407,7 +408,7 @@ async function handleLocation(event, client) {
       sourceId,
       latitude: locationPayload.latitude,
       longitude: locationPayload.longitude,
-      locationLabel: locationPayload.label || locationPayload.address || '',
+      locationLabel: buildCombinedLocationLabel(locationPayload),
       forceRefresh: true,
     });
     if (!hasFlyerCandidateSnapshot(snapshot)) {
@@ -648,6 +649,14 @@ function createFallbackReplyClient(client, event) {
 
 function isDirectChatSource(source = {}) {
   return !!source.userId && !source.groupId && !source.roomId;
+}
+
+function buildCombinedLocationLabel(location = {}) {
+  return [...new Set([
+    location.title,
+    location.address,
+    location.label,
+  ].map(value => String(value || '').trim()).filter(Boolean))].join(' / ');
 }
 
 function buildEffectiveSecretaryText(text, allowBareCall, alreadyMentioned) {
@@ -977,7 +986,7 @@ async function handleText(event, client) {
         sourceId,
         latitude: Number(latestLocation.latitude),
         longitude: Number(latestLocation.longitude),
-        locationLabel: latestLocation.label || latestLocation.address || '',
+        locationLabel: buildCombinedLocationLabel(latestLocation),
       });
     }
     if (!hasFlyerCandidateSnapshot(snapshot)) {
@@ -4071,6 +4080,19 @@ function buildFlyerRetryMessage(intent = {}, latestLocation = null, snapshot = n
       '',
       '位置情報を送り直してくれたら、2km圏内と郵便番号検索の両方でもう一回見てくるね。',
     ].join('\n');
+    return message;
+  }
+  const fallbackLinks = buildFlyerFallbackSearchLinks(latestLocation);
+  if (fallbackLinks.length) {
+    return {
+      type: 'text',
+      text: [
+        '自動取得が詰まったから、Tokubaiで直接見られる検索リンクを出すね。',
+        'ここからは位置情報を送り直さなくて大丈夫。',
+        '',
+        ...fallbackLinks,
+      ].join('\n'),
+    };
   }
   return message;
 }
@@ -4086,6 +4108,21 @@ function hasFlyerCandidateSnapshot(snapshot) {
 
 function normalizeFlyerPendingAction(action) {
   return action === 'recipeNext' ? 'recipe' : action;
+}
+
+function buildFlyerFallbackSearchLinks(location = {}) {
+  const label = buildCombinedLocationLabel(location);
+  const links = [];
+  const postal = String(label || '').normalize('NFKC').match(/(?:〒\s*)?(\d{3})-?(\d{4})/)?.slice(1, 3).join('-');
+  if (postal) {
+    links.push(`${postal} のTokubai検索: https://tokubai.co.jp/search?latitude=&longitude=&from=&bargain_keyword=${encodeURIComponent(postal)}`);
+  }
+  const latitude = Number(location?.latitude);
+  const longitude = Number(location?.longitude);
+  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    links.push(`現在地周辺のTokubai検索: https://tokubai.co.jp/search?latitude=${encodeURIComponent(latitude)}&longitude=${encodeURIComponent(longitude)}`);
+  }
+  return links;
 }
 
 function getFlyerWeekKey(date = new Date()) {
