@@ -24,7 +24,9 @@ async function buildWakeRecipeMessage(alarm = {}) {
   let longitude = Number(alarm.weatherLongitude);
   let locationLabel = alarm.weatherPlace || '';
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    const saved = await getLatestLocation(sourceId, alarm.userId).catch(() => null);
+    const saved = await getLatestLocation(sourceId, alarm.userId, {
+      allowSharedFallback: !(alarm.userId && sourceId === alarm.userId),
+    }).catch(() => null);
     if (Number.isFinite(Number(saved?.latitude)) && Number.isFinite(Number(saved?.longitude))) {
       latitude = Number(saved.latitude);
       longitude = Number(saved.longitude);

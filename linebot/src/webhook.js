@@ -312,7 +312,7 @@ async function handle(event, client) {
 }
 
 async function handleLocation(event, client) {
-  const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
+  const sourceId = getScopedSourceId(event);
   const userId = event.source?.userId || 'shared';
   const senderName = await getSenderName(event, client, '不明');
   const rawLocation = event.message || {};
@@ -453,7 +453,7 @@ async function handleLocation(event, client) {
 
 async function handleImage(event, client) {
   const msgId = event.message.id;
-  const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
+  const sourceId = getScopedSourceId(event);
   const eventTime = event.timestamp ? new Date(event.timestamp) : new Date();
   const eventDate = getTokyoDateParts(eventTime);
   console.log(`[webhook] image received msgId=${msgId}`);
@@ -651,6 +651,18 @@ function isDirectChatSource(source = {}) {
   return !!source.userId && !source.groupId && !source.roomId;
 }
 
+function getScopedSourceId(event = {}) {
+  const source = event.source || {};
+  if (isDirectChatSource(source) && source.userId) return source.userId;
+  return source.groupId || source.roomId || source.userId || 'unknown';
+}
+
+function getLocationReadOptions(event = {}) {
+  return {
+    allowSharedFallback: !isDirectChatSource(event.source || {}),
+  };
+}
+
 function buildCombinedLocationLabel(location = {}) {
   return [...new Set([
     location.title,
@@ -680,9 +692,10 @@ function isExplicitHelpRequest(mentionInfo, isDirectChat = false) {
 
 async function handleText(event, client) {
   const text = event.message.text || '';
-  const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
   const isDirectChat = isDirectChatSource(event.source);
   const userId = event.source?.userId || null;
+  const sourceId = getScopedSourceId(event);
+  const locationReadOptions = getLocationReadOptions(event);
   const senderName = await getSenderName(event, client, null);
 
   // 全メッセージを会話メモリに保存（userId付き）
@@ -915,7 +928,7 @@ async function handleText(event, client) {
   }
 
   if (intent?.type === 'locationStory') {
-    const latestLocation = await getLatestLocation(sourceId, userId);
+    const latestLocation = await getLatestLocation(sourceId, userId, locationReadOptions);
     if (!latestLocation?.latitude || !latestLocation?.longitude) {
       await savePendingLocationRequest(sourceId, userId, {
         type: 'locationStory',
@@ -935,7 +948,7 @@ async function handleText(event, client) {
   }
 
   if (intent?.type === 'nearby') {
-    const latestLocation = await getLatestLocation(sourceId, userId);
+    const latestLocation = await getLatestLocation(sourceId, userId, locationReadOptions);
     if (!latestLocation?.latitude || !latestLocation?.longitude) {
       await savePendingLocationRequest(sourceId, userId, {
         category: intent.category,
@@ -965,7 +978,7 @@ async function handleText(event, client) {
       });
     }
 
-    const latestLocation = await getLatestLocation(sourceId, userId);
+    const latestLocation = await getLatestLocation(sourceId, userId, locationReadOptions);
     const explicitLocationLabel = intent.locationLabel || '';
     let snapshot = explicitLocationLabel
       ? await getNearbyFlyerSnapshot({ sourceId, locationLabel: explicitLocationLabel, forceRefresh: true }).catch(() => null)
@@ -1209,7 +1222,7 @@ async function handleText(event, client) {
     }
 
     const currentAlarm = await getWakeAlarm(sourceId).catch(() => null);
-    const latestLocation = await getLatestLocation(sourceId, userId);
+    const latestLocation = await getLatestLocation(sourceId, userId, locationReadOptions);
     const privateProfile = await getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null);
     const weatherPlace = latestLocation?.label
       || latestLocation?.address
@@ -2052,7 +2065,7 @@ function detectTextIntent(text, options = {}) {
 
 async function handlePostback(event, client) {
   const data = event.postback.data;
-  const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
+  const sourceId = getScopedSourceId(event);
 
   if (data.startsWith('flyer:ingredient:')) {
     const [, , encodedKeyName, encodedIngredientName = ''] = data.split(':');
@@ -2175,7 +2188,7 @@ async function sendNoblesseReply(client, event, caseId, analysis, request, sourc
 
 // ── ノブレスpostbackハンドラ ──────────────────────────────────────────────────
 async function handleNoblessePostback(event, client, data) {
-  const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
+  const sourceId = getScopedSourceId(event);
   const actorName = await getSenderName(event, client, '');
   const parts = data.split(':');
   const action = parts[1];

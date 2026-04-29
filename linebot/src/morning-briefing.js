@@ -201,22 +201,6 @@ function buildCommuteProfile(profile, alarm = {}) {
       routeLabel: '東中野〜水道橋',
     });
   }
-  if (!inferredLines.length && /(米澤|ヨ)/.test(sourceText)) {
-    inferredLines.push(
-      {
-        name: '都営大江戸線',
-        source: 'yahoo',
-        url: YAHOO_OEDO_STATUS_URL,
-        routeLabel: '新江古田〜東中野',
-      },
-      {
-        name: 'JR中央・総武各駅停車',
-        source: 'jr',
-        url: JR_SOBU_LOCAL_STATUS_URL,
-        routeLabel: '東中野〜水道橋',
-      },
-    );
-  }
   const lines = storedLines.length ? storedLines : inferredLines;
   const resolvedRouteLabel = storedRouteLabel || routeLabel || (lines.length ? '東橋バス停 → 新江古田 → 東中野 → 水道橋' : '');
   return { routeLabel: resolvedRouteLabel, lines };

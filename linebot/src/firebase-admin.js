@@ -270,10 +270,11 @@ async function saveLatestLocation(sourceId, userId, data = {}) {
   return payload;
 }
 
-async function getLatestLocation(sourceId, userId) {
+async function getLatestLocation(sourceId, userId, options = {}) {
   if (!sourceId) return null;
+  const allowSharedFallback = options.allowSharedFallback !== false;
   const keys = [buildLocationUserKey(userId)];
-  if (keys[0] !== 'shared') keys.push('shared');
+  if (allowSharedFallback && keys[0] !== 'shared') keys.push('shared');
   for (const key of keys) {
     const snap = await getDb().ref(`${LOCATION_MEMORY_ROOT}/${sourceId}/${key}`).once('value');
     const value = snap.val();
