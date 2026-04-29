@@ -381,6 +381,26 @@ async function hydrateStateFromFirebase(state) {
   return state;
 }
 
+async function fetchRecentDiaryEntries(limit = 4) {
+  if (!FIREBASE_SERVICE_ACCOUNT || !FIREBASE_DATABASE_URL) return [];
+  try {
+    const db = initFirebase();
+    const snap = await db.ref('diary').orderByChild('createdAt').limitToLast(limit).once('value');
+    const raw = snap.val();
+    if (!raw) return [];
+    return Object.entries(raw)
+      .map(([date, entry]) => ({ date, ...(entry || {}) }))
+      .sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0))
+      .map(entry => ({
+        date: entry.date,
+        text: String(entry.text || '').replace(/\s+/g, ' ').trim().slice(0, 260),
+      }));
+  } catch (err) {
+    console.warn('[diary] fetchRecentDiaryEntries failed:', err.message);
+    return [];
+  }
+}
+
 function mergeUniqueTitles(existing = [], additions = [], limit = 100) {
   const seen = new Set();
   const merged = [];
@@ -787,6 +807,7 @@ async function generateDiary(dateLabel, inputs) {
     interestTopic,
     groupHighlights,
     shopItem,
+    recentDiaries,
   } = inputs;
 
   const newsBlock = news.length
@@ -833,6 +854,12 @@ async function generateDiary(dateLabel, inputs) {
     ].join('\n')
     : '（90年代カルチャーの材料は今日は使わない）';
 
+  const recentDiaryBlock = Array.isArray(recentDiaries) && recentDiaries.length
+    ? recentDiaries
+      .map(entry => `・${entry.date}: ${entry.text}`)
+      .join('\n')
+    : '（直近の日記サンプルはなし）';
+
   const prompt = `あなたは秘書トラペル子です。
 以下のプロフィールを守ってください。
 
@@ -867,6 +894,9 @@ ${interestTopicBlock}
 ▼グループのやり取りハイライト（直近48時間・人物名は必ず伏せること）
 ${groupHighlightsBlock}
 
+▼直近の日記サンプル（ここで使った表現・話題は繰り返さない）
+${recentDiaryBlock}
+
 ▼青空文庫からヒントを得た連載ストーリーの今日の材料
 題材の由来: ${storyPlan.source}
 題材の空気: ${storyPlan.motif}
@@ -883,17 +913,20 @@ ${groupHighlightsBlock}
 - YouTube話題が前回と似ている場合は無理に書かず、他の話題を広げる。
 - ワールドカップは開催中かつ新情報がある場合だけ触れる。
 - 90年代カルチャーを「知らない時代の空気を想像する」距離感で自然に紹介する。
+- 音楽、曲名、アーティスト名、通勤中に何を聴いたか、チャートの話は絶対に書かない。
 - AI関連・収益化系の話題は書かない。
+- 海外副業、語学が得意、翻訳の仕事、料理に凝っている等の個人設定を勝手に作らない。与えられた材料にない私生活は盛らない。
 - 注目アイテムは一段落、自分が気になったものとして秘書目線で紹介する。
 - 興味テーマは一つ、秘書の観察として自然に混ぜる。
 - グループハイライトがある場合は核として積極的に使う。ゲームイベント（クラブ戦・ハードモード・集まり等）は必ず一段落で書く。人物名・地名は「メンバー」「あの人」に置き換える。
 - 連載ストーリーを自然に入れる。「青空文庫」「第何話」と説明しない。今日の場面だけ書く。
+- 「窓の外」「差し込む光」「心が洗われる」のような似た比喩を連日反復しない。直近日記にある情景・言い回しは避ける。
 - 最後の一文は「また明日も記録しておくから」「ちゃんと覚えておくね」のような締め方にする。`;
 
   const data = await generateGeminiContentWithRetry(prompt);
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error(`Gemini error: ${JSON.stringify(data.error || data)}`);
-  return humanizeDiaryText(text);
+  return sanitizeDiaryText(humanizeDiaryText(text));
 }
 
 async function generateGeminiContentWithRetry(prompt) {
@@ -1036,6 +1069,53 @@ function humanizeDiaryText(text) {
   if (current.length) rebuilt.push(current.join('\n'));
 
   return rebuilt.flatMap(p => splitParagraphForBreathing(p)).join('\n\n');
+}
+
+function sanitizeDiaryText(text) {
+  const paragraphs = String(text || '')
+    .split(/\n{2,}/)
+    .map(paragraph => stripBannedDiarySentences(paragraph))
+    .map(paragraph => paragraph.trim())
+    .filter(Boolean);
+
+  const deduped = [];
+  const seen = new Set();
+  for (const paragraph of paragraphs) {
+    const key = normalizeTopicTitle(paragraph).slice(0, 90);
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    deduped.push(paragraph);
+  }
+
+  let result = deduped.join('\n\n').trim();
+  if (!result) return '今日は大きく書き足すより、静かに記録しておきたい日でした。\n\nまた明日も記録しておくから。';
+  if (!/(また明日も記録しておくから|ちゃんと覚えておくね)/.test(result)) {
+    result = `${result}\n\nまた明日も記録しておくから。`;
+  }
+  return result;
+}
+
+function stripBannedDiarySentences(paragraph) {
+  const lines = String(paragraph || '')
+    .split(/\n+/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const sentences = line
+        .split(/(?<=[。！？])/)
+        .map(sentence => sentence.trim())
+        .filter(Boolean)
+        .filter(sentence => !isBannedDiarySentence(sentence));
+      return sentences.join('');
+    })
+    .filter(Boolean);
+  return lines.join('\n');
+}
+
+function isBannedDiarySentence(sentence) {
+  const text = String(sentence || '');
+  return /(音楽|曲|アーティスト|プレイリスト|イヤホン|チャート|通勤中に聴|今日聴いた|最近聴いて|M!LK|米津玄師|Mrs\.?|GREEN APPLE|IRIS OUT|ライラック|爆裂愛してる|好きすぎて滅|シャンディ・ランデヴ|Revival)/i.test(text)
+    || /(翻訳の仕事|クラウドソーシング|海外のクライアント|語学は得意|海外に目を向けた副業|確実に稼げる)/.test(text);
 }
 
 function splitParagraphForBreathing(paragraph) {
@@ -1265,7 +1345,7 @@ async function main() {
   const youtube = analyzeYouTubeFreshness(videos, state);
   if (youtube.repeated) console.log('[youtube] same as previous diary, skipping video focus');
 
-  const [worldCup, groupHighlights] = await Promise.all([
+  const [worldCup, groupHighlights, recentDiaries] = await Promise.all([
     fetchWorldCupUpdates(date, state).catch(e => {
       console.error('[worldcup]', e.message);
       return { active: false, items: [], note: '取得に失敗したので触れない。' };
@@ -1274,6 +1354,7 @@ async function main() {
       console.error('[group]', e.message);
       return { messages: [], note: 'グループ会話の取得に失敗した。' };
     }),
+    fetchRecentDiaryEntries(4).catch(() => []),
   ]);
   const nineties = selectNinetiesTopic(state);
   const interestTopic = selectInterestTopic(state);
@@ -1292,6 +1373,7 @@ async function main() {
     interestTopic,
     groupHighlights,
     shopItem,
+    recentDiaries,
   };
 
   const photo = getDiaryPhoto();

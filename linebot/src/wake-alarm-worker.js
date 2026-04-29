@@ -17,7 +17,7 @@ const {
 const { buildWakeRecipeMessage } = require('./wake-recipe-service');
 
 const WAKE_ALARM_ROOT = 'wakeAlarms';
-const LOOKBACK_MS = 25 * 60 * 1000;
+const LOOKBACK_MS = 3 * 60 * 60 * 1000;
 const CLAIM_STALE_MS = 10 * 60 * 1000;
 
 let _db = null;

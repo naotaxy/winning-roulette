@@ -37,6 +37,7 @@ const PENDING_LOCATION_REQUEST_ROOT = 'pendingLocationRequests';
 const WAKE_ALARM_ROOT = 'wakeAlarms';
 const WAKE_RECIPE_HISTORY_ROOT = 'wakeRecipeHistory';
 const FLYER_STOCK_CACHE_ROOT = 'flyerStockCache';
+const FLYER_FAVORITE_STORE_ROOT = 'flyerFavoriteStores';
 const EVENT_REMINDER_ROOT = 'eventReminders';
 const PRIVATE_PROFILE_ROOT = 'privateProfiles';
 const INGREDIENT_PRICE_HISTORY_ROOT = 'ingredientPriceHistory';
@@ -380,6 +381,57 @@ async function saveFlyerStockSnapshot(sourceId, dayKey, snapshot = {}) {
   };
   await getDb().ref(`${FLYER_STOCK_CACHE_ROOT}/${sourceId}/${dayKey}`).set(payload);
   return payload;
+}
+
+async function getFlyerFavoriteStores(sourceId) {
+  if (!sourceId) return [];
+  const snap = await getDb().ref(`${FLYER_FAVORITE_STORE_ROOT}/${sourceId}`).once('value');
+  const raw = snap.val();
+  if (!raw) return [];
+  return Object.values(raw)
+    .filter(entry => entry && typeof entry === 'object')
+    .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0))
+    .slice(0, 2);
+}
+
+async function saveFlyerFavoriteStore(sourceId, store = {}) {
+  if (!sourceId || !store?.shopId) return null;
+  const now = Date.now();
+  const key = String(store.shopId).replace(/[.#$/[\]]/g, '_');
+  const ref = getDb().ref(`${FLYER_FAVORITE_STORE_ROOT}/${sourceId}/${key}`);
+  const payload = {
+    shopId: String(store.shopId),
+    name: String(store.name || '').trim(),
+    address: String(store.address || '').trim(),
+    url: String(store.url || '').trim(),
+    distanceMeters: Number.isFinite(Number(store.distanceMeters)) ? Number(store.distanceMeters) : null,
+    addedAt: Number(store.addedAt) || now,
+    addedAtIso: store.addedAtIso || new Date(now).toISOString(),
+    updatedAt: now,
+    updatedAtIso: new Date(now).toISOString(),
+  };
+  await ref.update(payload);
+
+  const favorites = await getFlyerFavoriteStores(sourceId);
+  const overflow = favorites.slice(2);
+  if (overflow.length) {
+    await Promise.all(overflow.map(entry => {
+      const removeKey = String(entry.shopId || '').replace(/[.#$/[\]]/g, '_');
+      if (!removeKey) return Promise.resolve();
+      return getDb().ref(`${FLYER_FAVORITE_STORE_ROOT}/${sourceId}/${removeKey}`).remove().catch(() => {});
+    }));
+  }
+  return payload;
+}
+
+async function removeFlyerFavoriteStore(sourceId, shopId) {
+  if (!sourceId || !shopId) return false;
+  const key = String(shopId).replace(/[.#$/[\]]/g, '_');
+  const ref = getDb().ref(`${FLYER_FAVORITE_STORE_ROOT}/${sourceId}/${key}`);
+  const snap = await ref.once('value');
+  if (!snap.exists()) return false;
+  await ref.remove();
+  return true;
 }
 
 // ─── 食材価格履歴 ──────────────────────────────────────────────────────────────
@@ -1153,6 +1205,9 @@ module.exports = {
   saveWakeRecipeHistoryEntry,
   getFlyerStockSnapshot,
   saveFlyerStockSnapshot,
+  getFlyerFavoriteStores,
+  saveFlyerFavoriteStore,
+  removeFlyerFavoriteStore,
   getPrivateUserProfile,
   savePrivateUserProfile,
   saveScreenshotCandidate,

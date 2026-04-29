@@ -43,6 +43,7 @@ const {
   cancelEventReminders,
   getWakeRecipeHistory,
   saveWakeRecipeHistoryEntry,
+  getFlyerFavoriteStores,
 } = require('./firebase-admin');
 const { resolveRealName, updateGroupProfiles, formatProfileForContext } = require('./member-profile');
 const { searchRestaurants, extractRestaurantParams, isRestaurantRequest, buildRestaurantCarousel } = require('./hotpepper');
@@ -210,6 +211,10 @@ const {
   formatFlyerRecipeReply,
   buildIngredientPriceFlex,
   buildIngredientPriceDrilldownReply,
+  addFavoriteStoreFromSnapshot,
+  removeFavoriteStoreFromSnapshot,
+  formatFavoriteStoreListReply,
+  formatStoreSalesReply,
 } = require('./flyer-stock-service');
 const {
   detectWakeAlarmIntent,
@@ -286,22 +291,23 @@ async function reverseGeocode(lat, lon) {
 }
 
 async function handle(event, client) {
+  const safeClient = createFallbackReplyClient(client, event);
   /* ── 画像メッセージ → OCR → 確認FlexMessage ── */
   if (event.type === 'message' && event.message.type === 'image') {
-    return handleImage(event, client);
+    return handleImage(event, safeClient);
   }
 
   if (event.type === 'message' && event.message.type === 'location') {
-    return handleLocation(event, client);
+    return handleLocation(event, safeClient);
   }
 
   if (event.type === 'message' && event.message.type === 'text') {
-    return handleText(event, client);
+    return handleText(event, safeClient);
   }
 
   /* ── Postback（OK / キャンセル） ── */
   if (event.type === 'postback') {
-    return handlePostback(event, client);
+    return handlePostback(event, safeClient);
   }
 }
 
@@ -431,10 +437,7 @@ async function handleLocation(event, client) {
       if (priceFlex) messages.push(priceFlex);
       return client.replyMessage(event.replyToken, messages);
     }
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: formatFlyerStockReply(snapshot),
-    });
+    return client.replyMessage(event.replyToken, buildFlyerStockTextMessage(snapshot));
   }
 
   return client.replyMessage(event.replyToken, {
@@ -610,6 +613,33 @@ function withTimeout(promise, timeoutMs, fallback) {
     promise,
     new Promise(resolve => setTimeout(() => resolve(fallback), timeoutMs)),
   ]);
+}
+
+function getReplyFallbackTarget(event = {}) {
+  return event?.source?.groupId || event?.source?.roomId || event?.source?.userId || null;
+}
+
+function isReplyFallbackCandidate(error) {
+  const text = JSON.stringify(error?.originalError?.response?.data || error?.message || error || '').toLowerCase();
+  return /invalid reply token|reply token|expired|timeout|timed out|gateway|econnreset|socket hang up|429|500|502|503|504/.test(text);
+}
+
+function createFallbackReplyClient(client, event) {
+  const safeClient = Object.create(client);
+  const fallbackTarget = getReplyFallbackTarget(event);
+  safeClient.replyMessage = async (...args) => {
+    try {
+      return await client.replyMessage(...args);
+    } catch (err) {
+      if (!fallbackTarget || typeof client.pushMessage !== 'function' || !isReplyFallbackCandidate(err)) {
+        throw err;
+      }
+      const [, messages] = args;
+      console.warn(`[reply-fallback] target=${fallbackTarget} reason=${err?.message || err}`);
+      return client.pushMessage(fallbackTarget, messages);
+    }
+  };
+  return safeClient;
 }
 
 function isDirectChatSource(source = {}) {
@@ -914,6 +944,14 @@ async function handleText(event, client) {
   }
 
   if (intent?.type === 'flyerStock') {
+    if (intent.action === 'favoritesList') {
+      const favorites = await getFlyerFavoriteStores(sourceId).catch(() => []);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatFavoriteStoreListReply(favorites),
+      });
+    }
+
     const latestLocation = await getLatestLocation(sourceId, userId);
     let snapshot = await getNearbyFlyerSnapshot({ sourceId }).catch(() => null);
     if (!snapshot && (!latestLocation?.latitude || !latestLocation?.longitude)) {
@@ -942,6 +980,50 @@ async function handleText(event, client) {
       });
     }
 
+    if (intent.action === 'favoriteAdd') {
+      const saved = await addFavoriteStoreFromSnapshot(sourceId, snapshot, intent.rank).catch(() => null);
+      if (!saved) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: 'その番号のお店をまだお気に入りに入れられなかったの。先に「近くのチラシ」で一覧を出してから、もう一回番号で呼んでね。',
+        });
+      }
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `${saved.name || 'そのお店'}をお気に入りに入れておいたよ。これからは近くの3店に足して、少し遠くても比較に混ぜるね。`,
+      });
+    }
+
+    if (intent.action === 'favoriteRemove') {
+      const removed = await removeFavoriteStoreFromSnapshot(sourceId, snapshot, intent.rank).catch(() => false);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: removed
+          ? `${intent.rank}番のお店はお気に入りから外しておいたよ。`
+          : 'その番号のお店はまだお気に入りから外せなかったの。先に新しい一覧を出してから、もう一回番号で呼んでね。',
+      });
+    }
+
+    if (intent.action === 'storeSales') {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatStoreSalesReply(snapshot, intent.rank),
+      });
+    }
+
+    if (intent.action === 'favoriteSales') {
+      const favoriteStores = (snapshot?.stores || []).filter(store => store.isFavorite).slice(0, 2);
+      if (!favoriteStores.length) {
+        const favorites = await getFlyerFavoriteStores(sourceId).catch(() => []);
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: formatFavoriteStoreListReply(favorites),
+        });
+      }
+      const reply = favoriteStores.map(store => formatStoreSalesReply(snapshot, store.rank)).join('\n\n');
+      return client.replyMessage(event.replyToken, { type: 'text', text: reply });
+    }
+
     if (intent.action === 'recipe' || intent.action === 'recipeNext') {
       const weekKey = getFlyerWeekKey();
       const history = await getWakeRecipeHistory(sourceId, weekKey).catch(() => []);
@@ -964,10 +1046,7 @@ async function handleText(event, client) {
       return client.replyMessage(event.replyToken, messages);
     }
 
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: formatFlyerStockReply(snapshot),
-    });
+    return client.replyMessage(event.replyToken, buildFlyerStockTextMessage(snapshot));
   }
 
   if (intent?.type === 'wakeAlarm') {
@@ -3923,6 +4002,34 @@ async function handleEventReminderIntent({ event, client, sourceId, userId, send
   }
 
   return null;
+}
+
+function buildFlyerStockQuickReply(snapshot) {
+  const items = [];
+  const stores = Array.isArray(snapshot?.stores) ? snapshot.stores.slice(0, 3) : [];
+  for (const store of stores) {
+    items.push({
+      type: 'action',
+      action: {
+        type: 'message',
+        label: `${store.rank}番をお気に入り`,
+        text: `${store.rank}番をお気に入り`,
+      },
+    });
+  }
+  items.push(
+    { type: 'action', action: { type: 'message', label: '特売レシピ', text: '近くの特売レシピ' } },
+    { type: 'action', action: { type: 'message', label: 'お気に入り一覧', text: 'お気に入り店一覧' } },
+  );
+  return { items: items.slice(0, 13) };
+}
+
+function buildFlyerStockTextMessage(snapshot) {
+  return {
+    type: 'text',
+    text: formatFlyerStockReply(snapshot),
+    quickReply: buildFlyerStockQuickReply(snapshot),
+  };
 }
 
 function getFlyerWeekKey(date = new Date()) {
