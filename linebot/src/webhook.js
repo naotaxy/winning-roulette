@@ -410,10 +410,10 @@ async function handleLocation(event, client) {
       locationLabel: locationPayload.label || locationPayload.address || '',
       forceRefresh: true,
     });
-    if (!snapshot) {
+    if (!hasUsableFlyerStockSnapshot(snapshot)) {
       await savePendingLocationRequest(sourceId, userId, {
         type: 'flyerStock',
-        action: pendingRequest.action,
+        action: normalizeFlyerPendingAction(pendingRequest.action),
         genre: pendingRequest.genre || null,
         mainIngredient: pendingRequest.mainIngredient || null,
         text: pendingRequest.text || '',
@@ -957,11 +957,14 @@ async function handleText(event, client) {
     }
 
     const latestLocation = await getLatestLocation(sourceId, userId);
-    let snapshot = await getNearbyFlyerSnapshot({ sourceId }).catch(() => null);
+    const explicitLocationLabel = intent.locationLabel || '';
+    let snapshot = explicitLocationLabel
+      ? await getNearbyFlyerSnapshot({ sourceId, locationLabel: explicitLocationLabel, forceRefresh: true }).catch(() => null)
+      : await getNearbyFlyerSnapshot({ sourceId }).catch(() => null);
     if (!snapshot && (!latestLocation?.latitude || !latestLocation?.longitude)) {
       await savePendingLocationRequest(sourceId, userId, {
         type: 'flyerStock',
-        action: intent.action,
+        action: normalizeFlyerPendingAction(intent.action),
         genre: intent.genre || null,
         mainIngredient: intent.mainIngredient || null,
         text: mentionInfo.withoutMention,
@@ -977,10 +980,10 @@ async function handleText(event, client) {
         locationLabel: latestLocation.label || latestLocation.address || '',
       });
     }
-    if (!snapshot && intent.action !== 'recipeNext') {
+    if (!hasUsableFlyerStockSnapshot(snapshot)) {
       await savePendingLocationRequest(sourceId, userId, {
         type: 'flyerStock',
-        action: intent.action,
+        action: normalizeFlyerPendingAction(intent.action),
         genre: intent.genre || null,
         mainIngredient: intent.mainIngredient || null,
         text: mentionInfo.withoutMention,
@@ -4038,6 +4041,14 @@ function buildFlyerStockTextMessage(snapshot) {
     text: formatFlyerStockReply(snapshot),
     quickReply: buildFlyerStockQuickReply(snapshot),
   };
+}
+
+function hasUsableFlyerStockSnapshot(snapshot) {
+  return !!snapshot?.store?.name && Array.isArray(snapshot.items) && snapshot.items.length > 0;
+}
+
+function normalizeFlyerPendingAction(action) {
+  return action === 'recipeNext' ? 'recipe' : action;
 }
 
 function getFlyerWeekKey(date = new Date()) {

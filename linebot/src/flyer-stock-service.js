@@ -181,9 +181,9 @@ function detectFlyerStockIntent(text) {
   if (!hasFlyerWord) return null;
 
   if (hasRecipeWord) {
-    return { type: 'flyerStock', action: 'recipe', genre, mainIngredient };
+    return { type: 'flyerStock', action: 'recipe', genre, mainIngredient, locationLabel: extractPostalCodeTokens(normalized)[0] || '' };
   }
-  return { type: 'flyerStock', action: 'list' };
+  return { type: 'flyerStock', action: 'list', locationLabel: extractPostalCodeTokens(normalized)[0] || '' };
 }
 
 function buildFlyerLocationPrompt(intent = {}, latestLocation = null) {
@@ -214,10 +214,14 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
   const dayKey = getTokyoDayKey();
   const requestedLatitude = Number(latitude);
   const requestedLongitude = Number(longitude);
+  const hasRequestedCoords = Number.isFinite(requestedLatitude) && Number.isFinite(requestedLongitude);
+  const queryLatitude = hasRequestedCoords ? requestedLatitude : null;
+  const queryLongitude = hasRequestedCoords ? requestedLongitude : null;
+  const hasLocationText = !!String(locationLabel || '').trim();
   const favoriteStores = sourceId
     ? (await getFlyerFavoriteStores(sourceId).catch(() => [])).filter(store => looksLikeFoodStore(store?.name))
     : [];
-  if (!forceRefresh && sourceId) {
+  if (!forceRefresh && sourceId && (!hasLocationText || hasRequestedCoords)) {
     const cached = await getFlyerStockSnapshot(sourceId, dayKey).catch(() => null);
     if (
       cached?.store?.url
@@ -229,13 +233,13 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
     }
   }
 
-  if (!Number.isFinite(requestedLatitude) || !Number.isFinite(requestedLongitude)) return null;
+  if (!hasRequestedCoords && !hasLocationText) return null;
   const favoriteUrlSet = new Set(favoriteStores.map(store => String(store?.url || '').trim()).filter(Boolean));
 
   // OSM とエリア直接検索を並列実行（OSM は閉店・改名が反映されないことがあるためエリア検索で補う）
   const [nearbyStores, areaDirectStores] = await Promise.all([
-    queryNearbySupermarkets(requestedLatitude, requestedLongitude),
-    searchTokubaiStoresByArea(locationLabel, requestedLatitude, requestedLongitude),
+    hasRequestedCoords ? queryNearbySupermarkets(requestedLatitude, requestedLongitude) : Promise.resolve([]),
+    searchTokubaiStoresByArea(locationLabel, hasRequestedCoords ? requestedLatitude : null, hasRequestedCoords ? requestedLongitude : null),
   ]);
 
   // OSM 店ごとに Tokubai URL を並列検索
@@ -292,7 +296,7 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
     .filter(r => r.status === 'fulfilled' && r.value?.items?.length)
     .map(r => r.value);
 
-  console.log(`[flyer-stock] enriched=${enriched.length} favorites=${favoriteSnapshots.length} areaDirectStores=${areaDirectStores.length} nearbyStores=${nearbyStores.length} fetchTargets=${fetchTargets.length} lat=${requestedLatitude} lon=${requestedLongitude}`);
+  console.log(`[flyer-stock] enriched=${enriched.length} favorites=${favoriteSnapshots.length} areaDirectStores=${areaDirectStores.length} nearbyStores=${nearbyStores.length} fetchTargets=${fetchTargets.length} lat=${queryLatitude ?? 'none'} lon=${queryLongitude ?? 'none'} label="${locationLabel || ''}"`);
 
   if (!enriched.length && !favoriteSnapshots.length) {
     const foodStores = areaDirectStores.filter(s => looksLikeFoodStore(s.name));
@@ -304,7 +308,7 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
         source: 'overpass-only',
         dayKey,
         locationLabel,
-        queryLocation: { latitude: requestedLatitude, longitude: requestedLongitude, label: locationLabel || '' },
+        queryLocation: { latitude: queryLatitude, longitude: queryLongitude, label: locationLabel || '' },
         store: { name: stores[0].name, address: stores[0].address, distanceMeters: null, url: null },
         items: [],
         competitors: stores.slice(1).map(s => ({ name: s.name, distanceMeters: null, url: null, avgItemPrice: null })),
@@ -341,7 +345,7 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
       source: 'overpass-only',
       dayKey,
       locationLabel,
-      queryLocation: { latitude: requestedLatitude, longitude: requestedLongitude, label: locationLabel || '' },
+      queryLocation: { latitude: queryLatitude, longitude: queryLongitude, label: locationLabel || '' },
       store: { name: osmStores[0].name, address: osmStores[0].address, distanceMeters: osmStores[0].distanceMeters ?? null, url: null },
       items: [],
       competitors: osmStores.slice(1).map(s => ({ name: s.name, distanceMeters: s.distanceMeters ?? null, url: null, avgItemPrice: null })),
@@ -393,8 +397,8 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
     dayKey,
     locationLabel,
     queryLocation: {
-      latitude: requestedLatitude,
-      longitude: requestedLongitude,
+      latitude: queryLatitude,
+      longitude: queryLongitude,
       label: locationLabel || '',
     },
     store: chosen.store,
@@ -674,9 +678,22 @@ async function findTokubaiStoreForCandidate(candidate, locationLabel = '') {
 
 // locationLabel の地名トークン（丁目前の町名・区名）で Tokubai を直接検索する。
 // OSM のデータが古く、閉店済み店舗名しか返さない場合でも正しい店を発見できる。
-// GPS 座標があれば Tokubai の位置情報検索を直接使う（外部 API 一切不要）。
-// 座標がない場合のみ locationLabel のキーワードで検索する。
+// GPS 座標があれば Tokubai の位置情報検索を直接使い、
+// locationLabel に郵便番号・地名があればキーワード検索も併用する。
 async function searchTokubaiStoresByArea(locationLabel, latitude, longitude) {
+  const locPref = extractPrefecture(locationLabel);
+  const seen = new Set();
+  const results = [];
+  const addStores = stores => {
+    for (const store of stores || []) {
+      if (!store?.shopId || seen.has(store.shopId)) continue;
+      const storePref = extractPrefecture(store.address);
+      if (locPref && storePref && locPref !== storePref) continue;
+      seen.add(store.shopId);
+      results.push({ ...store, distanceMeters: null });
+    }
+  };
+
   if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
     const html = await fetchText(
       `${TOKUBAI_SEARCH_URL}?latitude=${latitude}&longitude=${longitude}`,
@@ -687,33 +704,24 @@ async function searchTokubaiStoresByArea(locationLabel, latitude, longitude) {
     });
     const stores = parseTokubaiSearchResults(html);
     console.log(`[flyer-stock] Tokubai geo-search html=${html.length}bytes stores=${stores.length} locPref="${extractPrefecture(locationLabel)}"`);
-    // GPS 座標で検索済みなので都道府県フィルタは不要（位置検索は周辺のみ返す）
-    if (stores.length) {
-      return stores.map(s => ({ ...s, distanceMeters: null }));
-    }
+    // GPS 座標検索の結果をまず取り込み、あとで郵便番号・地名検索の結果も足す。
+    addStores(stores);
   }
 
-  // 座標なし: locationLabel のキーワードで Tokubai を検索
+  // locationLabel の郵便番号・地名でも Tokubai を検索する。
+  // GPS 検索だけだと店舗は見えてもチラシページに届かないことがあるため併用する。
   const tokens = extractAreaSearchTokens(locationLabel);
-  if (!tokens.length) return [];
-  const locPref = extractPrefecture(locationLabel);
-  const seen = new Set();
-  const results = [];
-  await Promise.allSettled(
-    tokens.map(async token => {
-      const html = await fetchText(
-        `${TOKUBAI_SEARCH_URL}?bargain_keyword=${encodeURIComponent(token)}`,
-        8000,
-      ).catch(() => '');
-      for (const store of parseTokubaiSearchResults(html)) {
-        if (seen.has(store.shopId)) continue;
-        const storePref = extractPrefecture(store.address);
-        if (locPref && storePref && locPref !== storePref) continue;
-        seen.add(store.shopId);
-        results.push({ ...store, distanceMeters: null });
-      }
-    })
-  );
+  if (tokens.length) {
+    await Promise.allSettled(
+      tokens.map(async token => {
+        const html = await fetchText(
+          `${TOKUBAI_SEARCH_URL}?latitude=&longitude=&from=&bargain_keyword=${encodeURIComponent(token)}`,
+          8000,
+        ).catch(() => '');
+        addStores(parseTokubaiSearchResults(html));
+      })
+    );
+  }
   return results;
 }
 
@@ -723,6 +731,10 @@ function extractAreaSearchTokens(locationLabel) {
   const text = String(locationLabel || '').normalize('NFKC').replace(/\s+/g, '');
   const tokens = [];
 
+  for (const postalCode of extractPostalCodeTokens(text)) {
+    tokens.push(postalCode);
+  }
+
   // 丁目の前の地名: 「江古田3丁目」→「江古田」
   const neighborhoodMatch = text.match(/([^\d都道府県市区町村]{2,})(?=\d+丁目)/);
   if (neighborhoodMatch?.[1]) tokens.push(neighborhoodMatch[1]);
@@ -731,7 +743,15 @@ function extractAreaSearchTokens(locationLabel) {
   const wardMatch = text.match(/([^\s都道府]{2,4}区)/);
   if (wardMatch?.[1]) tokens.push(wardMatch[1]);
 
-  return uniqueStrings(tokens).slice(0, 2);
+  return uniqueStrings(tokens).slice(0, 4);
+}
+
+function extractPostalCodeTokens(text) {
+  const normalized = String(text || '').normalize('NFKC');
+  return uniqueStrings(
+    [...normalized.matchAll(/(?:〒\s*)?(\d{3})-?(\d{4})/g)]
+      .map(match => `${match[1]}-${match[2]}`)
+  );
 }
 
 function parseTokubaiSearchResults(html) {
@@ -1524,7 +1544,7 @@ function looksLikeFoodStore(name) {
   if (!name) return false;
   const normalized = String(name || '').normalize('NFKC');
   if (/(セブンイレブン|セブン-イレブン|ファミリーマート|ファミマ|ローソン|ミニストップ|デイリーヤマザキ|ニューヤマザキ|ポプラ|コンビニ|Lawson|FamilyMart|7-Eleven|LAWSON STORE 100|ローソンストア100)/i.test(normalized)) return false;
-  if (/おそうじ|クリーニング|ホワイト急便|スワローチェーン|学研|くもん|公文|塾|整骨|接骨|歯科|クリニック|病院|医院|美容院|美容室|サロン|ヘアカット|眼科|耳鼻|皮膚科|保険|不動産|ハウス|AOKI|フィットネス|エニタイム|ジム|ドラッグ|どらっぐ|薬局|ぱぱす|マツモトキヨシ|ウエルシア|スギ薬局|ココカラファイン|ツルハ|サンドラッグ|クリエイト/.test(normalized)) return false;
+  if (/おそうじ|クリーニング|クリーンプラザ|ホワイト急便|スワローチェーン|学研|くもん|公文|BE studio|スタジオ|塾|整骨|接骨|歯科|クリニック|病院|医院|美容院|美容室|サロン|ヘアカット|眼科|耳鼻|皮膚科|保険|不動産|ハウス|AOKI|フィットネス|エニタイム|ジム|chocoZAP|チョコザップ|ドラッグ|どらっぐ|薬局|ぱぱす|マツモトキヨシ|ウエルシア|スギ薬局|ココカラファイン|ツルハ|サンドラッグ|クリエイト|ガスト|ファミレス|レストラン|居酒屋|カフェ|なんでも酒や|カクヤス|酒や|リカー|ラクーン/.test(normalized)) return false;
   return true;
 }
 
