@@ -192,7 +192,7 @@ function buildFlyerLocationPrompt(intent = {}, latestLocation = null) {
   return {
     type: 'text',
     text: isRetry
-      ? '近くでちゃんと拾える特売情報がまだ見つからなかったの。位置情報を送り直してくれたら、2km圏内でもう一回近いスーパーから探すね。'
+      ? '特売商品の読み取りがまだ安定しなかったの。位置情報を送り直してくれたら、2km圏内と郵便番号検索の両方でもう一回探すね。'
       : hasRecentLocation
       ? '近くの特売をちゃんと絞るなら、位置情報をもう一回もらえると精度が上がるよ。送り直してくれたら、近いお店から広告掲載商品と価格を拾ってくるね。'
       : '近くのお店の広告掲載商品と価格を探すね。位置情報を送ってくれたら、近いお店から特売情報を拾って整えるよ。',
@@ -492,7 +492,7 @@ async function buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles = [], fil
 
 function formatFlyerStockReply(snapshot) {
   if (!snapshot?.store?.name || !Array.isArray(snapshot.items) || !snapshot.items.length) {
-    return '近くでちゃんと拾える特売情報がまだ見つからなかったの。位置情報を送り直してくれたら、2km圏内でもう一回近いスーパーから見てくるね。';
+    return '特売商品の読み取りがまだ安定しなかったの。位置情報を送り直してくれたら、2km圏内と郵便番号検索の両方でもう一回見てくるね。';
   }
 
   const stores = Array.isArray(snapshot.stores) && snapshot.stores.length

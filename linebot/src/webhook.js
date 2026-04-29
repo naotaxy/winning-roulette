@@ -418,7 +418,7 @@ async function handleLocation(event, client) {
         mainIngredient: pendingRequest.mainIngredient || null,
         text: pendingRequest.text || '',
       }).catch(() => {});
-      return client.replyMessage(event.replyToken, buildFlyerLocationPrompt({ ...pendingRequest, retry: true }, locationPayload));
+      return client.replyMessage(event.replyToken, buildFlyerRetryMessage(pendingRequest, locationPayload, snapshot));
     }
     if (pendingRequest.action === 'recipe') {
       const weekKey = getFlyerWeekKey();
@@ -988,7 +988,7 @@ async function handleText(event, client) {
         mainIngredient: intent.mainIngredient || null,
         text: mentionInfo.withoutMention,
       }).catch(() => {});
-      return client.replyMessage(event.replyToken, buildFlyerLocationPrompt({ ...intent, retry: true }, latestLocation));
+      return client.replyMessage(event.replyToken, buildFlyerRetryMessage(intent, latestLocation, snapshot));
     }
 
     if (intent.action === 'favoriteAdd') {
@@ -4036,11 +4036,43 @@ function buildFlyerStockQuickReply(snapshot) {
 }
 
 function buildFlyerStockTextMessage(snapshot) {
+  if (!hasUsableFlyerStockSnapshot(snapshot)) {
+    return buildFlyerRetryMessage({ type: 'flyerStock', action: 'list' }, null, snapshot);
+  }
   return {
     type: 'text',
     text: formatFlyerStockReply(snapshot),
     quickReply: buildFlyerStockQuickReply(snapshot),
   };
+}
+
+function buildFlyerRetryMessage(intent = {}, latestLocation = null, snapshot = null) {
+  const message = buildFlyerLocationPrompt({ ...intent, retry: true }, latestLocation);
+  const stores = Array.isArray(snapshot?.stores) && snapshot.stores.length
+    ? snapshot.stores
+    : snapshot?.store?.name
+      ? [{ ...snapshot.store, rank: 1 }]
+      : [];
+  const candidates = stores
+    .filter(store => store?.name)
+    .slice(0, 5)
+    .map((store, index) => {
+      const url = store.url ? `\n  ${store.url}` : '';
+      const address = store.address ? ` / ${store.address}` : '';
+      return `${index + 1}. ${store.name}${address}${url}`;
+    });
+
+  if (candidates.length) {
+    message.text = [
+      '近くのチラシ候補はここまで見つけたよ。',
+      'ただ、価格リストの読み取りがまだ安定しなかったの。',
+      '',
+      ...candidates,
+      '',
+      '位置情報を送り直してくれたら、2km圏内と郵便番号検索の両方でもう一回見てくるね。',
+    ].join('\n');
+  }
+  return message;
 }
 
 function hasUsableFlyerStockSnapshot(snapshot) {
