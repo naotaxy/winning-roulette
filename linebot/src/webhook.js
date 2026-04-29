@@ -242,8 +242,15 @@ const {
   formatOwnPrivateProfileReply,
   buildProfileAwareHint,
   detectPrivateProfileIntent,
+  detectPrivateProfileSetupIntent,
   extractPrivateProfileUpdate,
   savePrivateProfileUpdate,
+  savePrivateProfilePatch,
+  buildPrivateProfileSetupMenu,
+  buildCommuteModeChoiceMessage,
+  buildPrivateProfileFieldPrompt,
+  buildProfileCompletionPrompt,
+  getPrivateProfileNeeds,
 } = require('./private-profile');
 const {
   detectLocationStoryIntent,
@@ -330,6 +337,27 @@ async function handleLocation(event, client) {
   });
 
   const pendingRequest = await getPendingLocationRequest(sourceId, userId);
+  if (pendingRequest?.type === 'privateProfileSetup' && pendingRequest?.field === 'wakePlace') {
+    await clearPendingLocationRequest(sourceId, userId).catch(() => {});
+    const placeLabel = locationPayload.label || locationPayload.address || '今送ってくれた場所';
+    const profile = await savePrivateProfilePatch({
+      userId,
+      realName: senderName || '',
+      patch: {
+        defaultWakePlace: placeLabel,
+        summaryLines: [`朝の天気や近場探しの基準地点は${placeLabel}。`],
+      },
+    }).catch(() => null);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: [
+        `${placeLabel}を本人用の基準地点として覚えたよ。`,
+        '近くのチラシ、近くのセール、朝の天気で使うね。',
+        formatOwnPrivateProfileReply(profile),
+      ].join('\n\n'),
+    });
+  }
+
   if (pendingRequest?.type === 'locationStory' && Number.isFinite(locationPayload?.latitude) && Number.isFinite(locationPayload?.longitude)) {
     await clearPendingLocationRequest(sourceId, userId).catch(() => {});
     const privateProfile = await getResolvedPrivateProfile({
@@ -690,6 +718,151 @@ function isExplicitHelpRequest(mentionInfo, isDirectChat = false) {
   return isDirectChat && /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード)/.test(compact);
 }
 
+async function maybeHandlePrivateProfileSetupAwaitingInput({ event, client, sourceId, userId, senderName, text }) {
+  const pending = await getPendingLocationRequest(sourceId, userId).catch(() => null);
+  if (pending?.type !== 'privateProfileSetup') return null;
+  const field = String(pending.field || '');
+  if (!field) return null;
+
+  await clearPendingLocationRequest(sourceId, userId).catch(() => {});
+  const patch = buildPrivateProfilePatchFromInput(field, text, pending.commuteMode);
+  const profile = await savePrivateProfilePatch({
+    userId,
+    realName: senderName || '',
+    patch,
+  }).catch(() => null);
+
+  const nextPrompt = buildProfileCompletionPrompt(profile, pending.context || '');
+  const messages = [{
+    type: 'text',
+    text: [
+      'うん、本人用の追加メモとして入れておいたよ。',
+      field === 'commuteRoute' && patch.commuteMode === 'road'
+        ? 'これから朝の通勤まわりは、電車じゃなく道路渋滞側で見るね。'
+        : '',
+      formatOwnPrivateProfileReply(profile),
+    ].filter(Boolean).join('\n\n'),
+  }];
+  if (nextPrompt) messages.push(nextPrompt);
+  return client.replyMessage(event.replyToken, messages.slice(0, 2));
+}
+
+async function handlePrivateProfileSetupIntent({ event, client, sourceId, userId, senderName, intent, isDirectChat }) {
+  if (!isDirectChat || !userId) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '本人用プロファイルの補足は1対1でだけ受け取るね。グループでは出さないし、書かせないようにしてるの。',
+    });
+  }
+
+  const profile = await getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null);
+  if (intent.action === 'menu') {
+    return client.replyMessage(event.replyToken, buildPrivateProfileSetupMenu(profile, 'general'));
+  }
+  if (intent.action === 'commuteModeChoice') {
+    return client.replyMessage(event.replyToken, buildCommuteModeChoiceMessage());
+  }
+  if (intent.action === 'wakePlaceInput') {
+    await savePendingLocationRequest(sourceId, userId, {
+      type: 'privateProfileSetup',
+      field: 'wakePlace',
+      context: 'location',
+    }).catch(() => {});
+    return client.replyMessage(event.replyToken, buildPrivateProfileFieldPrompt('wakePlace'));
+  }
+  if (intent.action === 'commuteRouteInput') {
+    const commuteMode = profile?.commuteMode || 'train';
+    await savePendingLocationRequest(sourceId, userId, {
+      type: 'privateProfileSetup',
+      field: 'commuteRoute',
+      commuteMode,
+      context: 'commute',
+    }).catch(() => {});
+    return client.replyMessage(event.replyToken, buildPrivateProfileFieldPrompt('commuteRoute', commuteMode));
+  }
+  if (intent.action === 'setCommuteMode') {
+    const commuteMode = intent.commuteMode || 'train';
+    await savePrivateProfilePatch({
+      userId,
+      realName: senderName || '',
+      patch: {
+        commuteMode,
+        summaryLines: [`通勤手段は${formatCommuteModeForText(commuteMode)}。`],
+      },
+    }).catch(() => null);
+    await savePendingLocationRequest(sourceId, userId, {
+      type: 'privateProfileSetup',
+      field: 'commuteRoute',
+      commuteMode,
+      context: 'commute',
+    }).catch(() => {});
+    return client.replyMessage(event.replyToken, [
+      {
+        type: 'text',
+        text: commuteMode === 'road'
+          ? '車・バイク通勤として覚えるね。朝は電車じゃなく道路渋滞側に切り替えるよ。'
+          : `通勤手段は${formatCommuteModeForText(commuteMode)}で覚えるね。`,
+      },
+      buildPrivateProfileFieldPrompt('commuteRoute', commuteMode),
+    ]);
+  }
+
+  return client.replyMessage(event.replyToken, buildPrivateProfileSetupMenu(profile, 'general'));
+}
+
+function buildPrivateProfilePatchFromInput(field, text, commuteMode = '') {
+  const value = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 220);
+  if (field === 'wakePlace') {
+    return {
+      defaultWakePlace: value,
+      summaryLines: value ? [`朝の天気や近場探しの基準地点は${value}。`] : [],
+    };
+  }
+  const mode = commuteMode || (/車|バイク|道路|通り/.test(value) ? 'road' : 'train');
+  if (field === 'commuteRoute') {
+    return {
+      commuteMode: mode,
+      commuteRouteText: value,
+      roadRouteText: mode === 'road' ? value : '',
+      summaryLines: value ? [`${formatCommuteModeForText(mode)}の通勤ルートは${value}。`] : [`通勤手段は${formatCommuteModeForText(mode)}。`],
+    };
+  }
+  return { summaryLines: value ? [value] : [] };
+}
+
+function formatCommuteModeForText(mode) {
+  switch (mode) {
+    case 'road':
+      return '車・バイク';
+    case 'walk':
+      return '徒歩・自転車';
+    case 'remote':
+      return '在宅多め';
+    default:
+      return '電車';
+  }
+}
+
+function withProfileSetupQuickReplies(message, profile = null, context = '') {
+  if (!message || message.type !== 'text') return message;
+  const needs = getPrivateProfileNeeds(profile, context);
+  if (!needs.length) return message;
+  const items = [
+    ...(message.quickReply?.items || []),
+    { type: 'action', action: { type: 'message', label: '不足を入力', text: 'プロフィール設定' } },
+    { type: 'action', action: { type: 'message', label: '通勤手段', text: 'プロフィール設定 通勤手段' } },
+  ].slice(0, 13);
+  return {
+    ...message,
+    text: [
+      message.text,
+      '',
+      `本人用メモも少し足りないよ。${needs.join('・')}を入れると、次からもっと迷わず出せる。`,
+    ].join('\n'),
+    quickReply: { items },
+  };
+}
+
 async function handleText(event, client) {
   const text = event.message.text || '';
   const isDirectChat = isDirectChatSource(event.source);
@@ -718,6 +891,18 @@ async function handleText(event, client) {
         ].join('\n\n')
         : 'ごめん、今はプロフィール更新の保存でつまずいちゃった。少し時間を置いてもう一回送ってね。',
     });
+  }
+
+  if (isDirectChat && userId) {
+    const privateProfileAwaitingReply = await maybeHandlePrivateProfileSetupAwaitingInput({
+      event,
+      client,
+      sourceId,
+      userId,
+      senderName,
+      text,
+    });
+    if (privateProfileAwaitingReply) return privateProfileAwaitingReply;
   }
 
   const rawMentionInfo = getSecretaryMentionInfo(text);
@@ -898,6 +1083,18 @@ async function handleText(event, client) {
     });
   }
 
+  if (intent?.type === 'privateProfileSetup') {
+    return handlePrivateProfileSetupIntent({
+      event,
+      client,
+      sourceId,
+      userId,
+      senderName,
+      intent,
+      isDirectChat,
+    });
+  }
+
   if (intent === 'weather') {
     const city = extractWeatherCity(mentionInfo.withoutMention) || '東京';
     const result = await fetchWeatherForCity(city);
@@ -934,17 +1131,30 @@ async function handleText(event, client) {
         type: 'locationStory',
         text: mentionInfo.withoutMention,
       }).catch(() => {});
-      return client.replyMessage(event.replyToken, buildLocationStoryPrompt(!!latestLocation));
+      const privateProfile = isDirectChat
+        ? await getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null)
+        : null;
+      return client.replyMessage(
+        event.replyToken,
+        isDirectChat
+          ? withProfileSetupQuickReplies(buildLocationStoryPrompt(!!latestLocation), privateProfile, 'location')
+          : buildLocationStoryPrompt(!!latestLocation)
+      );
     }
 
-    const privateProfile = await getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null);
-    const messages = await generateLocationStoryMessages({
-      latitude: Number(latestLocation.latitude),
-      longitude: Number(latestLocation.longitude),
-      label: latestLocation.label || latestLocation.address || '',
-      profile: privateProfile,
-    });
-    return client.replyMessage(event.replyToken, messages);
+    const cancelWorkingNotice = scheduleWorkingNotice(client, sourceId, 'locationStory');
+    try {
+      const privateProfile = await getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null);
+      const messages = await generateLocationStoryMessages({
+        latitude: Number(latestLocation.latitude),
+        longitude: Number(latestLocation.longitude),
+        label: latestLocation.label || latestLocation.address || '',
+        profile: privateProfile,
+      });
+      return client.replyMessage(event.replyToken, messages);
+    } finally {
+      cancelWorkingNotice();
+    }
   }
 
   if (intent?.type === 'nearby') {
@@ -955,18 +1165,40 @@ async function handleText(event, client) {
         label: intent.label,
         text: mentionInfo.withoutMention,
       }).catch(() => {});
-      return client.replyMessage(event.replyToken, buildNearbyLocationPrompt(intent, latestLocation));
+      const privateProfile = isDirectChat
+        ? await getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null)
+        : null;
+      return client.replyMessage(
+        event.replyToken,
+        isDirectChat
+          ? withProfileSetupQuickReplies(buildNearbyLocationPrompt(intent, latestLocation), privateProfile, 'nearby')
+          : buildNearbyLocationPrompt(intent, latestLocation)
+      );
     }
 
-    const result = await findNearbyPlaces({
-      latitude: Number(latestLocation.latitude),
-      longitude: Number(latestLocation.longitude),
-      category: intent.category,
-    });
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: formatNearbyReply(result),
-    });
+    const cancelWorkingNotice = scheduleWorkingNotice(client, sourceId, 'nearby');
+    try {
+      const result = await findNearbyPlaces({
+        latitude: Number(latestLocation.latitude),
+        longitude: Number(latestLocation.longitude),
+        category: intent.category,
+      });
+      cancelWorkingNotice();
+      const replyMessage = {
+        type: 'text',
+        text: formatNearbyReply(result),
+      };
+      const privateProfile = isDirectChat
+        ? await getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null)
+        : null;
+      return client.replyMessage(
+        event.replyToken,
+        isDirectChat ? withProfileSetupQuickReplies(replyMessage, privateProfile, 'nearby') : replyMessage
+      );
+    } catch (err) {
+      cancelWorkingNotice();
+      throw err;
+    }
   }
 
   if (intent?.type === 'flyerStock') {
@@ -978,11 +1210,13 @@ async function handleText(event, client) {
       });
     }
 
-    const latestLocation = await getLatestLocation(sourceId, userId, locationReadOptions);
-    const explicitLocationLabel = intent.locationLabel || '';
-    let snapshot = explicitLocationLabel
-      ? await getNearbyFlyerSnapshot({ sourceId, locationLabel: explicitLocationLabel, forceRefresh: true }).catch(() => null)
-      : await getNearbyFlyerSnapshot({ sourceId }).catch(() => null);
+    const cancelWorkingNotice = scheduleWorkingNotice(client, sourceId, 'flyerStock');
+    try {
+      const latestLocation = await getLatestLocation(sourceId, userId, locationReadOptions);
+      const explicitLocationLabel = intent.locationLabel || '';
+      let snapshot = explicitLocationLabel
+        ? await getNearbyFlyerSnapshot({ sourceId, locationLabel: explicitLocationLabel, forceRefresh: true }).catch(() => null)
+        : await getNearbyFlyerSnapshot({ sourceId }).catch(() => null);
     if (!snapshot && (!latestLocation?.latitude || !latestLocation?.longitude)) {
       await savePendingLocationRequest(sourceId, userId, {
         type: 'flyerStock',
@@ -991,7 +1225,15 @@ async function handleText(event, client) {
         mainIngredient: intent.mainIngredient || null,
         text: mentionInfo.withoutMention,
       }).catch(() => {});
-      return client.replyMessage(event.replyToken, buildFlyerLocationPrompt(intent, latestLocation));
+      const privateProfile = isDirectChat
+        ? await getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null)
+        : null;
+      return client.replyMessage(
+        event.replyToken,
+        isDirectChat
+          ? withProfileSetupQuickReplies(buildFlyerLocationPrompt(intent, latestLocation), privateProfile, 'flyer')
+          : buildFlyerLocationPrompt(intent, latestLocation)
+      );
     }
 
     if (!snapshot) {
@@ -1079,7 +1321,15 @@ async function handleText(event, client) {
       return client.replyMessage(event.replyToken, messages);
     }
 
-    return client.replyMessage(event.replyToken, buildFlyerStockTextMessage(snapshot));
+      const finalMessage = buildFlyerStockTextMessage(snapshot);
+      if (isDirectChat && finalMessage?.type === 'text') {
+        const privateProfile = await getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null);
+        return client.replyMessage(event.replyToken, withProfileSetupQuickReplies(finalMessage, privateProfile, 'flyer'));
+      }
+      return client.replyMessage(event.replyToken, finalMessage);
+    } finally {
+      cancelWorkingNotice();
+    }
   }
 
   if (intent?.type === 'wakeAlarm') {
@@ -1249,8 +1499,10 @@ async function handleText(event, client) {
       weatherPlace,
       weatherLatitude: Number.isFinite(Number(latestLocation?.latitude)) ? Number(latestLocation.latitude) : null,
       weatherLongitude: Number.isFinite(Number(latestLocation?.longitude)) ? Number(latestLocation.longitude) : null,
+      commuteMode: commute.mode || '',
       commuteRouteLabel: commute.routeLabel || '',
       commuteLines: Array.isArray(commute.lines) ? commute.lines : [],
+      roadRouteText: commute.roadRouteText || '',
       testBriefing: !intent.recurring && Number(intent.relativeMinutes) > 0 && Number(intent.relativeMinutes) <= 15,
       status: 'active',
       createdAt: Date.now(),
@@ -1280,6 +1532,8 @@ async function handleText(event, client) {
         },
       });
     }
+    const profileCompletionPrompt = buildProfileCompletionPrompt(privateProfile, 'wake');
+    if (profileCompletionPrompt && messages.length < 5) messages.push(profileCompletionPrompt);
     return client.replyMessage(event.replyToken, messages);
   }
 
@@ -1328,10 +1582,17 @@ async function handleText(event, client) {
     }
     const { date: dateStr } = getTokyoDateParts();
 
-    const [analysis, caseId] = await Promise.all([
-      formatNoblesseReply(mentionInfo.withoutMention, senderName),
-      generateCaseId(dateStr),
-    ]);
+    const cancelWorkingNotice = scheduleWorkingNotice(client, sourceId, 'noblesse', 1400);
+    let analysis;
+    let caseId;
+    try {
+      [analysis, caseId] = await Promise.all([
+        formatNoblesseReply(mentionInfo.withoutMention, senderName),
+        generateCaseId(dateStr),
+      ]);
+    } finally {
+      cancelWorkingNotice();
+    }
 
     // 案件をFirebaseに保存（fire-and-forget）
     createCase({ caseId, userId, sourceId, senderName, request: mentionInfo.withoutMention, analysis }).catch(() => {});
@@ -1410,11 +1671,16 @@ async function handleText(event, client) {
   }
 
   if (intent?.type === 'restaurant') {
-    return handleDirectRestaurantSearch({
-      client, event, sourceId, userId, senderName,
-      text: intent.text || mentionInfo.withoutMention,
-      route: intent.route || '',
-    });
+    const cancelWorkingNotice = scheduleWorkingNotice(client, sourceId, 'restaurant');
+    try {
+      return await handleDirectRestaurantSearch({
+        client, event, sourceId, userId, senderName,
+        text: intent.text || mentionInfo.withoutMention,
+        route: intent.route || '',
+      });
+    } finally {
+      cancelWorkingNotice();
+    }
   }
 
   if (intent === 'casual') {
@@ -1425,9 +1691,15 @@ async function handleText(event, client) {
     ]);
     const profileHint = buildProfileAwareHint(mentionInfo.withoutMention, privateProfile);
 
-    const aiReply = aiEnabled
-      ? await formatAiChatReply(effectiveText, await buildAiConversationContext(year, month, senderName, sourceId, userId))
-      : null;
+    let aiReply = null;
+    if (aiEnabled) {
+      const cancelWorkingNotice = scheduleWorkingNotice(client, sourceId, 'aiChat', 2200);
+      try {
+        aiReply = await formatAiChatReply(effectiveText, await buildAiConversationContext(year, month, senderName, sourceId, userId));
+      } finally {
+        cancelWorkingNotice();
+      }
+    }
     let replyText;
     if (aiReply) {
       replyText = aiReply;
@@ -1980,6 +2252,9 @@ function detectTextIntent(text, options = {}) {
   const privateProfileIntent = detectPrivateProfileIntent(targetText);
   if (privateProfileIntent) return privateProfileIntent;
 
+  const privateProfileSetupIntent = detectPrivateProfileSetupIntent(targetText);
+  if (privateProfileSetupIntent) return privateProfileSetupIntent;
+
   const beastModeIntent = detectBeastModeIntent(targetText);
   if (beastModeIntent) return beastModeIntent;
 
@@ -2150,6 +2425,45 @@ async function showTypingIndicator(sourceId) {
   }
 }
 
+const WORKING_NOTICE_LINES = [
+  '少しだけ待ってて。今ちゃんと見に行ってるよ。',
+  'いま拾ってる。雑に返したくないから、少しだけ時間ちょうだい。',
+  '待っててね。候補をちゃんと絞ってるところ。',
+  '今、裏で見比べてるよ。すぐ戻るね。',
+  'ちょっとだけ待って。あなたに出すなら外したくないの。',
+  '情報を取りに行ってるよ。数秒だけそばで待ってて。',
+  '今まとめてる。焦って薄い返事にはしないね。',
+  '少し時間をもらうね。ちゃんと使える形で持ってくる。',
+  '今確認中。返事が遅い時は、私が迷子じゃなくて探してる時だよ。',
+  '待ってて。今の条件でいちばん外しにくいところを見てる。',
+  '少しだけ静かに探してくるね。すぐ声かける。',
+  '今、候補を並べ替えてる。ちゃんとあなた向けにするね。',
+];
+
+function pickWorkingNotice(context = '') {
+  const key = `${context}:${Date.now()}:${Math.random()}`;
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0;
+  }
+  return WORKING_NOTICE_LINES[Math.abs(hash) % WORKING_NOTICE_LINES.length];
+}
+
+function scheduleWorkingNotice(client, sourceId, context = 'default', delayMs = 1800) {
+  if (!sourceId || sourceId === 'unknown' || typeof client.pushMessage !== 'function') {
+    return () => {};
+  }
+  let sent = false;
+  const timer = setTimeout(() => {
+    sent = true;
+    client.pushMessage(sourceId, { type: 'text', text: pickWorkingNotice(context) })
+      .catch(err => console.error('[working-notice] push failed', err?.message || err));
+  }, delayMs);
+  return () => {
+    if (!sent) clearTimeout(timer);
+  };
+}
+
 // ── ノブレス専用送信（受理一言 → 分析テキスト → 承認Flex） ─────────────────
 async function sendNoblesseReply(client, event, caseId, analysis, request, sourceId) {
   const userId = event?.source?.userId;
@@ -2162,6 +2476,12 @@ async function sendNoblesseReply(client, event, caseId, analysis, request, sourc
     '受理したよ。すぐ整理する。',
     '引き取った。少し待っていて。',
     'わかった。今から出す。',
+    '任せて。ちゃんと筋を作るね。',
+    '受け取ったよ。少しだけ考えさせて。',
+    '了解。今から外さない案に寄せる。',
+    'うん、私が見る。少し待ってて。',
+    '任務として預かったよ。すぐ整えるね。',
+    '大丈夫、ここから私が並べ替える。',
   ];
   const ack = ackLines[Math.floor(Math.random() * ackLines.length)];
   await client.replyMessage(event.replyToken, {

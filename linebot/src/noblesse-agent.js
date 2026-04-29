@@ -401,7 +401,7 @@ function buildStaticRequestProfile(userText) {
 
 function detectRequestKind(text) {
   if (/(神社|公園|自然|緑|庭園|散歩|日帰り|おでかけ|出かけ|森林|小旅)/.test(text)) return 'outing';
-  if (/(スニーカー|靴|シューズ|器|うつわ|食器|皿|マグ|茶碗|鉢|プレート|花瓶)/.test(text)) return 'shopping';
+  if (/(アパレル|服|洋服|古着|セレクトショップ|ファッション|スニーカー|靴|シューズ|器|うつわ|食器|皿|マグ|茶碗|鉢|プレート|花瓶)/.test(text)) return 'shopping';
   if (/(旅行|宿|ホテル|泊まり|旅館|温泉|観光|出張)/.test(text)) return 'travel';
   if (/(飲み会|店|レストラン|居酒屋|ランチ|ディナー|食事|会食|焼肉|寿司)/.test(text)) return 'food';
   if (/(電車|新幹線|飛行機|フライト|タクシー|移動|行き方|経路|ルート)/.test(text)) return 'transport';

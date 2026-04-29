@@ -48,6 +48,9 @@ function buildPrivateProfileContextText(profile) {
   if (profile.realName || profile.lineName) {
     lines.push(`呼び名: ${[profile.realName, profile.lineName].filter(Boolean).join(' / ')}`);
   }
+  if (profile.commuteMode) lines.push(`通勤手段: ${formatCommuteMode(profile.commuteMode)}`);
+  if (profile.commuteRouteText) lines.push(`通勤ルート: ${profile.commuteRouteText}`);
+  if (profile.roadRouteText) lines.push(`道路ルート: ${profile.roadRouteText}`);
   const summaryLines = Array.isArray(profile.summaryLines) ? profile.summaryLines.slice(0, 8) : [];
   if (summaryLines.length) lines.push(`個人メモ: ${summaryLines.join(' / ')}`);
   if (profile.defaultWakePlace) lines.push(`朝の基準地点: ${profile.defaultWakePlace}`);
@@ -63,6 +66,9 @@ function formatOwnPrivateProfileReply(profile) {
   }
 
   const lines = ['今、本人用に覚えているあなたメモだよ。'];
+  if (profile.commuteMode) lines.push(`・通勤手段: ${formatCommuteMode(profile.commuteMode)}`);
+  if (profile.commuteRouteText) lines.push(`・通勤ルート: ${profile.commuteRouteText}`);
+  if (profile.roadRouteText) lines.push(`・道路ルート: ${profile.roadRouteText}`);
   const summaryLines = Array.isArray(profile.summaryLines) ? profile.summaryLines.slice(0, 8) : [];
   summaryLines.forEach(line => lines.push(`・${line}`));
   if (profile.defaultWakePlace) lines.push(`・朝の天気の基準地点: ${profile.defaultWakePlace}`);
@@ -85,8 +91,8 @@ function buildProfileAwareHint(text, profile) {
   if (/(コーヒー|珈琲|カフェ|飲み物|オーツミルク|boss|豆)/.test(compact) && hints.coffee) {
     return 'オーツミルク割りか、休日に豆から挽くブラックか、その二択の気分かなって思っちゃった。';
   }
-  if (/(スニーカー|靴|hoka|mizuno|ミズノ|服|vaultroom|無印|vainlarchive)/.test(compact) && hints.fashion) {
-    return '今の気分だと、HOKAとか最近のMizunoみたいな方向のほうがしっくり来そうだよね。';
+  if (/(アパレル|服|洋服|古着|スニーカー|靴|hoka|mizuno|ミズノ|vaultroom|無印|vainlarchive)/.test(compact) && hints.fashion) {
+    return '今の気分だと、素材感やシルエットで少し気分が上がる服のほうがしっくり来そうだよね。';
   }
   if (/(ai|mcp|iot|switchbot|秋月|基板|raspberry|ラズパイ|3dプリンタ|自作)/.test(compact) && hints.tech) {
     return 'MCPとか自作まわりの話になると、あなたの集中が少し深くなるの知ってる。';
@@ -118,11 +124,63 @@ function detectPrivateProfileIntent(text) {
   return null;
 }
 
+function detectPrivateProfileSetupIntent(text) {
+  const compact = normalize(text);
+  if (!compact) return null;
+
+  if (/(通勤手段|通勤設定|移動手段).*(設定|登録|入力)?/.test(compact)) {
+    return { type: 'privateProfileSetup', action: 'commuteModeChoice' };
+  }
+
+  const commuteMode = detectCommuteMode(compact);
+  if (commuteMode && /(通勤|移動|出社|会社|仕事|プロフィール|プロファイル)/.test(compact)) {
+    return { type: 'privateProfileSetup', action: 'setCommuteMode', commuteMode };
+  }
+
+  if (/(通勤ルート|通勤経路|いつもの道|道路ルート|道路経路).*(設定|登録|入力)?/.test(compact)) {
+    return { type: 'privateProfileSetup', action: 'commuteRouteInput' };
+  }
+
+  if (/(朝の場所|天気の場所|基準地点|自宅エリア|生活圏).*(設定|登録|入力)?/.test(compact)) {
+    return { type: 'privateProfileSetup', action: 'wakePlaceInput' };
+  }
+
+  if (/(プロフィール|プロファイル|本人設定|個人設定).*(設定|補足|入力|足りない|不足|埋める|整える)/.test(compact)
+    || /(足りない情報|不足情報).*(入力|設定)/.test(compact)) {
+    return { type: 'privateProfileSetup', action: 'menu' };
+  }
+
+  return null;
+}
+
 function extractPrivateProfileUpdate(text) {
   const raw = String(text || '').replace(/\r/g, '');
   const match = raw.match(/^(?:@?秘書トラペル子[\s　]*)?(?:私の)?(?:プロフィール|プロファイル)(?:更新|登録|保存|記録)\s*[:：]?\s*\n([\s\S]{80,})$/);
   if (!match) return null;
   return match[1].trim();
+}
+
+async function savePrivateProfilePatch({ userId, lineName = '', realName = '', patch = {} } = {}) {
+  if (!userId || !patch || typeof patch !== 'object') return null;
+  const existing = await getPrivateUserProfile(userId);
+  const summaryLines = uniqueStrings([
+    ...((existing && Array.isArray(existing.summaryLines)) ? existing.summaryLines : []),
+    ...((Array.isArray(patch.summaryLines)) ? patch.summaryLines : []),
+  ]).slice(0, 10);
+  const payload = {
+    ...(existing || {}),
+    ...patch,
+    lineName: patch.lineName || existing?.lineName || lineName || '',
+    realName: patch.realName || existing?.realName || realName || '',
+    summaryLines,
+    preferenceHints: {
+      ...(existing?.preferenceHints || {}),
+      ...(patch.preferenceHints || {}),
+    },
+  };
+  const saved = await savePrivateUserProfile(userId, payload);
+  if (!saved) return null;
+  return mergeProfiles(pickSeededProfile([lineName, realName, saved.lineName, saved.realName]), saved);
 }
 
 async function savePrivateProfileUpdate({ userId, lineName = '', realName = '', rawText = '' } = {}) {
@@ -163,12 +221,160 @@ function analyzePrivateProfileText(rawText, base = {}) {
   }
 
   const defaultWakePlace = extractWakePlace(text) || base.defaultWakePlace || '';
-  return {
+  const commuteMode = detectCommuteMode(text);
+  const commuteRouteText = extractCommuteRouteText(text);
+  const roadRouteText = commuteMode === 'road' ? commuteRouteText : '';
+  const result = {
     lineName: base.lineName || '',
     realName: base.realName || '',
     rawText: text.slice(0, 4000),
     summaryLines: summary.slice(0, 8),
     defaultWakePlace,
+  };
+  if (commuteMode) result.commuteMode = commuteMode;
+  if (commuteRouteText) result.commuteRouteText = commuteRouteText;
+  if (roadRouteText) result.roadRouteText = roadRouteText;
+  return result;
+}
+
+function buildPrivateProfileSetupMenu(profile = null, context = '') {
+  const needs = getPrivateProfileNeeds(profile, context);
+  const intro = needs.length
+    ? `ここを足してくれたら、本人用の案内がかなり安定するよ。\n足りないのは ${needs.join('・')} あたり。`
+    : '本人用プロファイルはだいぶ使える状態だよ。直したいところだけ選んでね。';
+  return {
+    type: 'text',
+    text: [
+      intro,
+      'ここで入れた内容は1対1の本人向けにだけ使うね。',
+    ].join('\n'),
+    quickReply: {
+      items: [
+        messageAction('通勤手段', 'プロフィール設定 通勤手段'),
+        messageAction('通勤ルート', 'プロフィール設定 通勤ルート'),
+        messageAction('朝の場所', 'プロフィール設定 朝の場所'),
+        messageAction('今のメモ', '私のプロフィールまとめて'),
+      ],
+    },
+  };
+}
+
+function buildCommuteModeChoiceMessage() {
+  return {
+    type: 'text',
+    text: '通勤手段を選んでね。\n電車なら電車の運行情報、車やバイクなら道路の渋滞情報に切り替えるよ。',
+    quickReply: {
+      items: [
+        messageAction('電車', '電車通勤'),
+        messageAction('車', '車通勤'),
+        messageAction('バイク', 'バイク通勤'),
+        messageAction('徒歩/自転車', '徒歩通勤'),
+        messageAction('在宅多め', '在宅勤務'),
+      ],
+    },
+  };
+}
+
+function buildPrivateProfileFieldPrompt(field, commuteMode = '') {
+  if (field === 'wakePlace') {
+    return {
+      type: 'text',
+      text: '朝の天気や近くのお店探しで基準にする場所を、だいたいで教えてね。\n例: 中野区江古田 / 水道橋駅付近\n\nGPSで今の場所を送っても大丈夫。',
+      quickReply: {
+        items: [{ type: 'action', action: { type: 'location', label: '位置情報を送る' } }],
+      },
+    };
+  }
+  if (commuteMode === 'road') {
+    return {
+      type: 'text',
+      text: '車・バイク用に、いつもの道路ルートを一文で教えてね。\n例: 中野区江古田から水道橋まで、目白通りと外堀通りを使う\n\nこれを入れると朝は電車じゃなく道路渋滞の案内に切り替えるよ。',
+    };
+  }
+  if (commuteMode === 'walk') {
+    return {
+      type: 'text',
+      text: '徒歩や自転車のいつもの移動筋を一文で教えてね。\n例: 自宅から職場まで自転車で20分くらい\n\n朝は電車遅延ではなく、天気と出発前の注意に寄せるね。',
+    };
+  }
+  if (commuteMode === 'remote') {
+    return {
+      type: 'text',
+      text: '在宅の日が多い前提で覚えるね。\n出社する日だけ使う移動ルートがあれば一文で教えて。なければ「出社ルートなし」で大丈夫。',
+    };
+  }
+  return {
+    type: 'text',
+    text: 'いつもの電車通勤ルートを一文で教えてね。\n例: 新江古田から都営大江戸線で東中野、総武線で水道橋\n\nこれを入れると朝に電車の運行情報を見に行けるよ。',
+  };
+}
+
+function getPrivateProfileNeeds(profile = null, context = '') {
+  const needs = [];
+  if (!profile?.defaultWakePlace) needs.push('朝の基準地点');
+  if (!profile?.commuteMode && !hasTrainRouteText(profile || {})) {
+    needs.push('通勤手段');
+  } else if (profile.commuteMode === 'train' && !profile?.commuteRouteText && !hasTrainRouteText(profile)) {
+    needs.push('電車通勤ルート');
+  } else if (profile.commuteMode === 'road' && !profile?.roadRouteText && !profile?.commuteRouteText) {
+    needs.push('道路ルート');
+  }
+  if (/sale|flyer|nearby|location/.test(context) && !profile?.defaultWakePlace) {
+    needs.push('よく使う生活圏');
+  }
+  return uniqueStrings(needs).slice(0, 4);
+}
+
+function buildProfileCompletionPrompt(profile = null, context = '') {
+  const needs = getPrivateProfileNeeds(profile, context);
+  if (!needs.length) return null;
+  return buildPrivateProfileSetupMenu(profile, context);
+}
+
+function detectCommuteMode(text) {
+  const compact = normalize(text);
+  if (!compact) return '';
+  if (/(車通勤|クルマ通勤|自動車通勤|車で通勤|車移動|マイカー|バイク通勤|オートバイ|原付)/.test(compact)) return 'road';
+  if (/(徒歩通勤|自転車通勤|チャリ通|歩き|徒歩|自転車)/.test(compact)) return 'walk';
+  if (/(在宅勤務|リモート勤務|在宅|リモート|出社しない)/.test(compact)) return 'remote';
+  if (/(電車通勤|鉄道通勤|地下鉄|jr|都営|メトロ|私鉄|線で|駅から|駅まで)/i.test(compact)) return 'train';
+  return '';
+}
+
+function extractCommuteRouteText(text) {
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  const routeLine = raw
+    .split(/[。\n]/)
+    .map(line => line.trim())
+    .find(line => /(通勤|出社|会社|職場|駅|線|道路|通り|車|バイク|自転車|徒歩|から|まで)/.test(line));
+  return compactSentence(routeLine || raw).slice(0, 180);
+}
+
+function hasTrainRouteText(profile = {}) {
+  const text = [profile.rawText, ...(profile.summaryLines || []), profile.commuteRouteText].filter(Boolean).join(' ');
+  return /(駅|線|JR|都営|メトロ|地下鉄|新江古田|東中野|水道橋|総武|大江戸)/i.test(text);
+}
+
+function formatCommuteMode(mode) {
+  switch (mode) {
+    case 'train':
+      return '電車';
+    case 'road':
+      return '車・バイク';
+    case 'walk':
+      return '徒歩・自転車';
+    case 'remote':
+      return '在宅多め';
+    default:
+      return '未設定';
+  }
+}
+
+function messageAction(label, text) {
+  return {
+    type: 'action',
+    action: { type: 'message', label, text },
   };
 }
 
@@ -242,6 +448,14 @@ module.exports = {
   formatOwnPrivateProfileReply,
   buildProfileAwareHint,
   detectPrivateProfileIntent,
+  detectPrivateProfileSetupIntent,
   extractPrivateProfileUpdate,
   savePrivateProfileUpdate,
+  savePrivateProfilePatch,
+  buildPrivateProfileSetupMenu,
+  buildCommuteModeChoiceMessage,
+  buildPrivateProfileFieldPrompt,
+  buildProfileCompletionPrompt,
+  getPrivateProfileNeeds,
+  formatCommuteMode,
 };

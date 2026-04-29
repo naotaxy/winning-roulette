@@ -20,16 +20,17 @@ const CATEGORY_CONFIG = {
       '[name~"パン|ベーカリー|BAKERY|ブーランジェリー",i]',
     ],
   },
-  sneaker: {
-    label: '評判のスニーカー',
-    mapKeyword: 'スニーカーショップ',
+  apparel: {
+    label: '評判のアパレル',
+    mapKeyword: 'アパレル セレクトショップ 古着',
     radiusMeters: 2200,
-    searchCaveat: 'レビュー点そのものは持っていないから、情報量が多くて比べやすい靴屋を優先してるよ。',
-    fallbackQueries: ['ABC-MART', 'atmos'],
+    searchCaveat: 'レビュー点そのものは持っていないから、情報量が多くて比べやすい服屋・セレクトショップを優先してるよ。',
+    fallbackQueries: ['セレクトショップ', '古着'],
     filters: [
-      '[shop="shoes"]',
-      '[shop="sports"]',
-      "[name~\"スニーカー|ABC-MART|atmos|BILLY'S|NIKE|adidas|ニューバランス|asics\",i]",
+      '[shop="clothes"]',
+      '[shop="fashion"]',
+      '[shop="second_hand"]',
+      "[name~\"アパレル|服|洋服|古着|セレクトショップ|BEAMS|UNITED ARROWS|URBAN RESEARCH|JOURNAL STANDARD|無印|UNIQLO|ユニクロ\",i]",
     ],
   },
   tableware: {
@@ -87,7 +88,7 @@ function detectNearbyIntent(text) {
 function detectNearbyCategory(normalized) {
   if (/(パン|ベーカリー|クロワッサン|バゲット|食パン)/.test(normalized)) return 'bread';
   if (/(セール|値引|割引|安い店|アウトレット|ドンキ|掘り出し物|安売り)/.test(normalized)) return 'sale';
-  if (/(スニーカー|靴|シューズ)/.test(normalized)) return 'sneaker';
+  if (/(アパレル|服|洋服|古着|セレクトショップ|ファッション|スウェット|ジャケット|パンツ|シャツ|スニーカー|靴|シューズ)/.test(normalized)) return 'apparel';
   if (/(器|うつわ|食器|皿|マグ|茶碗|鉢|プレート|花瓶|キッチン道具|料理の器)/.test(normalized)) return 'tableware';
   if (/(評判の商品|人気の商品|良いもの|雑貨|ギフト|買い物|ショッピング|評判の店|いい店)/.test(normalized)) return 'shopping';
   return null;
@@ -119,7 +120,7 @@ function formatLocationStoredReply(location) {
   const place = location?.label || location?.address || 'その場所';
   return [
     `${place} を受け取ったよ。`,
-    'この近くで探したい時は「近くのパン」「近くのスニーカー」「近くの器」「近くのセール」みたいに言ってね。',
+    'この近くで探したい時は「近くのパン」「近くのアパレル」「近くの器」「近くのセール」みたいに言ってね。',
   ].join('\n');
 }
 
@@ -339,9 +340,9 @@ function scoreNearbyItem(category, tags, name, distanceMeters) {
     if (tags.shop === 'discount' || tags.shop === 'outlet' || tags.shop === 'second_hand') score += 5;
     if (/アウトレット|ドン・キホーテ|ドンキ|オフハウス|ハードオフ|セカンドストリート|2nd STREET|トレジャーファクトリー|BOOKOFF/i.test(name)) score += 4;
   }
-  if (category === 'sneaker') {
-    if (tags.shop === 'shoes' || tags.shop === 'sports') score += 4;
-    if (/ABC-MART|atmos|BILLY'S|NIKE|adidas|ニューバランス|asics/i.test(name)) score += 3;
+  if (category === 'apparel') {
+    if (tags.shop === 'clothes' || tags.shop === 'fashion' || tags.shop === 'second_hand') score += 4;
+    if (/BEAMS|UNITED ARROWS|URBAN RESEARCH|JOURNAL STANDARD|古着|セレクト|無印|UNIQLO|ユニクロ/i.test(name)) score += 3;
   }
   if (category === 'tableware') {
     if (tags.shop === 'houseware' || tags.shop === 'gift') score += 4;
@@ -365,8 +366,8 @@ function buildNearbyReason(category, tags, distanceMeters) {
   if (category === 'tableware') {
     return `${distanceLabel}。器や道具に寄った店として見つけやすい候補。`;
   }
-  if (category === 'sneaker') {
-    return `${distanceLabel}。比較しやすい靴屋寄りの候補。`;
+  if (category === 'apparel') {
+    return `${distanceLabel}。服や小物を比べやすいアパレル寄りの候補。`;
   }
   return `${distanceLabel}。評判を追いやすい店として見つけたよ。`;
 }

@@ -6,6 +6,8 @@ const WBS_NEWS_URL = 'https://txbiz.tv-tokyo.co.jp/wbs/news';
 const NHK_MAJOR_NEWS_RSS_URL = 'https://www3.nhk.or.jp/rss/news/cat0.xml';
 const JR_SOBU_LOCAL_STATUS_URL = 'https://traininfo.jreast.co.jp/train_info/line.aspx?gid=1&lineid=chuo_sobuline_local';
 const YAHOO_OEDO_STATUS_URL = 'https://transit.yahoo.co.jp/diainfo/131/0';
+const JARTIC_TRAFFIC_URL = 'https://www.jartic.or.jp/';
+const YAHOO_ROAD_TRAFFIC_URL = 'https://roadway.yahoo.co.jp/';
 const HTTP_HEADERS = { 'user-agent': 'traperuko-linebot/1.0' };
 
 async function buildMorningBriefingMessages(alarm = {}) {
@@ -16,20 +18,22 @@ async function buildMorningBriefingMessages(alarm = {}) {
     realName: alarm.realName || alarm.senderName || '',
   }).catch(() => null);
   const commute = buildCommuteProfile(profile, alarm);
-  const trainStatusesPromise = fetchCommuteStatuses(commute.lines);
+  const commuteStatusesPromise = commute.mode === 'train'
+    ? fetchCommuteStatuses(commute.lines)
+    : Promise.resolve([]);
 
-  const [wbsHighlights, majorNews, trainStatuses] = await Promise.all([
+  const [wbsHighlights, majorNews, commuteStatuses] = await Promise.all([
     newsMode === 'all' || newsMode === 'wbs'
       ? fetchWbsHighlights().catch(() => [])
       : Promise.resolve([]),
     newsMode === 'all' || newsMode === 'major'
       ? fetchMajorNewsHighlights().catch(() => [])
       : Promise.resolve([]),
-    trainStatusesPromise,
+    commuteStatusesPromise,
   ]);
 
   const messages = [];
-  const commuteText = formatCommuteBriefing(commute, trainStatuses);
+  const commuteText = formatCommuteBriefing(commute, commuteStatuses);
   if (commuteText) messages.push({ type: 'text', text: commuteText });
 
   const wbsText = formatWbsBriefing(wbsHighlights);
@@ -163,6 +167,37 @@ function parseYahooTrainStatus(line, html) {
 }
 
 function buildCommuteProfile(profile, alarm = {}) {
+  const sourceText = [
+    profile?.rawText,
+    ...(profile?.summaryLines || []),
+    profile?.commuteRouteText,
+    profile?.roadRouteText,
+    alarm?.commuteRouteLabel,
+    alarm?.roadRouteText,
+    alarm?.weatherPlace,
+    alarm?.senderName,
+    alarm?.realName,
+    alarm?.lineName,
+  ].filter(Boolean).join(' ');
+  const mode = normalizeCommuteMode(profile?.commuteMode || alarm?.commuteMode || inferCommuteMode(sourceText));
+
+  if (mode === 'road') {
+    const roadRouteText = String(profile?.roadRouteText || profile?.commuteRouteText || alarm?.roadRouteText || '').trim();
+    const routeLabel = roadRouteText || String(alarm?.commuteRouteLabel || '').trim() || inferCommuteRouteLabel(sourceText);
+    return {
+      mode: 'road',
+      routeLabel,
+      roadRouteText,
+      lines: [],
+      roadTrafficLinks: buildRoadTrafficLinks(routeLabel || roadRouteText),
+    };
+  }
+
+  if (mode === 'walk' || mode === 'remote') {
+    const routeLabel = String(profile?.commuteRouteText || alarm?.commuteRouteLabel || '').trim() || inferCommuteRouteLabel(sourceText);
+    return { mode, routeLabel, lines: [] };
+  }
+
   const storedLines = Array.isArray(alarm?.commuteLines)
     ? alarm.commuteLines
       .filter(line => line && typeof line === 'object' && line.name && line.url)
@@ -174,15 +209,6 @@ function buildCommuteProfile(profile, alarm = {}) {
       }))
     : [];
   const storedRouteLabel = String(alarm?.commuteRouteLabel || '').trim();
-  const sourceText = [
-    profile?.rawText,
-    ...(profile?.summaryLines || []),
-    alarm?.weatherPlace,
-    alarm?.senderName,
-    alarm?.realName,
-    alarm?.lineName,
-  ].filter(Boolean).join(' ');
-
   const routeLabel = inferCommuteRouteLabel(sourceText);
   const inferredLines = [];
   if (/(都営大江戸線|大江戸線|新江古田|東中野)/.test(sourceText)) {
@@ -203,7 +229,7 @@ function buildCommuteProfile(profile, alarm = {}) {
   }
   const lines = storedLines.length ? storedLines : inferredLines;
   const resolvedRouteLabel = storedRouteLabel || routeLabel || (lines.length ? '東橋バス停 → 新江古田 → 東中野 → 水道橋' : '');
-  return { routeLabel: resolvedRouteLabel, lines };
+  return { mode: 'train', routeLabel: resolvedRouteLabel, lines };
 }
 
 function inferCommuteRouteLabel(text) {
@@ -216,6 +242,9 @@ function inferCommuteRouteLabel(text) {
 }
 
 function formatCommuteBriefing(commute, statuses) {
+  if (commute?.mode === 'road') return formatRoadTrafficBriefing(commute);
+  if (commute?.mode === 'walk') return formatWalkCommuteBriefing(commute);
+  if (commute?.mode === 'remote') return formatRemoteCommuteBriefing(commute);
   if ((!Array.isArray(statuses) || !statuses.length) && !commute?.routeLabel) return '';
   const lines = ['そのあと、通勤まわりだけ先に見てきたよ。'];
   if (commute?.routeLabel) {
@@ -229,6 +258,65 @@ function formatCommuteBriefing(commute, statuses) {
     lines.push(`・${status.name}${status.routeLabel ? ` (${status.routeLabel})` : ''}: ${status.summary}`);
   }
   return lines.join('\n');
+}
+
+function formatRoadTrafficBriefing(commute) {
+  const lines = ['そのあと、通勤まわりは電車じゃなく道路側で見る設定にしてるよ。'];
+  if (commute?.routeLabel) {
+    lines.push(`いつもの筋は ${commute.routeLabel} として見てる。`);
+  } else {
+    lines.push('道路ルートがまだ薄いから、出発地・目的地・よく使う通りを入れるともっと寄せられるよ。');
+  }
+  const links = Array.isArray(commute?.roadTrafficLinks) ? commute.roadTrafficLinks : buildRoadTrafficLinks(commute?.routeLabel || '');
+  lines.push('渋滞や事故は、出る前にこの2つで確認するのが安心。');
+  links.forEach(link => lines.push(`・${link.label}: ${link.url}`));
+  return lines.join('\n');
+}
+
+function formatWalkCommuteBriefing(commute) {
+  const lines = ['通勤まわりは徒歩・自転車寄りで見てるよ。'];
+  if (commute?.routeLabel) lines.push(`いつもの筋は ${commute.routeLabel}。`);
+  lines.push('電車遅延より、雨・風・暑さ寒さを優先して見るね。');
+  return lines.join('\n');
+}
+
+function formatRemoteCommuteBriefing(commute) {
+  const lines = ['今日は在宅多めの前提で見てるよ。'];
+  if (commute?.routeLabel) lines.push(`出社する日は ${commute.routeLabel} を見るね。`);
+  lines.push('電車遅延は必要な時だけ、朝の天気とニュースを先に持っていくね。');
+  return lines.join('\n');
+}
+
+function buildRoadTrafficLinks(routeText = '') {
+  const query = String(routeText || '').trim();
+  const links = [
+    { label: 'JARTIC道路交通情報', url: JARTIC_TRAFFIC_URL },
+    { label: 'Yahoo!道路交通情報', url: YAHOO_ROAD_TRAFFIC_URL },
+  ];
+  if (query) {
+    links.push({
+      label: 'Googleマップで道路状況',
+      url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${query} 渋滞`)}`,
+    });
+  }
+  return links;
+}
+
+function inferCommuteMode(text) {
+  const value = String(text || '');
+  if (/(車通勤|クルマ通勤|自動車通勤|車で|車移動|マイカー|バイク通勤|オートバイ|原付|道路|通り)/.test(value)) return 'road';
+  if (/(徒歩通勤|自転車通勤|徒歩|自転車|チャリ)/.test(value)) return 'walk';
+  if (/(在宅勤務|リモート勤務|在宅|リモート)/.test(value)) return 'remote';
+  if (/(駅|線|JR|都営|メトロ|地下鉄|総武|大江戸)/i.test(value)) return 'train';
+  return 'train';
+}
+
+function normalizeCommuteMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'road' || mode === 'car' || mode === 'bike') return 'road';
+  if (mode === 'walk' || mode === 'bike-lite' || mode === 'bicycle') return 'walk';
+  if (mode === 'remote') return 'remote';
+  return 'train';
 }
 
 function formatWbsBriefing(items) {

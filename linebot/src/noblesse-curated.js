@@ -252,72 +252,72 @@ const OUTING_PLACES = [
 
 const SHOPPING_SPOTS = [
   {
-    id: 'harajuku-sneaker',
+    id: 'harajuku-apparel',
     kind: 'shopping',
-    category: 'sneaker',
-    name: '原宿・表参道スニーカー巡り',
+    category: 'apparel',
+    name: '原宿・表参道アパレル巡り',
     area: '原宿',
     nearest: '原宿駅',
     zone: 'central',
-    tags: ['スニーカー', '新作', '定番', '比較しやすい'],
+    tags: ['アパレル', 'セレクト', '新作', '比較しやすい'],
     walking: 'medium',
     indoor: 'medium',
     budgetLow: 10000,
     budgetHigh: 30000,
     note: '大型店とセレクトをまとめて見やすく、最初の一手に向く。',
     nearby: 'キャットストリート',
-    mapQuery: '原宿 スニーカーショップ',
+    mapQuery: '原宿 表参道 アパレル セレクトショップ',
   },
   {
-    id: 'shinjuku-sneaker',
+    id: 'shinjuku-apparel',
     kind: 'shopping',
-    category: 'sneaker',
-    name: '新宿南口〜東口スニーカー巡り',
+    category: 'apparel',
+    name: '新宿南口〜東口アパレル巡り',
     area: '新宿',
     nearest: '新宿駅',
     zone: 'central',
-    tags: ['スニーカー', '駅近', '比較しやすい', '雨に強め'],
+    tags: ['アパレル', '駅近', '比較しやすい', '雨に強め'],
     walking: 'low',
     indoor: 'high',
     budgetLow: 9000,
     budgetHigh: 28000,
     note: '駅近で雨にも強く、時間がない日に回しやすい。',
     nearby: 'NEWoManやサザンテラス',
-    mapQuery: '新宿 スニーカーショップ',
+    mapQuery: '新宿 アパレル セレクトショップ',
   },
   {
-    id: 'ueno-sneaker',
+    id: 'ueno-apparel',
     kind: 'shopping',
-    category: 'sneaker',
-    name: '上野アメ横スニーカー巡り',
+    category: 'apparel',
+    name: '上野アメ横アパレル巡り',
     area: '上野',
     nearest: '上野御徒町駅',
     zone: 'east',
-    tags: ['スニーカー', '価格重視', '掘り出し物'],
+    tags: ['アパレル', '価格重視', '掘り出し物', '古着'],
     walking: 'medium',
     indoor: 'low',
     budgetLow: 7000,
     budgetHigh: 22000,
     note: '価格比較で粘りたい時に向く。安さ寄り。',
     nearby: 'アメ横の軽食',
-    mapQuery: 'アメ横 スニーカーショップ',
+    mapQuery: 'アメ横 アパレル 古着',
   },
   {
-    id: 'kichijoji-sneaker',
+    id: 'kichijoji-apparel',
     kind: 'shopping',
-    category: 'sneaker',
-    name: '吉祥寺スニーカー巡り',
+    category: 'apparel',
+    name: '吉祥寺アパレル巡り',
     area: '吉祥寺',
     nearest: '吉祥寺駅',
     zone: 'west',
-    tags: ['スニーカー', '街歩き', '落ち着く'],
+    tags: ['アパレル', '街歩き', '落ち着く'],
     walking: 'medium',
     indoor: 'medium',
     budgetLow: 10000,
     budgetHigh: 25000,
     note: '街の温度感がやわらかく、買い物が気張りすぎない。',
     nearby: '中道通り',
-    mapQuery: '吉祥寺 スニーカーショップ',
+    mapQuery: '吉祥寺 アパレル セレクトショップ',
   },
   {
     id: 'kappabashi-utensils',
@@ -394,7 +394,7 @@ function detectOutingRequest(text) {
 }
 
 function detectShoppingRequest(text) {
-  return /(スニーカー|靴|シューズ|器|うつわ|食器|皿|マグ|茶碗|鉢|プレート|花瓶)/.test(String(text || ''));
+  return /(アパレル|服|洋服|古着|セレクトショップ|ファッション|スニーカー|靴|シューズ|器|うつわ|食器|皿|マグ|茶碗|鉢|プレート|花瓶)/.test(String(text || ''));
 }
 
 function detectFoodQuickReplyCommand(text) {
@@ -422,7 +422,7 @@ function detectCuratedPlanCommand(text) {
   if (/(近場で自然がほしい|神社っぽい場所がいい|天気も踏まえて|軽くしおりみたいに)/.test(t)) {
     return { type: 'curatedPlan', action: 'start', kind: 'outing', text: t };
   }
-  if (/(スニーカー.*(近くで見たい|良い店だけ知りたい|気軽に寄りたい|背中押して)|器.*(近くで見たい|良い店だけ知りたい|気軽に寄りたい|背中押して))/.test(t)) {
+  if (/((アパレル|服|洋服|古着|スニーカー).*(近くで見たい|良い店だけ知りたい|気軽に寄りたい|背中押して)|器.*(近くで見たい|良い店だけ知りたい|気軽に寄りたい|背中押して))/.test(t)) {
     return { type: 'curatedPlan', action: 'start', kind: 'shopping', text: t };
   }
   return null;
@@ -528,11 +528,11 @@ function buildCuratedPrompt(caseId, state) {
 
   return {
     type: 'text',
-    text: state.category === 'sneaker'
-      ? '予算を教えてね。\n例: 15000円 / 2万円'
+    text: state.category === 'apparel'
+      ? 'アパレルの予算を教えてね。\n例: 15000円 / 2万円'
       : '器の予算を教えてね。\n例: 5000円 / 1万円',
     quickReply: {
-      items: buildMessageQuickReplies(state.category === 'sneaker'
+      items: buildMessageQuickReplies(state.category === 'apparel'
         ? ['10000円', '15000円', '20000円', '30000円']
         : ['3000円', '5000円', '10000円', '15000円']),
     },
@@ -806,11 +806,11 @@ function buildCuratedItinerary(caseId, state, candidate) {
     '回り方',
     `1. ${origin} から ${candidate.area} へ移動`,
     `2. ${candidate.name} を軸に、${candidate.nearby || '周辺の店'} を軽く回る`,
-    `3. 迷ったら予算と履き心地 / 持ちやすさを優先して絞る`,
+    `3. 迷ったら予算と素材感 / 持ちやすさを優先して絞る`,
     '',
     '選び方メモ',
-    candidate.category === 'sneaker'
-      ? 'サイズ感、履いた時の甲まわり、ソールの硬さ、普段の服との合わせやすさを先に見る'
+    candidate.category === 'apparel'
+      ? '素材感、縫製、シルエット、手持ちの服との合わせやすさを先に見る'
       : '重さ、口当たり、電子レンジ・食洗機の扱いやすさ、料理を盛った時の余白を先に見る',
     '',
     '変更したくなった時',
@@ -994,7 +994,7 @@ function extractOutingTheme(text) {
 }
 
 function extractShoppingCategory(text) {
-  return /(器|うつわ|食器|皿|マグ|茶碗|鉢|プレート|花瓶)/.test(String(text || '')) ? 'tableware' : 'sneaker';
+  return /(器|うつわ|食器|皿|マグ|茶碗|鉢|プレート|花瓶)/.test(String(text || '')) ? 'tableware' : 'apparel';
 }
 
 function extractShoppingStyle(text) {
@@ -1019,7 +1019,7 @@ function formatOutingTheme(theme) {
 }
 
 function formatShoppingCategory(category) {
-  return category === 'tableware' ? '器・食器' : 'スニーカー';
+  return category === 'tableware' ? '器・食器' : 'アパレル';
 }
 
 function formatWalkingLevel(level) {
