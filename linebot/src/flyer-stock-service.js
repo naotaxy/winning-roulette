@@ -17,6 +17,7 @@ const TOKUBAI_SEARCH_URL = 'https://tokubai.co.jp/search';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const FLYER_SEARCH_RADIUS_METERS = 2000;
 const HTTP_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -187,9 +188,12 @@ function detectFlyerStockIntent(text) {
 
 function buildFlyerLocationPrompt(intent = {}, latestLocation = null) {
   const hasRecentLocation = !!latestLocation?.latitude && !!latestLocation?.longitude;
+  const isRetry = intent?.retry === true;
   return {
     type: 'text',
-    text: hasRecentLocation
+    text: isRetry
+      ? '近くでちゃんと拾える特売情報がまだ見つからなかったの。位置情報を送り直してくれたら、2km圏内でもう一回近いスーパーから探すね。'
+      : hasRecentLocation
       ? '近くの特売をちゃんと絞るなら、位置情報をもう一回もらえると精度が上がるよ。送り直してくれたら、近いお店から広告掲載商品と価格を拾ってくるね。'
       : '近くのお店の広告掲載商品と価格を探すね。位置情報を送ってくれたら、近いお店から特売情報を拾って整えるよ。',
     quickReply: {
@@ -198,7 +202,7 @@ function buildFlyerLocationPrompt(intent = {}, latestLocation = null) {
           type: 'action',
           action: {
             type: 'location',
-            label: '位置情報を送る',
+            label: isRetry ? '位置情報を再送' : '位置情報を送る',
           },
         },
       ],
@@ -210,7 +214,9 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
   const dayKey = getTokyoDayKey();
   const requestedLatitude = Number(latitude);
   const requestedLongitude = Number(longitude);
-  const favoriteStores = sourceId ? await getFlyerFavoriteStores(sourceId).catch(() => []) : [];
+  const favoriteStores = sourceId
+    ? (await getFlyerFavoriteStores(sourceId).catch(() => [])).filter(store => looksLikeFoodStore(store?.name))
+    : [];
   if (!forceRefresh && sourceId) {
     const cached = await getFlyerStockSnapshot(sourceId, dayKey).catch(() => null);
     if (
@@ -234,7 +240,7 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
 
   // OSM 店ごとに Tokubai URL を並列検索
   const osmResults = await Promise.allSettled(
-    nearbyStores.slice(0, 5).map(async nearbyStore => {
+    nearbyStores.slice(0, 12).map(async nearbyStore => {
       const tokubaiStore = await findTokubaiStoreForCandidate(nearbyStore, locationLabel).catch(() => null);
       if (!tokubaiStore?.url) return null;
       return { tokubaiStore, nearbyStore };
@@ -261,9 +267,9 @@ async function getNearbyFlyerSnapshot({ sourceId, latitude, longitude, locationL
     }
   }
 
-  // チラシ価格を並列取得（最大 7 店）
+  // チラシ価格を並列取得（最大 10 店）
   const settled = await Promise.allSettled(
-    fetchTargets.slice(0, 7).map(({ tokubaiStore, nearbyStore }) =>
+    fetchTargets.slice(0, 10).map(({ tokubaiStore, nearbyStore }) =>
       fetchTokubaiStoreSnapshot(tokubaiStore, nearbyStore).catch(() => null)
     )
   );
@@ -482,7 +488,7 @@ async function buildRecipeFromFlyerSnapshot(snapshot, { excludedTitles = [], fil
 
 function formatFlyerStockReply(snapshot) {
   if (!snapshot?.store?.name || !Array.isArray(snapshot.items) || !snapshot.items.length) {
-    return '近くでちゃんと拾える特売情報がまだ見つからなかったの。位置情報を送り直してくれたら、もう一回近いお店から見てくるね。';
+    return '近くでちゃんと拾える特売情報がまだ見つからなかったの。位置情報を送り直してくれたら、2km圏内でもう一回近いスーパーから見てくるね。';
   }
 
   const stores = Array.isArray(snapshot.stores) && snapshot.stores.length
@@ -596,9 +602,9 @@ async function queryNearbySupermarkets(latitude, longitude) {
   const query = `
 [out:json][timeout:20];
 (
-  node[shop="supermarket"](around:5000,${latitude},${longitude});
-  way[shop="supermarket"](around:5000,${latitude},${longitude});
-  relation[shop="supermarket"](around:5000,${latitude},${longitude});
+  node[shop="supermarket"](around:${FLYER_SEARCH_RADIUS_METERS},${latitude},${longitude});
+  way[shop="supermarket"](around:${FLYER_SEARCH_RADIUS_METERS},${latitude},${longitude});
+  relation[shop="supermarket"](around:${FLYER_SEARCH_RADIUS_METERS},${latitude},${longitude});
 );
 out center tags 30;
   `.trim();
@@ -623,8 +629,10 @@ out center tags 30;
       const tags = element.tags || {};
       const name = String(tags.name || '').trim();
       if (!name) return null;
+      if (!looksLikeFoodStore(name)) return null;
       return {
         name,
+        branch: String(tags.branch || '').trim(),
         address: buildAddressFromTags(tags),
         lat,
         lon,
@@ -637,7 +645,11 @@ out center tags 30;
 
 async function findTokubaiStoreForCandidate(candidate, locationLabel = '') {
   // 地域指定クエリを先に試す（例: "西友 練馬区"）→ 同都市の店を優先する
+  const candidateAreaTokens = extractAreaSearchTokens(candidate?.address || '');
+  const candidateBranch = String(candidate?.branch || '').trim();
   const queries = uniqueStrings([
+    [candidate?.name, candidateBranch].filter(Boolean).join(' '),
+    ...candidateAreaTokens.map(token => [candidate?.name, token].filter(Boolean).join(' ')),
     [candidate?.name, trimLocationLabel(locationLabel)].filter(Boolean).join(' '),
     candidate?.name,
   ]);
@@ -723,15 +735,32 @@ function extractAreaSearchTokens(locationLabel) {
 }
 
 function parseTokubaiSearchResults(html) {
-  const matches = [...String(html || '').matchAll(
+  const oldMatches = [...String(html || '').matchAll(
     /<li[^>]*\bid='shop_(\d+)'[^>]*>[\s\S]*?<a class="shop_name" href="([^"]+)">([^<]+)<\/a>[\s\S]*?<div class='address'>\s*([\s\S]*?)\s*<\/div>/g
   )];
-  return matches.map(match => ({
+  const oldResults = oldMatches.map(match => ({
     shopId: match[1],
     url: new URL(match[2], 'https://tokubai.co.jp').toString(),
     name: decodeHtml(match[3]).trim(),
     address: decodeHtml(stripTags(match[4])).trim(),
   }));
+
+  const currentMatches = [...String(html || '').matchAll(
+    /<li[^>]*\bid=['"]shop_(\d+)['"][^>]*>\s*<a href=['"]([^'"]+)['"][^>]*>[\s\S]*?<span class=['"]shop_name['"]>\s*([\s\S]*?)\s*<span class=['"]small['"][\s\S]*?<\/span>\s*<\/span>[\s\S]*?<div class=['"]shop_address['"]>\s*([\s\S]*?)\s*<\/div>/g
+  )];
+  const currentResults = currentMatches.map(match => ({
+    shopId: match[1],
+    url: new URL(match[2], 'https://tokubai.co.jp').toString(),
+    name: decodeHtml(stripTags(match[3])).trim(),
+    address: decodeHtml(stripTags(match[4])).trim(),
+  }));
+
+  const seen = new Set();
+  return [...oldResults, ...currentResults].filter(store => {
+    if (!store.shopId || seen.has(store.shopId)) return false;
+    seen.add(store.shopId);
+    return true;
+  });
 }
 
 function scoreTokubaiResult(result, candidate, locationLabel) {
@@ -748,6 +777,8 @@ function scoreTokubaiResult(result, candidate, locationLabel) {
     const sharedNameTokens = countSharedTokens(resultName, candidateName);
     score += Math.min(sharedNameTokens * 8, 24);
   }
+  const branch = normalizeStoreBranch(candidate?.branch);
+  if (branch && resultName.includes(branch)) score += 36;
   if (candidateAddress && resultAddress) {
     const sharedAddressTokens = countSharedTokens(resultAddress, candidateAddress);
     score += Math.min(sharedAddressTokens * 6, 18);
@@ -1254,6 +1285,7 @@ function findStoreEntry(snapshot, rank = null, url = '') {
 async function addFavoriteStoreFromSnapshot(sourceId, snapshot, rank = 1) {
   const store = findStoreEntry(snapshot, rank);
   if (!store?.shopId && !store?.url) return null;
+  if (!looksLikeFoodStore(store.name)) return null;
   return saveFlyerFavoriteStore(sourceId, {
     shopId: store.shopId || store.url,
     name: store.name,
@@ -1270,11 +1302,12 @@ async function removeFavoriteStoreFromSnapshot(sourceId, snapshot, rank = 1) {
 }
 
 function formatFavoriteStoreListReply(favorites = []) {
-  if (!favorites.length) {
+  const foodFavorites = favorites.filter(store => looksLikeFoodStore(store?.name));
+  if (!foodFavorites.length) {
     return '今はお気に入り店はまだ入ってないよ。近くのチラシを見たあとに「1番をお気に入り」みたいに言ってくれたら、比較対象として覚えておくね。';
   }
   const lines = ['今覚えているお気に入り店はこの2件までだよ。'];
-  favorites.slice(0, 2).forEach((store, index) => {
+  foodFavorites.slice(0, 2).forEach((store, index) => {
     lines.push(`・${index + 1}. ${store.name}${formatDistance(store.distanceMeters)}${store.address ? ` / ${store.address}` : ''}`);
   });
   lines.push('外したい時は、近くのチラシを出したあとで「1番をお気に入り解除」みたいに言ってね。');
@@ -1489,7 +1522,10 @@ function uniqueStrings(values) {
 
 function looksLikeFoodStore(name) {
   if (!name) return false;
-  return !/おそうじ|クリーニング|学研|くもん|公文|塾|整骨|接骨|歯科|クリニック|病院|医院|美容院|美容室|サロン|ヘアカット|眼科|耳鼻|皮膚科|保険|不動産|ハウス/.test(name);
+  const normalized = String(name || '').normalize('NFKC');
+  if (/(セブンイレブン|セブン-イレブン|ファミリーマート|ファミマ|ローソン|ミニストップ|デイリーヤマザキ|ニューヤマザキ|ポプラ|コンビニ|Lawson|FamilyMart|7-Eleven|LAWSON STORE 100|ローソンストア100)/i.test(normalized)) return false;
+  if (/おそうじ|クリーニング|ホワイト急便|スワローチェーン|学研|くもん|公文|塾|整骨|接骨|歯科|クリニック|病院|医院|美容院|美容室|サロン|ヘアカット|眼科|耳鼻|皮膚科|保険|不動産|ハウス|AOKI|フィットネス|エニタイム|ジム|ドラッグ|どらっぐ|薬局|ぱぱす|マツモトキヨシ|ウエルシア|スギ薬局|ココカラファイン|ツルハ|サンドラッグ|クリエイト/.test(normalized)) return false;
+  return true;
 }
 
 function countSharedTokens(left, right) {
@@ -1516,9 +1552,16 @@ function buildAddressFromTags(tags) {
     tags['addr:province'],
     tags['addr:city'],
     tags['addr:suburb'],
+    tags['addr:quarter'],
+    tags['addr:neighbourhood'],
     tags['addr:street'],
+    tags['addr:block_number'],
     tags['addr:housenumber'],
   ].filter(Boolean).join('');
+}
+
+function normalizeStoreBranch(value) {
+  return normalize(value).replace(/(駅前)?店$/, '');
 }
 
 function distanceMeters(lat1, lon1, lat2, lon2) {

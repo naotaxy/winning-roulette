@@ -411,10 +411,14 @@ async function handleLocation(event, client) {
       forceRefresh: true,
     });
     if (!snapshot) {
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '近くのお店の特売情報を今はうまく拾い切れなかったの。少し時間を置くか、もう少し広い場所で送り直してくれたらもう一回見てくるね。',
-      });
+      await savePendingLocationRequest(sourceId, userId, {
+        type: 'flyerStock',
+        action: pendingRequest.action,
+        genre: pendingRequest.genre || null,
+        mainIngredient: pendingRequest.mainIngredient || null,
+        text: pendingRequest.text || '',
+      }).catch(() => {});
+      return client.replyMessage(event.replyToken, buildFlyerLocationPrompt({ ...pendingRequest, retry: true }, locationPayload));
     }
     if (pendingRequest.action === 'recipe') {
       const weekKey = getFlyerWeekKey();
@@ -974,10 +978,14 @@ async function handleText(event, client) {
       });
     }
     if (!snapshot && intent.action !== 'recipeNext') {
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '近くのお店の特売情報を今はうまく拾い切れなかったの。位置情報を送り直してくれたら、もう一回近いお店から探すね。',
-      });
+      await savePendingLocationRequest(sourceId, userId, {
+        type: 'flyerStock',
+        action: intent.action,
+        genre: intent.genre || null,
+        mainIngredient: intent.mainIngredient || null,
+        text: mentionInfo.withoutMention,
+      }).catch(() => {});
+      return client.replyMessage(event.replyToken, buildFlyerLocationPrompt({ ...intent, retry: true }, latestLocation));
     }
 
     if (intent.action === 'favoriteAdd') {
