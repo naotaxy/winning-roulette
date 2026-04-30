@@ -8,6 +8,13 @@ const DISPATCH_INTERVAL_MS = 5 * 60 * 1000;
 
 let lastDispatchAt = 0;
 let inflight = false;
+let lastDispatchStatus = {
+  attemptedAt: null,
+  attemptedAtIso: '',
+  ok: null,
+  workflows: [],
+  results: [],
+};
 
 function getGithubActionsDispatchToken() {
   return String(
@@ -68,17 +75,34 @@ async function dispatchSchedulerWorkflow(task = 'scheduler') {
   const workflows = getSchedulerWorkflows();
   if (!workflows.length) return false;
 
+  const attemptedAt = Date.now();
   const results = await Promise.allSettled(workflows.map(workflow => dispatchWorkflow(workflow, task)));
   let ok = false;
+  const normalizedResults = [];
   results.forEach((result, index) => {
     const workflow = workflows[index];
     if (result.status === 'fulfilled' && result.value) {
       ok = true;
+      normalizedResults.push({ workflow, ok: true });
       console.log(`[github-actions-dispatch] dispatched ${workflow}`);
     } else if (result.status === 'rejected') {
+      normalizedResults.push({
+        workflow,
+        ok: false,
+        error: String(result.reason?.message || result.reason || '').slice(0, 220),
+      });
       console.error('[github-actions-dispatch]', result.reason?.message || result.reason);
+    } else {
+      normalizedResults.push({ workflow, ok: false, error: 'dispatch returned false' });
     }
   });
+  lastDispatchStatus = {
+    attemptedAt,
+    attemptedAtIso: new Date(attemptedAt).toISOString(),
+    ok,
+    workflows,
+    results: normalizedResults,
+  };
   return ok;
 }
 
@@ -96,8 +120,20 @@ async function maybeDispatchSchedulerWorkflow(now = Date.now()) {
   }
 }
 
+function getGithubActionsDispatchStatus() {
+  return {
+    enabled: hasGithubActionsDispatchToken(),
+    workflows: getSchedulerWorkflows(),
+    inflight,
+    lastDispatchAt,
+    lastDispatchAtIso: lastDispatchAt ? new Date(lastDispatchAt).toISOString() : '',
+    lastDispatchStatus,
+  };
+}
+
 module.exports = {
   hasGithubActionsDispatchToken,
   maybeDispatchSchedulerWorkflow,
   getSchedulerWorkflows,
+  getGithubActionsDispatchStatus,
 };

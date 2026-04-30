@@ -126,6 +126,7 @@ function formatOverallStatus([firebase, github], ai) {
     'システム全体、私が見えるところだけ確認したよ。',
     `Render: OK（この返事ができてる / 起動 ${formatDuration(process.uptime())} / commit ${renderCommit}）`,
     getImageOcrStatusLine(),
+    getGithubActionsDispatchLine(),
     firebaseLine,
     githubLine,
     ai,
@@ -133,6 +134,24 @@ function formatOverallStatus([firebase, github], ai) {
     `メモリ: ${formatMemory(process.memoryUsage().rss)}`,
     '全部を公式障害情報まで見てるわけじゃないけど、私から見える健康状態はここまでだよ。',
   ].join('\n');
+}
+
+function getGithubActionsDispatchLine() {
+  try {
+    const { getGithubActionsDispatchStatus } = require('./github-actions-dispatcher');
+    const status = getGithubActionsDispatchStatus();
+    if (!status.enabled) return 'Actions復帰: OFF（dispatch tokenなし）';
+    const workflows = (status.workflows || []).join(', ') || '未設定';
+    const last = status.lastDispatchStatus;
+    if (!last?.attemptedAt) return `Actions復帰: 待機中（dispatch先: ${workflows}）`;
+    const result = last.ok ? 'OK' : '注意';
+    const detail = (last.results || [])
+      .map(item => item.ok ? `${item.workflow}:OK` : `${item.workflow}:NG ${trimError(item.error)}`)
+      .join(' / ');
+    return `Actions復帰: ${result}（dispatch先: ${workflows} / 最終 ${last.attemptedAtIso || '不明'} / ${detail || '詳細なし'}）`;
+  } catch (err) {
+    return `Actions復帰: 確認NG（${trimError(err?.message || err)}）`;
+  }
 }
 
 function getImageOcrStatusLine() {
