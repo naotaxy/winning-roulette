@@ -87,6 +87,7 @@ const { formatMemberFlavorReply, formatAnonymousDiaryHighlights } = require('./g
 const { detectGeoGameIntent, handleGeoGameIntent } = require('./geo-game');
 const { detectDiceGameIntent, formatDiceGameReply } = require('./dice-games');
 const { detectOcrControlIntent } = require('./ocr-control');
+const { detectCodexCouncilIntent, buildCodexCouncilMessages } = require('./codex-council');
 const { detectBeastModeIntent, formatBeastModeReply, formatBeastModeLockedReply } = require('./beast-mode');
 const { detectProjectGuideIntent, formatProjectGuideReply } = require('./project-guide');
 const {
@@ -1061,6 +1062,50 @@ async function handleText(event, client) {
       type: 'text',
       text: formatProjectGuideReply(),
     });
+  }
+
+  if (intent?.type === 'codexCouncil') {
+    const [
+      players,
+      monthResults,
+      yearResults,
+      matchSchedule,
+      recentConversation,
+      reminders,
+      wakeAlarm,
+      ocrState,
+      beastModeState,
+      privateProfile,
+    ] = await Promise.all([
+      getPlayers().catch(() => []),
+      getMonthResults(year, month).catch(() => ({})),
+      getYearResults(year).catch(() => ({})),
+      getMatchSchedule().catch(() => null),
+      getRecentConversation(sourceId, 80).catch(() => []),
+      getEventReminders(sourceId).catch(() => []),
+      getWakeAlarm(sourceId).catch(() => null),
+      getOcrAutomationState(sourceId).catch(() => null),
+      getBeastModeState(sourceId).catch(() => null),
+      isDirectChat && userId
+        ? getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    return client.replyMessage(event.replyToken, buildCodexCouncilMessages({
+      year,
+      month,
+      senderName,
+      isDirectChat,
+      players,
+      monthResults,
+      yearResults,
+      matchSchedule,
+      recentConversation,
+      reminders,
+      wakeAlarm,
+      ocrState,
+      beastModeState,
+      privateProfile,
+    }));
   }
 
   if (intent?.type === 'privateProfile') {
@@ -2244,6 +2289,8 @@ function detectTextIntent(text, options = {}) {
 
   if (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード)/.test(withoutMention)) return 'help';
   if (/(まとめて|要約|最近の会話|会話まとめ|何話してた|なに話してた|みんな何|みんな何言)/.test(withoutMention)) return 'summary';
+  const codexCouncilIntent = detectCodexCouncilIntent(withoutMention);
+  if (codexCouncilIntent) return codexCouncilIntent;
   const directSystemStatusKind = detectSystemStatusKind(withoutMention);
   if (directSystemStatusKind) return `system:${directSystemStatusKind}`;
 
