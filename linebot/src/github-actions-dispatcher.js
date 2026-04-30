@@ -2,7 +2,7 @@
 
 const GITHUB_OWNER = process.env.GITHUB_OWNER || 'naotaxy';
 const GITHUB_REPO = process.env.GITHUB_REPO || 'winning-roulette';
-const SCHEDULER_WORKFLOW = process.env.GITHUB_SCHEDULER_WORKFLOW || 'daily-diary.yml';
+const DEFAULT_SCHEDULER_WORKFLOWS = ['event-reminder.yml', 'wake-alarm.yml'];
 const SCHEDULER_REF = process.env.GITHUB_SCHEDULER_REF || 'main';
 const DISPATCH_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -22,12 +22,28 @@ function hasGithubActionsDispatchToken() {
   return !!getGithubActionsDispatchToken();
 }
 
-async function dispatchSchedulerWorkflow(task = 'scheduler') {
+function getSchedulerWorkflows() {
+  const raw = process.env.GITHUB_SCHEDULER_WORKFLOWS || process.env.GITHUB_SCHEDULER_WORKFLOW || '';
+  const workflows = raw
+    ? raw.split(',').map(item => item.trim()).filter(Boolean)
+    : DEFAULT_SCHEDULER_WORKFLOWS;
+  return [...new Set(workflows)];
+}
+
+function buildDispatchBody(workflow, task) {
+  const body = { ref: SCHEDULER_REF };
+  if (/daily-diary\.ya?ml$/i.test(workflow)) {
+    body.inputs = { task };
+  }
+  return body;
+}
+
+async function dispatchWorkflow(workflow, task = 'scheduler') {
   const token = getGithubActionsDispatchToken();
   if (!token) return false;
 
   const res = await fetch(
-    `https://api.github.com/repos/${encodeURIComponent(GITHUB_OWNER)}/${encodeURIComponent(GITHUB_REPO)}/actions/workflows/${encodeURIComponent(SCHEDULER_WORKFLOW)}/dispatches`,
+    `https://api.github.com/repos/${encodeURIComponent(GITHUB_OWNER)}/${encodeURIComponent(GITHUB_REPO)}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,
     {
       method: 'POST',
       headers: {
@@ -37,18 +53,33 @@ async function dispatchSchedulerWorkflow(task = 'scheduler') {
         'user-agent': 'winning-roulette-linebot',
         'x-github-api-version': '2022-11-28',
       },
-      body: JSON.stringify({
-        ref: SCHEDULER_REF,
-        inputs: { task },
-      }),
+      body: JSON.stringify(buildDispatchBody(workflow, task)),
     },
   );
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`workflow dispatch failed: ${res.status} ${body.slice(0, 300)}`);
+    throw new Error(`workflow dispatch failed ${workflow}: ${res.status} ${body.slice(0, 300)}`);
   }
   return true;
+}
+
+async function dispatchSchedulerWorkflow(task = 'scheduler') {
+  const workflows = getSchedulerWorkflows();
+  if (!workflows.length) return false;
+
+  const results = await Promise.allSettled(workflows.map(workflow => dispatchWorkflow(workflow, task)));
+  let ok = false;
+  results.forEach((result, index) => {
+    const workflow = workflows[index];
+    if (result.status === 'fulfilled' && result.value) {
+      ok = true;
+      console.log(`[github-actions-dispatch] dispatched ${workflow}`);
+    } else if (result.status === 'rejected') {
+      console.error('[github-actions-dispatch]', result.reason?.message || result.reason);
+    }
+  });
+  return ok;
 }
 
 async function maybeDispatchSchedulerWorkflow(now = Date.now()) {
@@ -68,4 +99,5 @@ async function maybeDispatchSchedulerWorkflow(now = Date.now()) {
 module.exports = {
   hasGithubActionsDispatchToken,
   maybeDispatchSchedulerWorkflow,
+  getSchedulerWorkflows,
 };

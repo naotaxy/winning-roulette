@@ -207,6 +207,7 @@ OK押下:
 | `WEBHOOK_RECOVERY_DELAY_MS` | 任意。LINE通常返信後に背景workerを復帰させる待ち時間。既定値は `2500` |
 | `WEBHOOK_RECOVERY_COOLDOWN_MS` | 任意。Webhook起点の背景復帰の最短間隔。既定値は `60000` |
 | `WAKE_ALARM_MAX_LATE_PUSH_MS` | 任意。起床通知を遅れて送ってよい最大時間。既定値は `600000` |
+| `GITHUB_SCHEDULER_WORKFLOWS` | 任意。RenderからdispatchするワークフローCSV。既定値は `event-reminder.yml,wake-alarm.yml` |
 | `OPENAI_API_KEY` | 任意。OpenAIを使う時だけ設定（従量課金なので無料運用では非推奨） |
 | `OPENAI_MODEL` | 任意。OpenAI利用時の既定値は `gpt-5-nano` |
 | `AI_COST_GUARD_ENABLED` | 任意。既定値はON。`false` にしない限り、課金ガードでAIを自動停止 |
@@ -233,7 +234,7 @@ Gemini無料枠で自然会話を使う場合は、Renderに `AI_CHAT_ENABLED=tr
 
 Gemma4本気作戦会議は Gemini API 経由の Gemma 4（既定: `gemma-4-26b-a4b-it`）を呼ぶ。AI課金ガードは通常のAI自然会話と同じ `aiChatUsage` / `config/aiChatGuard/autoDisabled` を使うため、日次・月次上限やquota/billing系エラーでは自動停止し、固定ロジックの作戦会議へ戻る。
 
-起床セットとイベントリマインダーは、Render常駐worker、GitHub Actionsの定期実行、Webhook後の復帰workerの三段で拾う。Render無料枠のスリープ復帰直後に起床通知が通常返信より先に見えないよう、起動直後の背景workerを少し遅らせ、LINEの通常返信完了後に復帰処理を走らせる。大きく遅れた起床通知は突然送らず missed として記録し、繰り返し設定なら次回予定へ進める。
+起床セットとイベントリマインダーは、Render常駐worker、GitHub Actionsの定期実行、Webhook後の復帰workerの三段で拾う。Render無料枠のスリープ復帰直後に起床通知が通常返信より先に見えないよう、起動直後の背景workerを少し遅らせ、LINEの通常返信完了後に復帰処理を走らせる。RenderからのGitHub Actions dispatchは既定で `event-reminder.yml` と `wake-alarm.yml` を直接叩く。大きく遅れた起床通知は突然送らず missed として記録し、繰り返し設定なら次回予定へ進める。
 
 ---
 

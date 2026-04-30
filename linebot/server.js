@@ -6,7 +6,7 @@ const { middleware, Client } = require('@line/bot-sdk');
 const webhook = require('./src/webhook');
 const { runEventReminderSweep, hasReminderWorkerSecrets } = require('./src/event-reminder-worker');
 const { runWakeAlarmSweep, hasWakeWorkerSecrets } = require('./src/wake-alarm-worker');
-const { hasGithubActionsDispatchToken, maybeDispatchSchedulerWorkflow } = require('./src/github-actions-dispatcher');
+const { hasGithubActionsDispatchToken, maybeDispatchSchedulerWorkflow, getSchedulerWorkflows } = require('./src/github-actions-dispatcher');
 
 const config = {
   channelSecret:     process.env.LINE_CHANNEL_SECRET,
@@ -45,6 +45,7 @@ app.get('/health', (_req, res) => {
     },
     githubActions: {
       dispatchEnabled: hasGithubActionsDispatchToken(),
+      workflows: getSchedulerWorkflows(),
     },
   });
 });
