@@ -27,15 +27,14 @@ const BACKGROUND_DELIVERY_POLL_MS = 30 * 1000;
 const BACKGROUND_START_DELAY_MS = readNonNegativeIntEnv('BACKGROUND_START_DELAY_MS', 45 * 1000);
 const WEBHOOK_RECOVERY_DELAY_MS = readNonNegativeIntEnv('WEBHOOK_RECOVERY_DELAY_MS', 2500);
 const WEBHOOK_RECOVERY_COOLDOWN_MS = readNonNegativeIntEnv('WEBHOOK_RECOVERY_COOLDOWN_MS', 60 * 1000);
+const REMINDER_CRON_SECRET = String(process.env.REMINDER_CRON_SECRET || '').trim();
 const backgroundSweepTriggers = [];
 let lastWebhookRecoveryAt = 0;
 let webhookRecoveryTimer = null;
 
 /* ── ヘルスチェック（UptimeRobot用） ── */
 app.get('/health', (_req, res) => {
-  for (const trigger of backgroundSweepTriggers) {
-    Promise.resolve(trigger()).catch(() => {});
-  }
+  triggerBackgroundSweeps({ reason: 'health' }).catch(() => {});
   res.json({
     ok: true,
     ts: new Date().toISOString(),
@@ -52,6 +51,34 @@ app.get('/health', (_req, res) => {
       dispatchEnabled: hasGithubActionsDispatchToken(),
       workflows: getSchedulerWorkflows(),
       dispatchStatus: getGithubActionsDispatchStatus(),
+    },
+    externalRecovery: {
+      reminderCron: '/cron/reminders',
+      reminderCronProtected: !!REMINDER_CRON_SECRET,
+    },
+  });
+});
+
+/* ── 外部Ping復帰（UptimeRobot等） ── */
+app.get('/cron/reminders', async (req, res) => {
+  if (!isReminderCronAuthorized(req)) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+
+  const results = await triggerBackgroundSweeps({
+    reason: 'cron-reminders',
+    includeDispatch: false,
+    wait: true,
+  });
+
+  return res.json({
+    ok: true,
+    ts: new Date().toISOString(),
+    commit: process.env.RENDER_GIT_COMMIT ? process.env.RENDER_GIT_COMMIT.slice(0, 7) : null,
+    recovery: {
+      type: 'local-reminder-sweep',
+      protected: !!REMINDER_CRON_SECRET,
+      results,
     },
   });
 });
@@ -78,12 +105,13 @@ app.use((err, req, res, next) => {
 function startBackgroundSweep(name, task, intervalMs) {
   let running = false;
   const tick = async () => {
-    if (running) return;
+    if (running) return { skipped: true, reason: 'already-running' };
     running = true;
     try {
-      await task();
+      return await task();
     } catch (err) {
       console.error(`[background:${name}]`, err?.message || err);
+      throw err;
     } finally {
       running = false;
     }
@@ -92,7 +120,7 @@ function startBackgroundSweep(name, task, intervalMs) {
   setTimeout(tick, BACKGROUND_START_DELAY_MS);
   const timer = setInterval(tick, intervalMs);
   if (typeof timer.unref === 'function') timer.unref();
-  backgroundSweepTriggers.push(tick);
+  backgroundSweepTriggers.push({ name, trigger: tick });
   return tick;
 }
 
@@ -105,11 +133,53 @@ function scheduleWebhookRecoverySweep() {
   webhookRecoveryTimer = setTimeout(() => {
     webhookRecoveryTimer = null;
     lastWebhookRecoveryAt = Date.now();
-    backgroundSweepTriggers.forEach(trigger => {
-      Promise.resolve(trigger()).catch(err => console.error('[webhook-recovery]', err?.message || err));
-    });
+    triggerBackgroundSweeps({ reason: 'webhook-recovery' }).catch(() => {});
   }, WEBHOOK_RECOVERY_DELAY_MS);
   if (typeof webhookRecoveryTimer.unref === 'function') webhookRecoveryTimer.unref();
+}
+
+async function triggerBackgroundSweeps({ reason, includeDispatch = true, wait = false } = {}) {
+  const targets = backgroundSweepTriggers.filter(entry => (
+    includeDispatch || entry.name !== 'github-actions-dispatch'
+  ));
+  const jobs = targets.map(({ name, trigger }) => runOneBackgroundSweep(name, trigger, reason));
+  if (!wait) {
+    jobs.forEach(job => job.catch(() => {}));
+    return [];
+  }
+  return Promise.all(jobs);
+}
+
+async function runOneBackgroundSweep(name, trigger, reason = 'manual') {
+  const startedAt = Date.now();
+  try {
+    const result = await trigger();
+    return {
+      name,
+      ok: true,
+      reason,
+      latencyMs: Date.now() - startedAt,
+      result: result || null,
+    };
+  } catch (err) {
+    console.error(`[background:${reason}:${name}]`, err?.message || err);
+    return {
+      name,
+      ok: false,
+      reason,
+      latencyMs: Date.now() - startedAt,
+      error: String(err?.message || err || '').slice(0, 240),
+    };
+  }
+}
+
+function isReminderCronAuthorized(req) {
+  if (!REMINDER_CRON_SECRET) return true;
+  const querySecret = String(req.query?.secret || '').trim();
+  const headerSecret = String(req.get('x-cron-secret') || '').trim();
+  const authHeader = String(req.get('authorization') || '');
+  const bearerSecret = authHeader.replace(/^Bearer\s+/i, '').trim();
+  return [querySecret, headerSecret, bearerSecret].includes(REMINDER_CRON_SECRET);
 }
 
 function readNonNegativeIntEnv(name, fallback) {

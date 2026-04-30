@@ -127,6 +127,7 @@ function formatOverallStatus([firebase, github], ai) {
     `Render: OK（この返事ができてる / 起動 ${formatDuration(process.uptime())} / commit ${renderCommit}）`,
     getImageOcrStatusLine(),
     getGithubActionsDispatchLine(),
+    getExternalReminderRecoveryLine(),
     firebaseLine,
     githubLine,
     ai,
@@ -152,6 +153,13 @@ function getGithubActionsDispatchLine() {
   } catch (err) {
     return `Actions復帰: 確認NG（${trimError(err?.message || err)}）`;
   }
+}
+
+function getExternalReminderRecoveryLine() {
+  const protectedMode = !!String(process.env.REMINDER_CRON_SECRET || '').trim();
+  return protectedMode
+    ? '外部Ping復帰: ON（/cron/reminders / secret保護あり）'
+    : '外部Ping復帰: ON（/cron/reminders / secret未設定。UptimeRobot用に保護推奨）';
 }
 
 function getImageOcrStatusLine() {

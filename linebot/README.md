@@ -100,9 +100,13 @@ Renderの無料プランは15分アクセスがないとスリープする。
 
 1. [uptimerobot.com](https://uptimerobot.com) に登録
 2. 「Add New Monitor」→ HTTP(s) を選択
-3. URL: `https://（RenderのURL）/health`
+3. URL: `https://（RenderのURL）/cron/reminders?secret=任意の長い文字列`
 4. Monitoring Interval: 5分
 5. 「Create Monitor」で完了
+
+上の `secret` と同じ値を Render の環境変数 `REMINDER_CRON_SECRET` に入れる。未設定でも `/cron/reminders` は動くが、外部から誰でも起床・リマインド掃除を叩ける状態になるので、無料運用でもsecret設定を推奨。
+
+`/health` も従来どおり疎通確認と背景復帰を兼ねる。起床通知とイベントリマインダーを確実に拾いたい場合は、UptimeRobotの監視URLを `/cron/reminders` にしておく。
 
 ---
 
@@ -208,6 +212,7 @@ OK押下:
 | `WEBHOOK_RECOVERY_COOLDOWN_MS` | 任意。Webhook起点の背景復帰の最短間隔。既定値は `60000` |
 | `WAKE_ALARM_MAX_LATE_PUSH_MS` | 任意。起床通知を遅れて送ってよい最大時間。既定値は `600000` |
 | `GITHUB_SCHEDULER_WORKFLOWS` | 任意。RenderからdispatchするワークフローCSV。既定値は `event-reminder.yml,wake-alarm.yml` |
+| `REMINDER_CRON_SECRET` | 任意。`/cron/reminders` をUptimeRobotなど外部Pingから叩く時のsecret |
 | `OPENAI_API_KEY` | 任意。OpenAIを使う時だけ設定（従量課金なので無料運用では非推奨） |
 | `OPENAI_MODEL` | 任意。OpenAI利用時の既定値は `gpt-5-nano` |
 | `AI_COST_GUARD_ENABLED` | 任意。既定値はON。`false` にしない限り、課金ガードでAIを自動停止 |
@@ -234,7 +239,7 @@ Gemini無料枠で自然会話を使う場合は、Renderに `AI_CHAT_ENABLED=tr
 
 Gemma4本気作戦会議は Gemini API 経由の Gemma 4（既定: `gemma-4-26b-a4b-it`）を呼ぶ。AI課金ガードは通常のAI自然会話と同じ `aiChatUsage` / `config/aiChatGuard/autoDisabled` を使うため、日次・月次上限やquota/billing系エラーでは自動停止し、固定ロジックの作戦会議へ戻る。
 
-起床セットとイベントリマインダーは、Render常駐worker、GitHub Actionsの定期実行、Webhook後の復帰workerの三段で拾う。Render無料枠のスリープ復帰直後に起床通知が通常返信より先に見えないよう、起動直後の背景workerを少し遅らせ、LINEの通常返信完了後に復帰処理を走らせる。RenderからのGitHub Actions dispatchは既定で `event-reminder.yml` と `wake-alarm.yml` を直接叩く。大きく遅れた起床通知は突然送らず missed として記録し、繰り返し設定なら次回予定へ進める。
+起床セットとイベントリマインダーは、Render常駐worker、GitHub Actionsの定期実行、Webhook後の復帰worker、UptimeRobot等からの `/cron/reminders` 外部Ping復帰の四段で拾う。Render無料枠のスリープ復帰直後に起床通知が通常返信より先に見えないよう、起動直後の背景workerを少し遅らせ、LINEの通常返信完了後に復帰処理を走らせる。RenderからのGitHub Actions dispatchは既定で `event-reminder.yml` と `wake-alarm.yml` を直接叩く。GitHub Actionsがアカウント側で無効化されていても、UptimeRobotの5分PingでRenderが起きれば `/cron/reminders` がローカルの起床・リマインド掃除を実行する。大きく遅れた起床通知は突然送らず missed として記録し、繰り返し設定なら次回予定へ進める。
 
 ---
 
