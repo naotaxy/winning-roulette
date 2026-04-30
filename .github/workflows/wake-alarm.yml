@@ -1,8 +1,14 @@
 name: 秘書トラペル子 起床セット
 
 on:
+  schedule:
+    - cron: '*/5 * * * *'
   workflow_call:
   workflow_dispatch:
+
+concurrency:
+  group: wake-alarms-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   send-wake-alarms:

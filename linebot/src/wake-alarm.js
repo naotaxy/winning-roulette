@@ -136,6 +136,19 @@ function formatWakeAlarmStatusReply(alarm) {
       '1対1のトークで「朝7時に起こして」みたいに言ってくれたら、私が迎えに行くね。',
     ].join('\n');
   }
+  if (alarm.status === 'missed') {
+    return [
+      `前回の起床セットは ${formatDateTime(alarm.dueAt)} ごろだったけど、通知の実行が遅れすぎたから送信を見送ったよ。`,
+      '遅れてから突然起こすと混乱させちゃうから、次からはGitHub Actions側の定期実行とRender側の復帰処理で拾うようにしてる。',
+      '必要なら、もう一回「明日6時半に起こして」みたいに入れ直してね。',
+    ].join('\n');
+  }
+  if (alarm.status !== 'active') {
+    return [
+      '今は起床セットの処理中か、前回分の後片付け中みたい。',
+      '少し置いて「起床状態」って聞いてくれたら、もう一回確認するね。',
+    ].join('\n');
+  }
   return [
     alarm.recurring
       ? `今は${alarm.weekdayOnly ? '平日の朝' : '毎朝'} ${formatHourMinute(alarm.hour, alarm.minute)} ごろに起こす設定だよ。`
@@ -147,7 +160,7 @@ function formatWakeAlarmStatusReply(alarm) {
 }
 
 function formatWakeAlarmListSection(alarm) {
-  if (!alarm?.dueAt) return '';
+  if (!alarm?.dueAt || alarm.status !== 'active') return '';
   const head = alarm.recurring
     ? `• 起床セット — ${alarm.weekdayOnly ? '平日' : '毎日'} ${formatHourMinute(alarm.hour, alarm.minute)}`
     : `• 起床セット — 次は ${formatDateTime(alarm.dueAt)}`;

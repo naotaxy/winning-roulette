@@ -19,7 +19,12 @@ process.on('unhandledRejection',   err => console.error('[unhandledRejection]', 
 const app  = express();
 const port = process.env.PORT || 3000;
 const BACKGROUND_DELIVERY_POLL_MS = 30 * 1000;
+const BACKGROUND_START_DELAY_MS = readNonNegativeIntEnv('BACKGROUND_START_DELAY_MS', 45 * 1000);
+const WEBHOOK_RECOVERY_DELAY_MS = readNonNegativeIntEnv('WEBHOOK_RECOVERY_DELAY_MS', 2500);
+const WEBHOOK_RECOVERY_COOLDOWN_MS = readNonNegativeIntEnv('WEBHOOK_RECOVERY_COOLDOWN_MS', 60 * 1000);
 const backgroundSweepTriggers = [];
+let lastWebhookRecoveryAt = 0;
+let webhookRecoveryTimer = null;
 
 /* ── ヘルスチェック（UptimeRobot用） ── */
 app.get('/health', (_req, res) => {
@@ -49,7 +54,9 @@ app.post('/webhook', middleware(config), (req, res) => {
   res.json({ ok: true });  // LINEには必ず200を即返す（再試行ループ防止）
   const client = new Client(config);
   req.body.events.forEach(event => {
-    webhook.handle(event, client).catch(err => console.error('[webhook error]', err));
+    webhook.handle(event, client)
+      .catch(err => console.error('[webhook error]', err))
+      .finally(() => scheduleWebhookRecoverySweep());
   });
 });
 
@@ -75,11 +82,34 @@ function startBackgroundSweep(name, task, intervalMs) {
     }
   };
 
-  setTimeout(tick, 5 * 1000);
+  setTimeout(tick, BACKGROUND_START_DELAY_MS);
   const timer = setInterval(tick, intervalMs);
   if (typeof timer.unref === 'function') timer.unref();
   backgroundSweepTriggers.push(tick);
   return tick;
+}
+
+function scheduleWebhookRecoverySweep() {
+  if (!backgroundSweepTriggers.length) return;
+  const now = Date.now();
+  if (lastWebhookRecoveryAt && now - lastWebhookRecoveryAt < WEBHOOK_RECOVERY_COOLDOWN_MS) return;
+  if (webhookRecoveryTimer) return;
+
+  webhookRecoveryTimer = setTimeout(() => {
+    webhookRecoveryTimer = null;
+    lastWebhookRecoveryAt = Date.now();
+    backgroundSweepTriggers.forEach(trigger => {
+      Promise.resolve(trigger()).catch(err => console.error('[webhook-recovery]', err?.message || err));
+    });
+  }, WEBHOOK_RECOVERY_DELAY_MS);
+  if (typeof webhookRecoveryTimer.unref === 'function') webhookRecoveryTimer.unref();
+}
+
+function readNonNegativeIntEnv(name, fallback) {
+  const value = process.env[name];
+  if (value == null || value === '') return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback;
 }
 
 if (hasReminderWorkerSecrets()) {

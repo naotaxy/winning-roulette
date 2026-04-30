@@ -19,6 +19,7 @@ const { buildWakeRecipeMessage } = require('./wake-recipe-service');
 const WAKE_ALARM_ROOT = 'wakeAlarms';
 const LOOKBACK_MS = 3 * 60 * 60 * 1000;
 const CLAIM_STALE_MS = 10 * 60 * 1000;
+const DEFAULT_MAX_LATE_PUSH_MS = 10 * 60 * 1000;
 
 let _db = null;
 
@@ -143,6 +144,13 @@ async function releaseWakeClaim(sourceId, claimToken, err, now) {
   }).catch(() => {});
 }
 
+function getMaxLatePushMs() {
+  const raw = process.env.WAKE_ALARM_MAX_LATE_PUSH_MS;
+  if (raw == null || raw === '') return DEFAULT_MAX_LATE_PUSH_MS;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : DEFAULT_MAX_LATE_PUSH_MS;
+}
+
 function parseStoredNumber(value) {
   if (value == null || value === '') return null;
   const number = Number(value);
@@ -242,6 +250,67 @@ async function advanceMissedRecurringAlarms(alarms, now) {
   return advanced;
 }
 
+// Render のスリープや GitHub Actions 停滞で大きく遅れた起床通知は、
+// 次のユーザーメッセージで突然送ると「ヘルプ/システムが起床通知に化けた」ように見える。
+// 許容遅延を超えたものは送らず、単発は missed、繰り返しは次回へ進める。
+async function markLateWakeAlarmsMissed(alarms, now) {
+  const maxLateMs = getMaxLatePushMs();
+  if (maxLateMs <= 0) return 0;
+
+  let missed = 0;
+  for (const [sourceId, alarm] of Object.entries(alarms)) {
+    if (!alarm || typeof alarm !== 'object') continue;
+
+    const dueAt = Number(alarm.dueAt);
+    const claimAt = Number(alarm.claimAt || 0);
+    const isActive = alarm.status === 'active';
+    const isStaleSending = alarm.status === 'sending' && claimAt > 0 && claimAt < now - CLAIM_STALE_MS;
+    if ((!isActive && !isStaleSending) || !Number.isFinite(dueAt)) continue;
+    if (dueAt > now - maxLateMs) continue;
+
+    const ref = getDb().ref(`${WAKE_ALARM_ROOT}/${sourceId}`);
+    const missedAtIso = new Date(now).toISOString();
+    const result = await ref.transaction(current => {
+      if (!current || typeof current !== 'object') return current;
+      const currentDueAt = Number(current.dueAt);
+      const currentClaimAt = Number(current.claimAt || 0);
+      const currentIsActive = current.status === 'active';
+      const currentIsStaleSending = current.status === 'sending' && currentClaimAt > 0 && currentClaimAt < now - CLAIM_STALE_MS;
+      if ((!currentIsActive && !currentIsStaleSending) || currentDueAt !== dueAt) return current;
+      if (currentDueAt > now - maxLateMs) return current;
+
+      const update = {
+        ...current,
+        lastMissedAt: now,
+        lastMissedAtIso: missedAtIso,
+        lastMissedReason: `wake alarm was more than ${Math.round(maxLateMs / 60000)} minutes late`,
+        claimAt: null,
+        claimAtIso: null,
+        claimToken: null,
+      };
+
+      if (current.recurring) {
+        update.dueAt = computeNextRecurringDueAt(current, new Date(now + 60 * 1000));
+        update.status = 'active';
+        update.sentAt = null;
+        update.sentAtIso = null;
+      } else {
+        update.status = 'missed';
+        update.missedAt = now;
+        update.missedAtIso = missedAtIso;
+      }
+
+      return update;
+    }).catch(() => null);
+
+    if (result?.committed) {
+      missed += 1;
+      console.warn(`[wake] late alarm skipped sourceId=${sourceId} lateMs=${now - dueAt}`);
+    }
+  }
+  return missed;
+}
+
 async function runWakeAlarmSweep() {
   if (!hasWakeWorkerSecrets()) {
     console.log('[wake] required secrets missing; skip');
@@ -251,6 +320,7 @@ async function runWakeAlarmSweep() {
   const now = Date.now();
   const snap = await getDb().ref(WAKE_ALARM_ROOT).once('value');
   const alarms = snap.val() || {};
+  const missed = await markLateWakeAlarmsMissed(alarms, now).catch(() => 0);
 
   let sent = 0;
   let failed = 0;
@@ -274,8 +344,8 @@ async function runWakeAlarmSweep() {
   }
 
   const advanced = await advanceMissedRecurringAlarms(alarms, now).catch(() => 0);
-  console.log(`[wake] sent=${sent} failed=${failed} claimed=${claimedCount} advanced=${advanced}`);
-  return { sent, failed, claimed: claimedCount, advanced };
+  console.log(`[wake] sent=${sent} failed=${failed} claimed=${claimedCount} missed=${missed} advanced=${advanced}`);
+  return { sent, failed, claimed: claimedCount, missed, advanced };
 }
 
 module.exports = {

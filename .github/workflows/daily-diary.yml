@@ -2,7 +2,6 @@ name: 秘書トラペル子 定期処理
 
 on:
   schedule:
-    - cron: '2-57/5 * * * *'
     - cron: '0 22 * * *'   # 毎日 07:00 JST (= UTC 22:00 前日)
   workflow_dispatch:
     inputs:
@@ -18,17 +17,19 @@ on:
           - diary
           - all
 
+concurrency:
+  group: secretary-scheduler-${{ github.ref }}-${{ github.event_name == 'schedule' && github.event.schedule || github.event.inputs.task || 'manual' }}
+  cancel-in-progress: true
+
 jobs:
   send-event-reminders:
     if: |
-      (github.event_name == 'schedule' && github.event.schedule == '2-57/5 * * * *') ||
       (github.event_name == 'workflow_dispatch' && (github.event.inputs.task == 'scheduler' || github.event.inputs.task == 'reminders' || github.event.inputs.task == 'all'))
     uses: ./.github/workflows/event-reminder.yml
     secrets: inherit
 
   send-wake-alarms:
     if: |
-      (github.event_name == 'schedule' && github.event.schedule == '2-57/5 * * * *') ||
       (github.event_name == 'workflow_dispatch' && (github.event.inputs.task == 'scheduler' || github.event.inputs.task == 'wake' || github.event.inputs.task == 'all'))
     uses: ./.github/workflows/wake-alarm.yml
     secrets: inherit
