@@ -1,8 +1,14 @@
 name: 秘書トラペル子 イベントリマインダー
 
 on:
+  schedule:
+    - cron: '*/5 * * * *'
   workflow_call:
   workflow_dispatch:
+
+concurrency:
+  group: event-reminders-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   send-event-reminders:
