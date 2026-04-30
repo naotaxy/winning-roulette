@@ -43,17 +43,18 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '24'
+          package-manager-cache: false
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --no-audit --no-fund
         working-directory: scripts
 
       - name: Generate diary
