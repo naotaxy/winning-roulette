@@ -165,6 +165,10 @@ AI自然会話:
   → `AI_CHAT_ENABLED=true` とプロバイダーAPIキーがある時だけ、メンション付き雑談を外部AIへ渡す。未設定時は無料テンプレ返答に戻る
   → 無料運用の推奨は `AI_PROVIDER=gemini` + `GEMINI_API_KEY`。Google AI Studio / Cloud Billing は有効化しない
   → `AI_COST_GUARD_ENABLED=true` なら、日次/月次回数・トークン上限・quota/billing系エラーでFirebaseに自動停止フラグを保存し、それ以降はAIを呼ばない
+
+Gemma4本気作戦会議:
+  → `作戦会議` / `Codex会議` / `度肝を抜いて` で、Gemma 4を使った自由会話型の10人会議を先頭に追加
+  → 失敗、未設定、混雑、課金ガード上限時は固定ロジックの作戦会議へ自動フォールバック
 ```
 
 ### OK / キャンセル時
@@ -194,6 +198,11 @@ OK押下:
 | `AI_PROVIDER` | 任意。`gemini` 推奨。`openai` も指定可 |
 | `GEMINI_API_KEY` | 任意。Gemini無料枠で使うGoogle AI Studio APIキー |
 | `GEMINI_MODEL` | 任意。既定値は `gemini-2.5-flash-lite` |
+| `GEMMA4_COUNCIL_ENABLED` | 任意。`true` でGemma4本気作戦会議を明示ON、`false` でOFF。未指定時は `AI_CHAT_ENABLED=true` かつ Gemini 利用時にON |
+| `GEMMA4_COUNCIL_MODEL` | 任意。Gemma4作戦会議のモデル。既定値は `gemma-4-26b-a4b-it` |
+| `GEMMA4_COUNCIL_THINKING` | 任意。`false` 以外ならGemma4のthinking level highを要求 |
+| `GEMMA4_COUNCIL_MAX_OUTPUT_TOKENS` | 任意。Gemma4作戦会議の最大出力トークン。既定値は `900` |
+| `GEMMA4_COUNCIL_TIMEOUT_MS` | 任意。Gemma4作戦会議のタイムアウト。既定値は `6500` |
 | `OPENAI_API_KEY` | 任意。OpenAIを使う時だけ設定（従量課金なので無料運用では非推奨） |
 | `OPENAI_MODEL` | 任意。OpenAI利用時の既定値は `gpt-5-nano` |
 | `AI_COST_GUARD_ENABLED` | 任意。既定値はON。`false` にしない限り、課金ガードでAIを自動停止 |
@@ -217,6 +226,8 @@ OK押下:
 AI課金ガードは `config/aiChatGuard/autoDisabled` に停止理由を保存する。日次・月次のリクエスト上限やトークン上限で止まった場合は、日付または月が切り替わって枠が復活した時に自動で `disabled=false` に戻る。APIキー認証、請求、外部サービス側quotaなど課金リスク系エラーで止まった場合は安全のため自動復帰しないので、Firebaseで `disabled` を `false` に戻し、必要なら上限値を見直してからRenderを再デプロイする。
 
 Gemini無料枠で自然会話を使う場合は、Renderに `AI_CHAT_ENABLED=true`、`AI_PROVIDER=gemini`、`GEMINI_API_KEY=...` を設定する。Google AI StudioでAPIキーを作る時にCloud Billingは有効化しない。BotからGoogle側の請求先状態までは直接読めないので、無料運用では管理画面の「Billing未設定」を必ず確認する。
+
+Gemma4本気作戦会議は Gemini API 経由の Gemma 4（既定: `gemma-4-26b-a4b-it`）を呼ぶ。AI課金ガードは通常のAI自然会話と同じ `aiChatUsage` / `config/aiChatGuard/autoDisabled` を使うため、日次・月次上限やquota/billing系エラーでは自動停止し、固定ロジックの作戦会議へ戻る。
 
 ---
 

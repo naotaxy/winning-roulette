@@ -87,7 +87,7 @@ const { formatMemberFlavorReply, formatAnonymousDiaryHighlights } = require('./g
 const { detectGeoGameIntent, handleGeoGameIntent } = require('./geo-game');
 const { detectDiceGameIntent, formatDiceGameReply } = require('./dice-games');
 const { detectOcrControlIntent } = require('./ocr-control');
-const { detectCodexCouncilIntent, buildCodexCouncilMessages } = require('./codex-council');
+const { detectCodexCouncilIntent, buildCodexCouncilMessagesWithGemma4 } = require('./codex-council');
 const { detectBeastModeIntent, formatBeastModeReply, formatBeastModeLockedReply } = require('./beast-mode');
 const { detectProjectGuideIntent, formatProjectGuideReply } = require('./project-guide');
 const {
@@ -1090,7 +1090,7 @@ async function handleText(event, client) {
         ? getResolvedPrivateProfile({ userId, realName: senderName }).catch(() => null)
         : Promise.resolve(null),
     ]);
-    return client.replyMessage(event.replyToken, buildCodexCouncilMessages({
+    return client.replyMessage(event.replyToken, await buildCodexCouncilMessagesWithGemma4({
       year,
       month,
       senderName,

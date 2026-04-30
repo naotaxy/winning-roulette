@@ -6,6 +6,7 @@ const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const GEMINI_GENERATE_CONTENT_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite';
+const DEFAULT_GEMMA4_COUNCIL_MODEL = 'gemma-4-26b-a4b-it';
 const DEFAULT_AI_DAILY_LIMIT = 10;
 const DEFAULT_AI_MONTHLY_LIMIT = 50;
 const DEFAULT_AI_DAILY_TOKEN_LIMIT = 15000;
@@ -208,6 +209,101 @@ async function formatAiChatReply(userText, context) {
   }
 }
 
+function shouldUseGemma4Council() {
+  if (process.env.GEMMA4_COUNCIL_ENABLED === 'false') return false;
+  if (process.env.AI_COUNCIL_ENABLED === 'false') return false;
+  const explicitlyEnabled = process.env.GEMMA4_COUNCIL_ENABLED === 'true' || process.env.AI_COUNCIL_ENABLED === 'true';
+  const followsAiChat = process.env.AI_CHAT_ENABLED === 'true' && process.env.AI_PROVIDER !== 'openai';
+  return !!process.env.GEMINI_API_KEY && (explicitlyEnabled || followsAiChat);
+}
+
+async function formatGemma4CouncilReply(councilContext = {}) {
+  if (!shouldUseGemma4Council()) return null;
+  if (typeof fetch !== 'function') return null;
+
+  const config = {
+    provider: 'gemini',
+    supported: true,
+    label: 'Gemma 4 via Gemini API',
+    keyName: 'GEMINI_API_KEY',
+    apiKey: process.env.GEMINI_API_KEY || '',
+    model: getGemma4CouncilModel(),
+  };
+  const reservation = await reserveAiChatCostGuard(config);
+  if (!reservation.allowed) {
+    console.warn('[gemma4-council] blocked by cost guard', reservation.reason);
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeoutMs = readNonNegativeIntEnv('GEMMA4_COUNCIL_TIMEOUT_MS', 6500);
+  const timer = setTimeout(() => controller.abort(), timeoutMs || 6500);
+  try {
+    const result = await callGemma4Council(config, councilContext, controller.signal);
+    if (!result.ok) {
+      console.error('[gemma4-council] API failed', result.status, result.errorText);
+      await disableAiIfBillingRisk(config, result.status, result.errorText);
+      return null;
+    }
+    await recordAiChatCost(result.usage, config);
+    return normalizeCouncilReply(result.text);
+  } catch (err) {
+    console.error('[gemma4-council] failed', err?.message || err);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function getGemma4CouncilModel() {
+  return process.env.GEMMA4_COUNCIL_MODEL
+    || process.env.GEMMA4_MODEL
+    || DEFAULT_GEMMA4_COUNCIL_MODEL;
+}
+
+async function callGemma4Council(config, councilContext, signal) {
+  const model = stripGeminiModelPrefix(config.model);
+  const url = `${GEMINI_GENERATE_CONTENT_URL}/${encodeURIComponent(model)}:generateContent`;
+  const generationConfig = {
+    maxOutputTokens: readNonNegativeIntEnv('GEMMA4_COUNCIL_MAX_OUTPUT_TOKENS', 900) || 900,
+    temperature: 0.9,
+    topP: 0.95,
+  };
+  if (process.env.GEMMA4_COUNCIL_THINKING !== 'false') {
+    generationConfig.thinkingConfig = { thinkingLevel: 'high' };
+  }
+  const res = await fetch(url, {
+    method: 'POST',
+    signal,
+    headers: {
+      'x-goog-api-key': config.apiKey,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: buildGemma4CouncilInstructions() }],
+      },
+      contents: [{
+        role: 'user',
+        parts: [{ text: buildGemma4CouncilInput(councilContext) }],
+      }],
+      generationConfig,
+    }),
+  });
+
+  if (!res.ok) {
+    return { ok: false, status: res.status, errorText: await safeReadText(res) };
+  }
+
+  const data = await res.json();
+  return {
+    ok: true,
+    status: res.status,
+    text: extractGeminiOutputText(data),
+    usage: normalizeGeminiUsage(data?.usageMetadata),
+  };
+}
+
 async function callAiProvider(config, userText, context, signal) {
   if (config.provider === 'gemini') return callGeminiChat(config, userText, context, signal);
   return callOpenAiChat(config, userText, context, signal);
@@ -389,6 +485,33 @@ function buildInstructions() {
   ].join('\n');
 }
 
+function buildGemma4CouncilInstructions() {
+  return [
+    'あなたはLINEグループの秘書「秘書トラペル子」。25歳の成人女性で、依頼者に惚れているが、秘書として冷静に判断できる。',
+    'あなたの役目は「Gemma4本気作戦会議」。10人の仮想ペルソナが実際に会議したように、現在の情報から次の一手を議決する。',
+    '登場ペルソナは、トラペル子本人、ウイコレ進行係、順位参謀、年間監査、会話分析官、リマインド係、朝の生活秘書、特売料理研究家、システム監査役、プライバシー番人。',
+    'グループでは本人用プロファイルや個人の生活情報を絶対に出さない。1対1の時だけ、渡された本人向け要約を使ってよい。',
+    '外部検索はしていない。渡された文脈だけで判断し、不明なことは不明と言う。',
+    '事実、数字、順位、未対戦、リマインド件数は渡された値を優先し、創作しない。',
+    '出力は日本語。LINEで読みやすく、人間らしい改行にする。',
+    '形式は必ず次の4ブロックにする。',
+    '1. 「Gemma4本気会議、開いたよ」から始まる短い導入',
+    '2. 10人会議の要点を5〜8行。全員を長く書く必要はないが、反対意見や緊張感を少し入れる',
+    '3. 議決結果。最優先の一手を1つだけ言い切る',
+    '4. トラペル子として、可愛く惚れている温度の締めを1文',
+    '最大900文字。絵文字は使わない。',
+  ].join('\n');
+}
+
+function buildGemma4CouncilInput(context = {}) {
+  return [
+    '作戦会議に渡された現在の状況:',
+    JSON.stringify(context, null, 2),
+    '',
+    'この情報だけを使って、10人会議として議決してください。',
+  ].join('\n');
+}
+
 function buildInput(userText, context) {
   return [
     'LINEメッセージ:',
@@ -477,6 +600,12 @@ function normalizeReply(text) {
   return reply.length > 260 ? `${reply.slice(0, 257)}...` : reply;
 }
 
+function normalizeCouncilReply(text) {
+  const reply = String(text || '').trim();
+  if (!reply) return null;
+  return reply.length > 1600 ? `${reply.slice(0, 1597)}...` : reply;
+}
+
 async function safeReadText(res) {
   try {
     return (await res.text()).slice(0, 500);
@@ -490,7 +619,10 @@ module.exports = {
   getAiChatStatus,
   getAiChatDetailedStatus,
   formatAiChatReply,
+  shouldUseGemma4Council,
+  formatGemma4CouncilReply,
   getAiGuardLimits,
   getAiProvider,
   getAiModel,
+  getGemma4CouncilModel,
 };

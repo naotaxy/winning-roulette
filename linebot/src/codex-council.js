@@ -5,6 +5,7 @@ const {
   calculateAnnualStandings,
   calculateMonthProgress,
 } = require('./standings');
+const { formatGemma4CouncilReply } = require('./ai-chat');
 
 function detectCodexCouncilIntent(text) {
   const t = String(text || '').normalize('NFKC').replace(/\s+/g, '');
@@ -87,6 +88,23 @@ function buildCodexCouncilMessages({
       quickReply: buildCodexCouncilQuickReply(isDirectChat),
     },
   ];
+}
+
+async function buildCodexCouncilMessagesWithGemma4(options = {}) {
+  const fixedMessages = buildCodexCouncilMessages(options);
+  const aiContext = buildGemma4CouncilContext(options);
+  const aiText = await formatGemma4CouncilReply(aiContext).catch(err => {
+    console.error('[codex-council] Gemma4 council failed', err?.message || err);
+    return null;
+  });
+  if (!aiText) return fixedMessages;
+  return [
+    {
+      type: 'text',
+      text: aiText,
+    },
+    ...fixedMessages,
+  ].slice(0, 5);
 }
 
 function buildExecutiveText({
@@ -286,6 +304,104 @@ function buildPrivateProfileLine(profile) {
     : '本人用プロファイルはあるけど、朝の場所や通勤手段を足すともっと賢くなる。';
 }
 
+function buildGemma4CouncilContext({
+  year,
+  month,
+  senderName = '',
+  isDirectChat = false,
+  players = [],
+  monthResults = {},
+  yearResults = {},
+  matchSchedule = null,
+  recentConversation = [],
+  reminders = [],
+  wakeAlarm = null,
+  ocrState = null,
+  beastModeState = null,
+  privateProfile = null,
+} = {}) {
+  const monthlyRows = safeArray(safeCall(() => calculateMonthlyStandings(players, monthResults), []));
+  const annualRows = safeArray(safeCall(() => calculateAnnualStandings(players, yearResults), []));
+  const progress = safeCall(() => calculateMonthProgress(players, monthResults, matchSchedule), null);
+  const conversationSignals = extractConversationSignals(recentConversation);
+  const activeReminders = safeArray(reminders).filter(rem => rem?.status === 'active');
+  return {
+    feature: 'Gemma4自由会話型作戦会議',
+    year,
+    month,
+    caller: senderName || '',
+    privacyScope: isDirectChat ? 'direct_chat' : 'group_chat',
+    privacyRule: isDirectChat
+      ? '本人向け要約だけ使ってよい。生のプロフィール全文は出さない。'
+      : 'グループなので本人用プロファイルや生活情報を出さない。',
+    monthlyStandingsTop: monthlyRows.slice(0, 5).map(row => ({
+      rank: row.rank,
+      name: row.name,
+      matchPt: row.matchPt,
+      rankPt: row.rankPt,
+      wins: row.w,
+      pkWins: row.pkw,
+      draws: row.d,
+      losses: row.l,
+      goalDiff: row.gd,
+    })),
+    annualStandingsTop: annualRows.slice(0, 5).map(row => ({
+      rank: row.rank,
+      name: row.name,
+      rankPt: row.rankPt,
+    })),
+    progress: progress ? {
+      total: progress.total,
+      done: progress.done,
+      remaining: getRemainingMatches(progress),
+      notStarted: safeArray(progress.notStarted).slice(0, 8).map(([a, b, target]) => ({ a, b, remaining: target })),
+      half: safeArray(progress.half).slice(0, 8).map(([a, b, count, target]) => ({ a, b, done: count, target })),
+      targetMatchesPerPair: progress.targetMatchesPerPair,
+    } : null,
+    reminders: activeReminders.slice(0, 8).map(rem => ({
+      title: rem.title || '',
+      detail: rem.detail || '',
+      reminderAt: rem.reminderAt || rem.dueAt || null,
+      tags: safeArray(rem.tags).slice(0, 4),
+    })),
+    wakeAlarm: wakeAlarm?.status === 'active' ? {
+      active: true,
+      hour: wakeAlarm.hour,
+      minute: wakeAlarm.minute,
+      recurring: wakeAlarm.recurring === true,
+      weekdayOnly: wakeAlarm.weekdayOnly === true,
+      newsMode: wakeAlarm.newsMode || '',
+      recipeMode: wakeAlarm.recipeMode || '',
+      commuteMode: wakeAlarm.commuteMode || '',
+    } : { active: false },
+    ocr: {
+      autoEnabled: ocrState?.autoEnabled !== false,
+    },
+    noblesse: {
+      enabled: beastModeState?.enabled === true,
+    },
+    conversation: {
+      summary: conversationSignals.summary,
+      topics: conversationSignals.topics,
+      recent: safeArray(recentConversation).slice(-14).map(message => ({
+        senderName: message?.senderName || '',
+        text: String(message?.text || '').slice(0, 120),
+      })),
+    },
+    directProfileSummary: isDirectChat ? summarizePrivateProfileForAi(privateProfile) : null,
+  };
+}
+
+function summarizePrivateProfileForAi(profile) {
+  if (!profile) return null;
+  return {
+    hasDefaultWakePlace: !!profile.defaultWakePlace,
+    commuteMode: profile.commuteMode || '',
+    hasCommuteRoute: !!(profile.commuteRouteText || profile.roadRouteText),
+    summaryLines: safeArray(profile.summaryLines).slice(0, 3),
+  };
+}
+
 function getRemainingMatches(progress) {
   if (!progress) return 0;
   return Math.max(0, Number(progress.total || 0) - Number(progress.done || 0));
@@ -311,4 +427,5 @@ function formatSigned(value) {
 module.exports = {
   detectCodexCouncilIntent,
   buildCodexCouncilMessages,
+  buildCodexCouncilMessagesWithGemma4,
 };
