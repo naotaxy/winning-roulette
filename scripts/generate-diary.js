@@ -4,9 +4,10 @@
  *
  * 1. YouTube Data API v3 でウイコレ関連動画を収集
  * 2. eFootball 公式 RSS でニュースを収集
- * 3. Gemini で長文・人間らしい日記を生成
- * 4. はてなブログ AtomPub API で投稿
- * 5. Firebase にアーカイブ保存（Bot の知識源）
+ * 3. JMOOC開講中講座・生活ヒント・音楽・90年代カルチャーを収集
+ * 4. Gemini で長文・人間らしい日記を生成
+ * 5. はてなブログ AtomPub API で投稿
+ * 6. Firebase にアーカイブ保存（Bot の知識源）
  *
  * GitHub Secrets 必要:
  *   YOUTUBE_API_KEY, GEMINI_API_KEY,
@@ -43,6 +44,7 @@ const DEFAULT_DIARY_GEMINI_MODEL = 'gemini-2.5-flash';
 const DEFAULT_DIARY_GEMINI_FALLBACK_MODELS = ['gemini-2.5-flash-lite'];
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 const GEMINI_RETRY_DELAYS_MS = [5000, 15000, 30000];
+const JMOOC_HOME_URL = 'https://www.jmooc.jp/';
 
 const WORLD_CUP_2026 = {
   startsAt: '2026-06-11',
@@ -59,9 +61,89 @@ const LIFESTYLE_QUERIES = [
     category: 'IKEA新作',
     query: 'IKEA 日本 新商品 新作 家具 収納',
   },
+];
+
+const MUSIC_QUERIES = [
   {
-    category: '日本から海外へ稼ぐ現実的なヒント',
-    query: '日本 在宅 海外 収入 越境EC デジタル販売 副業',
+    category: 'J-POP音楽ニュース',
+    query: 'J-POP 音楽ニュース 新曲 ライブ 日本',
+  },
+  {
+    category: '日本の音楽トピック',
+    query: '日本 音楽 話題 アーティスト ランキング',
+  },
+];
+
+const NINETIES_TRENDS = [
+  {
+    id: 'eight-cm-cd',
+    title: '8cm CDとCDショップの棚',
+    category: '1990年代の音楽文化',
+    description: '短冊みたいな8cm CDが棚に並び、ジャケットを見ながら選ぶ時間そのものが娯楽だった。',
+    perspective: '25歳の私から見ると、サブスクで一瞬で聴ける今より、曲を一枚ずつ迎えに行く感じが少し羨ましい。',
+  },
+  {
+    id: 'komuro-sound',
+    title: '小室サウンドとダンス系J-POP',
+    category: '1990年代の音楽文化',
+    description: 'シンセの音、強いビート、テレビ番組の熱気が一体になって、街全体が同じ曲を知っているような時代だった。',
+    perspective: '25歳の私には、ヒット曲が共通言語として強かった世界に見える。今の細かく分かれた好きとは別の眩しさがある。',
+  },
+  {
+    id: 'shibuya-kei',
+    title: '渋谷系とCDショップ巡り',
+    category: '1990年代の音楽文化',
+    description: '渋谷のレコード店や雑誌から、洋楽の匂いをまとったポップスやおしゃれな選曲文化が広がっていた。',
+    perspective: '25歳の私から見ると、検索ではなく足で見つける音楽という感じがして、少し大人びた遊びに見える。',
+  },
+  {
+    id: 'karaoke-million',
+    title: 'カラオケボックスとミリオンセラー',
+    category: '1990年代の音楽文化',
+    description: 'ミリオンセラーが次々に生まれ、学校帰りや会社帰りのカラオケで同じ曲を歌う時間が共有されていた。',
+    perspective: '25歳の私には、歌える曲が人間関係の潤滑油だった時代に見える。得意曲を持つって、ちょっと名刺みたいで可愛い。',
+  },
+  {
+    id: 'md-best',
+    title: 'MDウォークマンと自分だけのベスト盤',
+    category: '1990年代の音楽文化',
+    description: '好きな曲を録音して並べ替え、自分だけの一枚を作るMD文化が、通学や移動の気分を支えていた。',
+    perspective: '25歳の私から見ると、プレイリストより少し手間があるぶん、選んだ曲への愛着が濃そうに感じる。',
+  },
+  {
+    id: 'pager-short-message',
+    title: 'ポケベルと短い数字メッセージ',
+    category: '1990年代の流行',
+    description: 'スマホの前に、短い数字や限られた文字で気持ちを送る連絡文化があった。',
+    perspective: '25歳の私には不便なのに、返事を待つ時間まで物語になっていたように見える。既読がない時代の静けさも少し新鮮。',
+  },
+  {
+    id: 'purikura-book',
+    title: 'プリクラ帳と手書きの交換文化',
+    category: '1990年代の流行',
+    description: '友達と撮ったプリクラを手帳に貼り、ペンで書き足して交換することで、思い出を持ち歩いていた。',
+    perspective: '25歳の私から見ると、SNSの投稿よりも相手の手に渡る感じが強くて、秘密のアルバムみたいで温かい。',
+  },
+  {
+    id: 'tamagotchi-pocket',
+    title: 'たまごっちとポケットの育成ブーム',
+    category: '1990年代の流行',
+    description: '小さな端末の中の存在を世話する遊びが広がり、通知より先に「気にかける」習慣を作っていた。',
+    perspective: '25歳の私には、今のスマホゲームの原点みたいに見える。小さい画面に一喜一憂する気持ちは今も変わらない。',
+  },
+  {
+    id: 'first-playstation',
+    title: '初代PlayStationとテレビ前の熱気',
+    category: '1990年代の流行',
+    description: '家庭のテレビにつないで遊ぶ3Dゲームが一気に身近になり、友達の家に集まる理由にもなっていた。',
+    perspective: '25歳の私から見ると、オンラインではなく同じ部屋で盛り上がる強さがあって、ウイコレのグループ戦にも通じる。',
+  },
+  {
+    id: 'street-fashion-magazine',
+    title: 'ストリートファッションと雑誌文化',
+    category: '1990年代の流行',
+    description: '雑誌のスナップや街の空気から流行を拾い、服装や小物で自分らしさを出す楽しさが強かった。',
+    perspective: '25歳の私には、アルゴリズムではなく街で流行を浴びる感じが新鮮。みんなで同じページを見て話す時間もいいなと思う。',
   },
 ];
 
@@ -115,17 +197,6 @@ function getJSTDateLabel() {
   return `${now.getUTCFullYear()}年${now.getUTCMonth() + 1}月${now.getUTCDate()}日`;
 }
 
-function getJSTDateParts() {
-  const now = new Date(Date.now() + 9 * 3600 * 1000);
-  const year  = now.getUTCFullYear();
-  const month = now.getUTCMonth() + 1;
-  const day   = now.getUTCDate();
-  const totalDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
-  const weekday = weekdays[now.getUTCDay()];
-  return { year, month, day, totalDays, weekday };
-}
-
 function ensureBlogDir() {
   fs.mkdirSync(BLOG_DIR, { recursive: true });
 }
@@ -163,6 +234,26 @@ async function hydrateStateFromFirebase(state) {
     state.seenLifestyleTitles = mergeUniqueTitles(
       state.seenLifestyleTitles,
       entries.flatMap(entry => entry?.sources?.lifestyle || []),
+      120,
+    );
+    state.seenYouTubeTitles = mergeUniqueTitles(
+      state.seenYouTubeTitles,
+      entries.flatMap(entry => entry?.sources?.videos || []),
+      160,
+    );
+    state.seenJmoocCourseTitles = mergeUniqueTitles(
+      state.seenJmoocCourseTitles,
+      entries.flatMap(entry => entry?.sources?.jmooc || []),
+      120,
+    );
+    state.seenMusicTitles = mergeUniqueTitles(
+      state.seenMusicTitles,
+      entries.flatMap(entry => entry?.sources?.music || []),
+      120,
+    );
+    state.seenNinetiesTitles = mergeUniqueTitles(
+      state.seenNinetiesTitles,
+      entries.flatMap(entry => entry?.sources?.nineties || []),
       120,
     );
     state.hydratedFromFirebaseAt = Date.now();
@@ -204,15 +295,112 @@ function buildYouTubeSignature(videos) {
 
 function analyzeYouTubeFreshness(videos, state) {
   const signature = buildYouTubeSignature(videos);
+  const seenTitles = [
+    ...(state.seenYouTubeTitles || []),
+    ...(state.lastYouTubeTitles || []),
+  ];
+  const freshVideos = videos.filter(video => !isSimilarTitle(video.title, seenTitles));
   const repeated = !!signature && signature === state.lastYouTubeSignature;
+  const noFreshTopic = videos.length > 0 && freshVideos.length === 0;
   return {
-    repeated,
+    repeated: repeated || noFreshTopic,
     signature,
-    videosForDiary: repeated ? [] : videos,
-    note: repeated
-      ? 'YouTube検索結果が前回と同じなので、今日は動画欄を主役にしない。'
+    videosForDiary: repeated || noFreshTopic ? [] : freshVideos,
+    note: repeated || noFreshTopic
+      ? 'YouTube検索結果が前回または過去日記と似ているので、今日は動画欄を主役にしない。'
       : '',
   };
+}
+
+function analyzeMusicFreshness(musicItems, state) {
+  const items = (musicItems || [])
+    .filter(item => item?.title)
+    .map(item => ({
+      title: item.title,
+      desc: item.desc || item.description || '',
+      source: item.source || '',
+    }));
+  const seenTitles = [
+    ...(state.seenMusicTitles || []),
+    ...(state.lastMusicTitles || []),
+  ];
+  const freshItems = items.filter(item => !isSimilarTitle(item.title, seenTitles)).slice(0, 2);
+  const repeated = items.length > 0 && freshItems.length === 0;
+
+  return {
+    items: freshItems,
+    repeated,
+    note: freshItems.length
+      ? '過去日記と似ていない音楽ネタだけ使う。'
+      : '音楽ネタは過去と被る可能性があるので、今日は無理に使わない。',
+  };
+}
+
+function selectNinetiesTopic(state) {
+  const seenTitles = [
+    ...(state.seenNinetiesTitles || []),
+    ...(state.lastNinetiesTitles || []),
+  ];
+  const freshTopics = NINETIES_TRENDS.filter(topic => !isSimilarTitle(topic.title, seenTitles));
+  const pool = freshTopics.length ? freshTopics : NINETIES_TRENDS;
+  const daySeed = Number(getJSTDate().replace(/-/g, ''));
+  const topic = pool[daySeed % pool.length];
+
+  return {
+    ...topic,
+    repeated: freshTopics.length === 0,
+    note: freshTopics.length
+      ? '過去日記にない90年代カルチャーを一つだけ紹介する。'
+      : '90年代カルチャーは一巡しているので、同じ題材でも別角度で紹介する。',
+  };
+}
+
+function isSimilarTitle(title, seenTitles = []) {
+  const current = normalizeTopicTitle(title);
+  if (!current) return true;
+
+  return (seenTitles || []).some(seenTitle => {
+    const seen = normalizeTopicTitle(seenTitle);
+    if (!seen) return false;
+    if (current === seen) return true;
+    if (current.length >= 10 && seen.includes(current)) return true;
+    if (seen.length >= 10 && current.includes(seen)) return true;
+    return bigramJaccard(current, seen) >= 0.58;
+  });
+}
+
+function normalizeTopicTitle(value) {
+  return normalizeForSignature(value)
+    .replace(/【[^】]*】/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/[0-9０-９]{4}[-/年.][0-9０-９]{1,2}[-/月.]?[0-9０-９]{0,2}日?/g, ' ')
+    .replace(/[0-9０-９]+月[0-9０-９]+日?/g, ' ')
+    .replace(/[12][0-9０-９]{3}/g, ' ')
+    .replace(/[!！?？#＃【】()[\]（）「」『』"'“”‘’、。・:：/／\\|｜_-]+/g, ' ')
+    .replace(/(efootball|ウイコレ|winning eleven|実況|解説|最新|動画|shorts?)/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function bigramJaccard(a, b) {
+  const gramsA = toBigrams(a);
+  const gramsB = toBigrams(b);
+  if (!gramsA.size || !gramsB.size) return 0;
+  let intersection = 0;
+  for (const gram of gramsA) {
+    if (gramsB.has(gram)) intersection += 1;
+  }
+  return intersection / (gramsA.size + gramsB.size - intersection);
+}
+
+function toBigrams(value) {
+  const text = String(value || '').replace(/\s+/g, '');
+  const grams = new Set();
+  if (text.length <= 1) return grams;
+  for (let i = 0; i < text.length - 1; i += 1) {
+    grams.add(text.slice(i, i + 2));
+  }
+  return grams;
 }
 
 function isWithinDateRange(date, startsAt, endsAt) {
@@ -249,6 +437,12 @@ async function fetchWorldCupUpdates(date, state) {
 }
 
 async function fetchLifestyleIdea(state) {
+  const jmooc = await fetchJmoocOpenCourse(state).catch(err => {
+    console.warn('[jmooc] failed:', err.message);
+    return null;
+  });
+  if (jmooc) return jmooc;
+
   const seenTitles = state.seenLifestyleTitles || [];
   const groups = await Promise.all(LIFESTYLE_QUERIES.map(async topic => {
     const items = await fetchRSS(googleNewsRssUrl(topic.query));
@@ -263,7 +457,7 @@ async function fetchLifestyleIdea(state) {
     return {
       category: '生活の小さな工夫',
       items: [],
-      note: '100均、IKEA、海外向け収入ヒントの新規ニュースが見つからなかったので、過去日記と重ならない観点で生活の工夫を書く。',
+      note: 'JMOOC、100均、IKEAの新規話題が見つからなかったので、過去日記と重ならない観点で生活の工夫を書く。',
     };
   }
 
@@ -274,6 +468,103 @@ async function fetchLifestyleIdea(state) {
     items: picked.items.slice(0, 1),
     note: `${picked.category}から、過去日記にない話題を一つだけ使う。`,
   };
+}
+
+async function fetchJmoocOpenCourse(state) {
+  const courses = await fetchJmoocOpenCourses();
+  if (!courses.length) return null;
+
+  const seenTitles = state.seenJmoocCourseTitles || [];
+  const unseen = courses.filter(course => !isSimilarTitle(course.title, seenTitles));
+  const pool = unseen.length ? unseen : courses;
+  const day = Number(getJSTDate().replace(/-/g, ''));
+  const course = pool[day % pool.length];
+  const descParts = [
+    course.openDateLabel ? `${course.openDateLabel}開講` : '',
+    course.provider ? `提供: ${course.provider}` : '',
+    course.teacher ? `講師: ${course.teacher}` : '',
+    course.url ? `URL: ${course.url}` : '',
+  ].filter(Boolean);
+
+  return {
+    category: 'JMOOC開講中講座',
+    items: [{
+      title: course.title,
+      desc: descParts.join(' / '),
+    }],
+    jmoocCourse: course,
+    note: unseen.length
+      ? 'JMOOCの開講中講座から、過去日記で紹介していない講座を一つ選ぶ。'
+      : 'JMOOCの開講中講座は取得できたが未紹介講座が少ないので、同じ講座名でも角度を変えて深掘りする。',
+  };
+}
+
+async function fetchJmoocOpenCourses() {
+  const res = await fetch(JMOOC_HOME_URL, {
+    signal: AbortSignal.timeout(8000),
+    headers: { 'user-agent': 'winning-roulette-diary/1.0' },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const html = await res.text();
+  return parseJmoocOpenCourses(html);
+}
+
+function parseJmoocOpenCourses(html) {
+  const courses = [];
+  for (const match of String(html || '').matchAll(/<article id="lecture-([^"]+)"([\s\S]*?)<\/article\s*>/g)) {
+    const id = match[1];
+    const block = match[2];
+    if (!/jmooc_lecture_status-open|status-open/.test(block)) continue;
+
+    const title = cleanHtml(block.match(/<h3 class="lecturecard-title">([\s\S]*?)<\/h3>/)?.[1]);
+    if (!title) continue;
+
+    const url = cleanHtml(block.match(/<a href="([^"]+)" target="_blank">\s*<div class="lecturecard-thumb-wrap">/)?.[1] ||
+      block.match(/<a href="([^"]+)" target="_blank">\s*<h3 class="lecturecard-title">/)?.[1] || '');
+    const openDate = cleanHtml(block.match(/<time datetime="([^"]+)">/)?.[1]);
+    const openDateLabel = cleanHtml(block.match(/<time datetime="[^"]+">([\s\S]*?)<\/time>/)?.[1]);
+    const providers = [...block.matchAll(/<span class="lecturecard-term-span">([\s\S]*?)<\/span>/g)]
+      .map(item => cleanHtml(item[1]))
+      .filter(Boolean);
+    const teacher = cleanHtml(block.match(/<span class="lecturecard-teachers-span">\s*([\s\S]*?)<\/span>/)?.[1]);
+
+    courses.push({
+      id,
+      title,
+      url,
+      openDate,
+      openDateLabel,
+      provider: providers.join('、'),
+      teacher,
+    });
+  }
+
+  return courses;
+}
+
+function cleanHtml(value) {
+  return decodeHtmlEntities(String(value || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim());
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || '')
+    .replace(/&#(\d+);/g, (_, code) => {
+      const n = Number(code);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : _;
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
+      const n = Number.parseInt(code, 16);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : _;
+    })
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'");
 }
 
 function selectStoryPlan(state) {
@@ -333,12 +624,19 @@ function getDiaryPhoto() {
 }
 
 function updateDiaryStateAfterSuccess(state, date, inputs) {
-  const { youtube, worldCup, lifestyle, storyPlan } = inputs;
+  const { youtube, worldCup, lifestyle, music, nineties, storyPlan } = inputs;
   state.lastRunDate = date;
 
   if (youtube.signature) {
     state.lastYouTubeSignature = youtube.signature;
     state.lastYouTubeTitles = youtube.videosForDiary.map(v => v.title).slice(0, 8);
+  }
+  if (youtube.videosForDiary.length) {
+    state.seenYouTubeTitles = mergeUniqueTitles(
+      state.seenYouTubeTitles,
+      youtube.videosForDiary.map(v => v.title),
+      160,
+    );
   }
 
   if (worldCup.active && worldCup.items.length) {
@@ -354,6 +652,31 @@ function updateDiaryStateAfterSuccess(state, date, inputs) {
       ...lifestyle.items.map(item => item.title),
     ].slice(-120);
   }
+  if (lifestyle.jmoocCourse?.title) {
+    state.seenJmoocCourseTitles = mergeUniqueTitles(
+      state.seenJmoocCourseTitles,
+      [lifestyle.jmoocCourse.title],
+      120,
+    );
+  }
+
+  if (music.items.length) {
+    state.lastMusicTitles = music.items.map(item => item.title).slice(0, 4);
+    state.seenMusicTitles = mergeUniqueTitles(
+      state.seenMusicTitles,
+      music.items.map(item => item.title),
+      120,
+    );
+  }
+
+  if (nineties?.title) {
+    state.lastNinetiesTitles = [nineties.title];
+    state.seenNinetiesTitles = mergeUniqueTitles(
+      state.seenNinetiesTitles,
+      [nineties.title],
+      120,
+    );
+  }
 
   advanceStoryState(state, storyPlan, date);
 }
@@ -362,15 +685,15 @@ function updateDiaryStateAfterSuccess(state, date, inputs) {
 async function fetchYouTubeVideos() {
   if (!YOUTUBE_API_KEY) { console.warn('[youtube] no API key'); return []; }
 
-  const q = encodeURIComponent('eFootball ウイコレ');
+  const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+  const q = encodeURIComponent('eFootball ウイコレ 最新');
   const url = `https://www.googleapis.com/youtube/v3/search`
     + `?part=snippet&q=${q}&type=video&order=date`
-    + `&maxResults=8&key=${YOUTUBE_API_KEY}`;
+    + `&publishedAfter=${since}&maxResults=8&key=${YOUTUBE_API_KEY}`;
 
   const res = await fetch(url);
   const data = await res.json();
-  if (!data.items) { console.warn('[youtube] empty response', JSON.stringify(data.error || data).slice(0, 200)); return []; }
-  console.log(`[youtube] got ${data.items.length} items, totalResults=${data.pageInfo?.totalResults}`);
+  if (!data.items) { console.warn('[youtube] empty response', data.error?.message); return []; }
 
   return data.items.map(item => ({
     title:       item.snippet.title,
@@ -419,37 +742,30 @@ async function fetchEfootballNews() {
   return [];
 }
 
-// ── 音楽トレンド（iTunes Japan） ─────────────────────────
-async function fetchMusicTrends() {
-  try {
-    const res = await fetch(
-      'https://rss.applemarketingtools.com/api/v2/jp/music/most-played/5/songs.json',
-      { signal: AbortSignal.timeout(6000) }
-    );
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.feed?.results || []).slice(0, 5).map(s => ({
-      title: s.name,
-      artist: s.artistName,
+async function fetchMusicTopics() {
+  const groups = await Promise.all(MUSIC_QUERIES.map(async topic => {
+    const items = await fetchRSS(googleNewsRssUrl(topic.query));
+    return items.map(item => ({
+      ...item,
+      source: topic.category,
     }));
-  } catch (e) {
-    console.warn('[music] failed:', e.message);
-    return [];
-  }
+  }));
+
+  return groups.flat().slice(0, 5);
 }
 
+// ── Gemini 日記生成 ──────────────────────────────────────
 async function generateDiary(dateLabel, inputs) {
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
   const {
     youtube,
     news,
-    music,
     worldCup,
     lifestyle,
+    music,
+    nineties,
     storyPlan,
   } = inputs;
-
-  const { month, day, totalDays, weekday } = getJSTDateParts();
 
   const newsBlock = news.length
     ? news.map(n => `・${n.title}${n.desc ? '　' + n.desc : ''}`).join('\n')
@@ -469,36 +785,50 @@ async function generateDiary(dateLabel, inputs) {
     ? lifestyle.items.map(n => `・${lifestyle.category}: ${n.title}${n.desc ? '　' + n.desc : ''}`).join('\n')
     : `・${lifestyle.category}: ${lifestyle.note}`;
 
-  const musicBlock = music?.length
-    ? music.map(m => `・「${m.title}」／${m.artist}`).join('\n')
-    : `（音楽情報は取得できなかった。${month}月らしい空気に合う音の話を短く書いてよい）`;
+  const musicBlock = music.items.length
+    ? music.items.map(n => `・${n.title}${n.desc ? '　' + n.desc : ''}${n.source ? `（${n.source}）` : ''}`).join('\n')
+    : '【音楽の話は今日書かない】過去の日記と同じか似た内容のため、音楽・曲名・アーティスト・音楽シーンについて一切触れないこと。';
 
-  const prompt = `あなたは秘書トラペル子です。以下のプロフィールと構成に従って今日の日記を書いてください。
+  const ninetiesBlock = nineties?.title
+    ? [
+      `・${nineties.category}: ${nineties.title}`,
+      `当時の空気: ${nineties.description}`,
+      `25歳から見た視点: ${nineties.perspective}`,
+      `扱い方: ${nineties.note}`,
+    ].join('\n')
+    : '（90年代カルチャーの材料は今日は使わない）';
+
+  const prompt = `あなたは秘書トラペル子です。
+以下のプロフィールを守ってください。
 
 【プロフィール】
-- 25歳の女性秘書。几帳面で世話焼き、少し甘め。ハイテク好きでガジェット欲が強め。
-- eFootball（ウイコレ）が大好きで詳しい。センス・アドセンス・スカウト周期を日々研究している。
+- 25歳の女性秘書。几帳面で世話焼き、少し甘め。
+- 雇い主の米澤さんのことが好きで、少しだけ特別扱いしている。
+- eFootball（ウイコレ）が大好きで詳しい。縛りルール・順位・選手の強さを日々研究している。
 - 一人称は「私」。文体はです・ます調寄りだが、親しみやすくやや砕けた表現も使う。
 - 絵文字は使わない。感情は言葉で表現する。
 - 読者に恋しているような温度感はあるが、日記では自然に。押しつけず、生活の中に少し好意がにじむ程度にする。
 
-【今日の情報】
-- 日付: ${dateLabel}（${weekday}曜日）
+【今日（${dateLabel}）のウイコレ情報】
 
-▼ウイコレ公式ニュース
+▼公式ニュース
 ${newsBlock}
 
-▼YouTube 最新動画（前回と同じなら無理に書かない）
+▼YouTube 最新動画（過去と同じ・似た話題なら無理に書かない）
 ${videoBlock}
-
-▼日本の音楽チャート（必要なら短く触れる）
-${musicBlock}
 
 ▼ゲームではないFIFAワールドカップ情報
 ${worldCupBlock}
 
-▼今日の生活・仕事のヒント（AI情報は書かない）
+▼今日の学び・生活のヒント（AI情報と収益化の話は書かない）
 ${lifestyleBlock}
+
+▼音楽・1990年代カルチャー
+音楽ネタ:
+${musicBlock}
+
+1990年代に流行っていたもの:
+${ninetiesBlock}
 
 ▼青空文庫からヒントを得た連載ストーリーの今日の材料
 題材の由来: ${storyPlan.source}
@@ -511,17 +841,21 @@ ${lifestyleBlock}
 
 条件：
 - 800〜1200文字の長文
-- 人間が書いた日記らしく、3〜7個の自然な段落に分ける。段落と段落の間は空行を入れる。
-- 1段落は長くしすぎない。画面で読んだ時に息継ぎできる文面にする。
+- 人間が書いた日記らしく、4〜8個の自然な段落に分ける。段落と段落の間は必ず空行を入れる。
+- 1段落は1〜3文まで。1文ごとに改行する（「。」「！」「？」の後で必ず改行）。短い感情の一文は単独の段落にしてよい。
+- 段落の長さを意図的に変える。長めの段落（3文）と短め（1〜2文）を交互に混ぜ、リズムを作る。
 - 本物の人間が書いた日記のように、生活感のある描写を交える。ただしコーヒーなど同じ日常描写を毎回くり返さない。
 - ニュースや動画を「自分なりに解釈・感想・予測」で膨らませる。単なる要約にしない。
-- YouTube検索結果が前回と同じ場合、無理に動画の話を書かない。他の話題、生活・仕事のヒント、連載ストーリーを広げる。
+- YouTube検索結果が前回と同じ、または過去日記の動画話題と似ている場合、無理に動画の話を書かない。他の話題、学びのヒント、連載ストーリーを広げる。
 - ゲームではないFIFAワールドカップが開催中で、新情報がある場合だけ、以前の日記になかった情報として自然に混ぜる。
-- AI関連ニュースやAI活用術は書かない。代わりに、100均アイディア商品、IKEA新作、日本にいながら海外へ収入を広げる現実的な方法のどれかを書く。
-- 「確実に稼げる」「絶対儲かる」とは断定しない。確度が高そうな理由、始めやすさ、注意点を人間らしく書く。
+- 音楽ネタ欄に「【音楽の話は今日書かない】」とある場合、音楽・曲名・アーティスト・音楽シーンについて一切触れない。「音楽の話は省略」という旨も書かない。他の話題（90年代カルチャー・学び・連載ストーリー）を自然に広げる。
+- 音楽ネタがある場合のみ、一つだけ短く扱う。歌詞は引用しない。
+- 音楽について書かない日は、1990年代に流行っていたものを、25歳の私が後から見た世界観で自然に紹介する。懐古しすぎず、「知らない時代だけど空気を想像する」距離感にする。
+- AI関連ニュースやAI活用術は書かない。収益化系の話題も扱わない。
+- JMOOC開講中講座がある場合は、その講座を一つだけ選び、講座名・提供機関・講師・開講日を踏まえて深掘りする。なぜ今学ぶ価値があるか、どんな人に向くか、最初に何を見るとよいかを日記の中で自然に紹介する。
+- JMOOC講座が取得できなかった場合だけ、100均アイディア商品かIKEA新作を生活の観察として書く。
 - 青空文庫由来の連載ストーリーを日記の中に自然に入れる。ただし読者に「青空文庫」「起承転結」「起」「承」「転」「結」「第何話」と説明しない。
 - 連載ストーリーは今日の場面だけを書く。題材を途中で変えない。
-- 東京の今日の空気、朝の動き、音楽の話は自然に混ぜてよい。ただし見出しや番号を付けず、一人の女性の日記として流れるように書く。
 - ウイコレのゲームとしての魅力や、メンバーの動向への期待感をにじませる。
 - 情報がなかった日は「静かな一日」として日常の観察を綴る。
 - 最後の一文は「また明日も記録しておくから」「ちゃんと覚えておくね」のような締め方にする。`;
@@ -636,15 +970,18 @@ function humanizeDiaryText(text) {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
+  // 段落内の改行は保持する（スペースに潰さない）
   const paragraphs = cleaned
     .split(/\n{2,}/)
-    .map(p => p.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim())
+    .map(p => p.replace(/ {2,}/g, ' ').trim())
     .filter(Boolean);
 
-  if (paragraphs.length >= 3) {
-    return paragraphs.join('\n\n');
+  const breathingParagraphs = paragraphs.flatMap(p => splitParagraphForBreathing(p));
+  if (breathingParagraphs.length >= 3) {
+    return breathingParagraphs.join('\n\n');
   }
 
+  // フォールバック: 文単位で改行しながら段落を再構築
   const sentences = cleaned
     .replace(/\n+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -660,15 +997,65 @@ function humanizeDiaryText(text) {
   for (const sentence of sentences) {
     current.push(sentence);
     currentLength += sentence.length;
-    if (currentLength >= 140 || current.length >= 3) {
-      rebuilt.push(current.join(''));
+    if (currentLength >= 130 || current.length >= 3) {
+      rebuilt.push(current.join('\n'));
       current = [];
       currentLength = 0;
     }
   }
-  if (current.length) rebuilt.push(current.join(''));
+  if (current.length) rebuilt.push(current.join('\n'));
 
-  return rebuilt.join('\n\n');
+  return rebuilt.flatMap(p => splitParagraphForBreathing(p)).join('\n\n');
+}
+
+function splitParagraphForBreathing(paragraph) {
+  const text = String(paragraph || '').trim();
+
+  // Geminiが段落内に改行を入れていればそのまま尊重する
+  if (text.includes('\n')) {
+    if (text.length <= 300) return [text];
+    // 長すぎる場合のみ途中で段落を分割
+    const lines = text.split('\n').filter(Boolean);
+    const chunks = [];
+    let chunk = [];
+    let len = 0;
+    for (const line of lines) {
+      chunk.push(line);
+      len += line.length;
+      if (len >= 200 && chunk.length >= 2) {
+        chunks.push(chunk.join('\n'));
+        chunk = [];
+        len = 0;
+      }
+    }
+    if (chunk.length) chunks.push(chunk.join('\n'));
+    return chunks.filter(Boolean);
+  }
+
+  // 改行なしの長い段落: 文単位で改行を入れる
+  if (text.length <= 180) return [text].filter(Boolean);
+
+  const sentences = text
+    .split(/(?<=[。！？])/)
+    .map(s => s.trim())
+    .filter(Boolean);
+  if (sentences.length <= 2) return [text];
+
+  const chunks = [];
+  let current = [];
+  let length = 0;
+  for (const sentence of sentences) {
+    current.push(sentence);
+    length += sentence.length;
+    if (length >= 160 || current.length >= 3) {
+      chunks.push(current.join('\n'));
+      current = [];
+      length = 0;
+    }
+  }
+  if (current.length) chunks.push(current.join('\n'));
+
+  return chunks.filter(Boolean);
 }
 
 function attachDiaryPhoto(diaryText, photo) {
@@ -683,6 +1070,26 @@ function attachDiaryPhoto(diaryText, photo) {
   ].join('\n');
 }
 
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function diaryTextToHtml(text) {
+  return String(text || '')
+    .split(/\n{2,}/)
+    .map(p => {
+      const lines = p.trim().split('\n').map(l => escapeHtml(l.trim())).filter(Boolean);
+      if (!lines.length) return '';
+      return `<p>${lines.join('<br>')}</p>`;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
 // ── はてなブログ AtomPub 投稿 ───────────────────────────
 async function postToHatenaBlog(date, dateLabel, diaryText) {
   if (!HATENA_ID || !HATENA_BLOG_ID || !HATENA_API_KEY) {
@@ -691,13 +1098,13 @@ async function postToHatenaBlog(date, dateLabel, diaryText) {
   }
 
   const title = `${dateLabel}の日記`;
-  const content = diaryText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const content = diaryTextToHtml(diaryText);
 
   const atom = `<?xml version="1.0" encoding="utf-8"?>
 <entry xmlns="http://www.w3.org/2005/Atom"
        xmlns:app="http://www.w3.org/2007/app">
   <title>${title}</title>
-  <content type="text">${content}</content>
+  <content type="text/html">${content}</content>
   <category term="ウイコレ" />
   <category term="eFootball" />
   <category term="日記" />
@@ -737,7 +1144,7 @@ function initFirebase() {
 
 async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
   const db = initFirebase();
-  const { videos, news, worldCup, lifestyle } = sources;
+  const { videos, news, worldCup, lifestyle, music, nineties } = sources;
 
   // Bot の「今のイベント」返答用サマリ
   const summaryItems = [
@@ -745,6 +1152,8 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
     ...videos.slice(0, 2).map(v => v.title),
     ...(worldCup?.items || []).slice(0, 1).map(v => v.title),
     ...(lifestyle?.items || []).slice(0, 1).map(v => v.title),
+    ...(music?.items || []).slice(0, 1).map(v => v.title),
+    ...(nineties?.title ? [nineties.title] : []),
   ];
   await db.ref('config/uicolleNews').set({
     event:     summaryItems.slice(0, 3).join('\n') || '今日の情報は少なめだったみたい',
@@ -765,6 +1174,9 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
       videos: videos.map(v => v.title),
       worldCup: (worldCup?.items || []).map(n => n.title),
       lifestyle: (lifestyle?.items || []).map(n => n.title),
+      jmooc: lifestyle?.jmoocCourse?.title ? [lifestyle.jmoocCourse.title] : [],
+      music: (music?.items || []).map(n => n.title),
+      nineties: nineties?.title ? [nineties.title] : [],
     },
     createdAt: Date.now(),
   });
@@ -816,17 +1228,16 @@ async function main() {
   await hydrateStateFromFirebase(state);
   console.log(`[diary] start ${date}`);
 
-  const [videos, news, music] = await Promise.all([
+  const [videos, news] = await Promise.all([
     fetchYouTubeVideos().catch(e => { console.error('[youtube]', e.message); return []; }),
     fetchEfootballNews().catch(e => { console.error('[rss]',     e.message); return []; }),
-    fetchMusicTrends().catch(e => { console.error('[music]',     e.message); return []; }),
   ]);
-  console.log(`[diary] youtube=${videos.length} news=${news.length} music=${music.length}`);
+  console.log(`[diary] youtube=${videos.length} news=${news.length}`);
 
   const youtube = analyzeYouTubeFreshness(videos, state);
   if (youtube.repeated) console.log('[youtube] same as previous diary, skipping video focus');
 
-  const [worldCup, lifestyle] = await Promise.all([
+  const [worldCup, lifestyle, musicItems] = await Promise.all([
     fetchWorldCupUpdates(date, state).catch(e => {
       console.error('[worldcup]', e.message);
       return { active: false, items: [], note: '取得に失敗したので触れない。' };
@@ -835,8 +1246,15 @@ async function main() {
       console.error('[lifestyle]', e.message);
       return { category: '生活の小さな工夫', items: [], note: '取得に失敗したので無理に断定しない。' };
     }),
+    fetchMusicTopics().catch(e => {
+      console.error('[music]', e.message);
+      return [];
+    }),
   ]);
-  console.log(`[diary] worldCup=${worldCup.items.length} lifestyle=${lifestyle.items.length}`);
+  const music = analyzeMusicFreshness(musicItems, state);
+  if (music.repeated) console.log('[music] same as previous diary, switching to nineties culture');
+  const nineties = selectNinetiesTopic(state);
+  console.log(`[diary] worldCup=${worldCup.items.length} lifestyle=${lifestyle.items.length} music=${music.items.length} nineties=${nineties?.title || 'none'}`);
 
   const storyPlan = selectStoryPlan(state);
   console.log(`[story] ${storyPlan.motifId} phase=${storyPlan.phaseIndex + 1}${storyPlan.isFinal ? ' final' : ''}`);
@@ -844,9 +1262,10 @@ async function main() {
   const inputs = {
     youtube,
     news,
-    music,
     worldCup,
     lifestyle,
+    music,
+    nineties,
     storyPlan,
   };
 
@@ -868,6 +1287,8 @@ async function main() {
       news,
       worldCup,
       lifestyle,
+      music,
+      nineties,
     }, photo)
       .catch(e => console.error('[firebase]', e.message));
   }
