@@ -32,6 +32,21 @@ async function formatSystemStatusReply(kind) {
   );
 }
 
+async function safeFormatSystemStatusReply(kind) {
+  try {
+    return await formatSystemStatusReply(kind);
+  } catch (err) {
+    console.error('[system-status] failed', err?.message || err);
+    const renderCommit = shortSha(process.env.RENDER_GIT_COMMIT) || '不明';
+    return [
+      'システム確認の途中で少しつまずいちゃった。',
+      `Render: この返事は返せてる / commit ${renderCommit}`,
+      `理由: ${trimError(err?.message || err)}`,
+      '完全な状態確認は失敗したけど、Bot自体は生きてるよ。少し時間を置いてもう一回「システム」って呼んで。',
+    ].join('\n');
+  }
+}
+
 function formatRenderStatus() {
   const serviceName = process.env.RENDER_SERVICE_NAME || 'このサービス';
   const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.RENDER_EXTERNAL_HOSTNAME || '';
@@ -323,5 +338,6 @@ function trimError(error) {
 module.exports = {
   detectSystemStatusKind,
   formatSystemStatusReply,
+  safeFormatSystemStatusReply,
   checkGithubStatus,
 };

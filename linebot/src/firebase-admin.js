@@ -742,6 +742,27 @@ async function getNoblesseCases(sourceId, limit = 5) {
     .slice(0, limit);
 }
 
+async function appendNoblesseCaseEvent(caseId, data) {
+  if (!caseId) return null;
+  const ref = getDb().ref(`noblesse/caseEvents/${caseId}`).push();
+  await ref.set({
+    ...data,
+    createdAt: admin.database.ServerValue.TIMESTAMP,
+  });
+  return ref.key;
+}
+
+async function getNoblesseCaseEvents(caseId, limit = 8) {
+  if (!caseId) return [];
+  const snap = await getDb().ref(`noblesse/caseEvents/${caseId}`).once('value');
+  const raw = snap.val();
+  if (!raw) return [];
+  return Object.entries(raw)
+    .map(([eventId, event]) => ({ eventId, ...event }))
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .slice(0, limit);
+}
+
 // ── メンバープロファイル（LINE名→実名・人物メモ） ────────────────────────────
 let _profilesCache = null;
 let _profilesCacheTs = 0;
@@ -848,4 +869,6 @@ module.exports = {
   saveNoblesseCase,
   getNoblesseCase,
   getNoblesseCases,
+  appendNoblesseCaseEvent,
+  getNoblesseCaseEvents,
 };

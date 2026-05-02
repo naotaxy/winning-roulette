@@ -24,6 +24,7 @@ const {
   getMemberProfile,
   getNoblesseCase,
   getNoblesseCases,
+  getNoblesseCaseEvents,
   initMemberProfileStub,
 } = require('./firebase-admin');
 const { resolveRealName, updateGroupProfiles, formatProfileForContext } = require('./member-profile');
@@ -48,7 +49,7 @@ const {
 const { formatRuleReply } = require('./rule-message');
 const { formatSecretaryHelp } = require('./help-message');
 const { getSecretaryMentionInfo, getCasualReply, getCasualReplyWithContext, getTiredReply } = require('./secretary-chat');
-const { detectSystemStatusKind, formatSystemStatusReply } = require('./system-status');
+const { detectSystemStatusKind, safeFormatSystemStatusReply } = require('./system-status');
 const { detectBillingRiskIntent, formatBillingRiskReply } = require('./billing-risk');
 const { formatMemberFlavorReply, formatAnonymousDiaryHighlights } = require('./group-insights');
 const { detectGeoGameIntent, handleGeoGameIntent } = require('./geo-game');
@@ -74,7 +75,8 @@ const {
 } = require('./uicolle-knowledge');
 const { shouldUseAiChat, formatAiChatReply } = require('./ai-chat');
 const { detectNoblesseIntent, formatNoblesseReply } = require('./noblesse-agent');
-const { generateCaseId, createCase, approveCase, cancelCase, buildApprovalFlex, buildExecutionReport, buildStatusText, buildSingleCaseText, extractSearchKeyword, parseOptions: parseCaseOptions } = require('./noblesse-case');
+const { generateCaseId, createCase, approveCase, cancelCase, logCaseEvent, buildApprovalFlex, buildExecutionReport, buildStatusText, buildSingleCaseText, extractSearchKeyword, parseOptions: parseCaseOptions } = require('./noblesse-case');
+const { isMessageDraftRequest, isScheduleDraftRequest, buildMessageDraft, buildScheduleDraft } = require('./noblesse-drafts');
 
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
 const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
@@ -380,10 +382,13 @@ async function handleText(event, client) {
     const { withoutMention } = getSecretaryMentionInfo(text);
     const caseIdMatch = withoutMention.match(/NB-\d{8}-\d+/);
     if (caseIdMatch) {
-      const caseData = await getNoblesseCase(caseIdMatch[0]);
+      const [caseData, caseEvents] = await Promise.all([
+        getNoblesseCase(caseIdMatch[0]),
+        getNoblesseCaseEvents(caseIdMatch[0], 8),
+      ]);
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: buildSingleCaseText(caseIdMatch[0], caseData),
+        text: buildSingleCaseText(caseIdMatch[0], caseData, caseEvents),
       });
     }
     const cases = await getNoblesseCases(sourceId, 5);
@@ -430,7 +435,7 @@ async function handleText(event, client) {
   if (intent.startsWith('system:')) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: await formatSystemStatusReply(intent.replace('system:', '')),
+      text: await safeFormatSystemStatusReply(intent.replace('system:', '')),
     });
   }
 
@@ -951,6 +956,8 @@ function detectTextIntent(text) {
 
   if (!withoutMention || /(ヘルプ|help|使い方|何できる|なにできる|できること|ワード|一覧)/.test(withoutMention)) return 'help';
   if (/(まとめて|要約|最近の会話|会話まとめ|何話してた|なに話してた|みんな何|みんな何言)/.test(withoutMention)) return 'summary';
+  const directSystemStatusKind = detectSystemStatusKind(withoutMention);
+  if (directSystemStatusKind) return `system:${directSystemStatusKind}`;
 
   const targetText = withoutMention;
 
@@ -978,9 +985,6 @@ function detectTextIntent(text) {
   if (/(未対戦|未消化ペア|あと誰.*誰|誰と誰|対戦.*残|残り.*対戦|対戦残り|やってない.*ペア)/.test(targetText)) return 'missingMatchups';
   if (/(日記|読んで|ブログ|最近書いた|最新の日記|何書いた)/.test(targetText)) return 'diary';
 
-  const systemStatusKind = detectSystemStatusKind(targetText);
-  if (systemStatusKind) return `system:${systemStatusKind}`;
-
   const wantsRule = /(縛り|しばり|ルール|rule|制限|条件)/.test(targetText);
   if (wantsRule && /(来月|次月|翌月)/.test(targetText)) return 'nextRule';
   if (wantsRule && /(今月|当月|現在)/.test(targetText)) return 'currentRule';
@@ -997,7 +1001,7 @@ function detectTextIntent(text) {
   if (/(状況|戦況|成績|調子|まとめ|誰が強い|だれが強い|勝ってる)/.test(targetText)) return 'status';
 
   if (/NB-\d{8}-\d+/.test(targetText)) return 'noblesse:status';
-  if (/(案件|ノブレス).*(確認|状況|どうなった|一覧|見せて|教えて|リスト|まとめ)/.test(targetText)) return 'noblesse:status';
+  if (/(案件|ノブレス).*(確認|状況|どうなった|一覧|見せて|教えて|リスト|まとめ|履歴|ログ|承認)/.test(targetText)) return 'noblesse:status';
 
   if (isWeatherRequest(targetText)) return 'weather';
 
@@ -1083,7 +1087,7 @@ async function sendNoblesseReply(client, event, caseId, analysis, request, sourc
   // 1st: 短い受理一言
   await client.replyMessage(event.replyToken, {
     type: 'text',
-    text: 'うん、わかった。整理するね。',
+    text: '少しだけ待って。整理して持ってくるね。',
   });
 
   // 2nd: 分析テキスト
@@ -1106,6 +1110,7 @@ async function sendNoblesseReply(client, event, caseId, analysis, request, sourc
 // ── ノブレスpostbackハンドラ ──────────────────────────────────────────────────
 async function handleNoblessePostback(event, client, data) {
   const sourceId = event.source.groupId || event.source.roomId || event.source.userId || 'unknown';
+  const actorName = await getSenderName(event, client, null);
   const parts = data.split(':'); // noblesse:approve:NB-xxx:A  or  noblesse:cancel:NB-xxx
   const action = parts[1];
   const caseId = parts[2];
@@ -1116,7 +1121,7 @@ async function handleNoblessePostback(event, client, data) {
 
   if (action === 'approve') {
     const option = parts[3] || 'C';
-    const caseData = await approveCase(caseId, option);
+    const caseData = await approveCase(caseId, option, { actorName });
     if (!caseData) {
       return client.replyMessage(event.replyToken, { type: 'text', text: `案件 ${caseId} が見つからなかったの。もう一度相談してくれる？` });
     }
@@ -1135,6 +1140,12 @@ async function handleNoblessePostback(event, client, data) {
       if (budgetYen) {
         await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。「${searchKeyword}」でお店を探してくるね。` });
         const shops = await searchRestaurants({ keyword: searchKeyword, capacity, budgetYen });
+        await logCaseEvent(caseId, 'restaurant_search', {
+          actorName,
+          keyword: searchKeyword,
+          budgetYen,
+          count: shops?.length || 0,
+        });
         const flex = shops?.length
           ? buildRestaurantCarousel(shops, caseId)
           : { type: 'text', text: '条件に合うお店が見つからなかった。キーワードを変えて再度相談してみて。' };
@@ -1151,6 +1162,12 @@ async function handleNoblessePostback(event, client, data) {
       if (maxCharge) {
         await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。「${searchKeyword}」のホテルを探してくるね。` });
         const hotels = await searchHotels({ keyword: searchKeyword, adultNum, nights, maxCharge });
+        await logCaseEvent(caseId, 'hotel_search', {
+          actorName,
+          keyword: searchKeyword,
+          budgetYen: maxCharge,
+          count: hotels?.length || 0,
+        });
         const flex = hotels?.length
           ? buildHotelCarousel(hotels, caseId)
           : { type: 'text', text: '条件に合うホテルが見つからなかったよ。エリアや条件を変えてみて。' };
@@ -1166,18 +1183,54 @@ async function handleNoblessePostback(event, client, data) {
       const routeParams = extractRouteParams(chosenText || caseData.request || '');
       if (isTaxiRequest(combinedText)) {
         await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。タクシー情報を出すね。` });
+        await logCaseEvent(caseId, 'transport_info', {
+          actorName,
+          mode: 'taxi',
+          from: routeParams.from,
+          to: routeParams.to,
+        });
         if (sourceId) client.pushMessage(sourceId, buildTaxiFlex(routeParams.from, routeParams.to)).catch(() => {});
       } else if (isFlightRequest(combinedText)) {
         await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。フライト情報を出すね。` });
+        await logCaseEvent(caseId, 'transport_info', {
+          actorName,
+          mode: 'flight',
+          from: routeParams.from,
+          to: routeParams.to,
+        });
         if (sourceId) client.pushMessage(sourceId, buildFlightFlex(routeParams.from, routeParams.to)).catch(() => {});
       } else {
         await client.replyMessage(event.replyToken, { type: 'text', text: `案${option}で進めるね。経路を出すね。` });
+        await logCaseEvent(caseId, 'transport_info', {
+          actorName,
+          mode: 'route',
+          from: routeParams.from,
+          to: routeParams.to,
+        });
         if (sourceId) client.pushMessage(sourceId, buildRouteFlex(routeParams.from, routeParams.to)).catch(() => {});
       }
       return;
     }
 
+    const requestText = String(caseData.request || '');
+    if (isMessageDraftRequest(requestText)) {
+      await logCaseEvent(caseId, 'message_draft_sent', { actorName, option });
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: buildMessageDraft(caseId, caseData, option),
+      });
+    }
+
+    if (isScheduleDraftRequest(requestText)) {
+      await logCaseEvent(caseId, 'schedule_draft_sent', { actorName, option });
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: buildScheduleDraft(caseId, caseData, option),
+      });
+    }
+
     const report = buildExecutionReport(caseId, option, caseData);
+    await logCaseEvent(caseId, 'report_sent', { actorName, option });
     await client.replyMessage(event.replyToken, { type: 'text', text: report });
     return;
   }
@@ -1191,6 +1244,12 @@ async function handleNoblessePostback(event, client, data) {
 
     await client.replyMessage(event.replyToken, { type: 'text', text: `${maxCharge ? `${maxCharge.toLocaleString()}円以内` : ''}で探してくるね。少し待って。` });
     const hotels = await searchHotels({ keyword, adultNum, nights, maxCharge: maxCharge || null });
+    await logCaseEvent(caseId, 'hotel_search', {
+      actorName,
+      keyword,
+      budgetYen: maxCharge || null,
+      count: hotels?.length || 0,
+    });
     const flex = hotels?.length
       ? buildHotelCarousel(hotels, caseId)
       : { type: 'text', text: '条件に合うホテルが見つからなかったよ。エリアや条件を変えてみて。' };
@@ -1200,7 +1259,8 @@ async function handleNoblessePostback(event, client, data) {
 
   if (action === 'hotel_select') {
     const hotelName = decodeURIComponent(parts.slice(3).join(':'));
-    await approveCase(caseId, 'hotel');
+    await approveCase(caseId, 'hotel', { actorName });
+    await logCaseEvent(caseId, 'hotel_selected', { actorName, name: hotelName });
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: `「${hotelName}」に決めるね。\n案件 ${caseId} を承認済みにしたよ。\n予約ページから確定させてね。`,
@@ -1217,6 +1277,12 @@ async function handleNoblessePostback(event, client, data) {
 
     await client.replyMessage(event.replyToken, { type: 'text', text: `${budgetYen ? `${budgetYen.toLocaleString()}円以内` : ''}で探してくるね。少し待って。` });
     const shops = await searchRestaurants({ keyword, capacity, budgetYen: budgetYen || null });
+    await logCaseEvent(caseId, 'restaurant_search', {
+      actorName,
+      keyword,
+      budgetYen: budgetYen || null,
+      count: shops?.length || 0,
+    });
     const flex = shops?.length
       ? buildRestaurantCarousel(shops, caseId)
       : { type: 'text', text: '条件に合うお店が見つからなかった。エリアやジャンルを変えてみて。' };
@@ -1226,7 +1292,8 @@ async function handleNoblessePostback(event, client, data) {
 
   if (action === 'restaurant_select') {
     const shopName = decodeURIComponent(parts.slice(3).join(':'));
-    await approveCase(caseId, 'restaurant');
+    await approveCase(caseId, 'restaurant', { actorName });
+    await logCaseEvent(caseId, 'restaurant_selected', { actorName, name: shopName });
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: `「${shopName}」に決めるね。\n案件 ${caseId} を承認済みにしたよ。\n予約ページか電話から確定させてね。私が段取りのたたき台を作ることもできるよ。`,
@@ -1234,7 +1301,7 @@ async function handleNoblessePostback(event, client, data) {
   }
 
   if (action === 'cancel') {
-    await cancelCase(caseId);
+    await cancelCase(caseId, { actorName });
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: `わかった、${caseId} はキャンセルにするね。\nまた相談したくなったら、いつでも言って。`,

@@ -2,7 +2,12 @@
 
 // Phase 2: ノブレス案件ID + 承認フロー + 実行ログ
 
-const { incrementNoblesseCaseCounter, saveNoblesseCase, getNoblesseCase } = require('./firebase-admin');
+const {
+  incrementNoblesseCaseCounter,
+  saveNoblesseCase,
+  getNoblesseCase,
+  appendNoblesseCaseEvent,
+} = require('./firebase-admin');
 
 // ── 案件ID生成 ───────────────────────────────────────────────────────────────
 async function generateCaseId(dateStr) {
@@ -28,9 +33,14 @@ async function createCase({ caseId, userId, sourceId, senderName, request, analy
     status: 'pending',
     createdAt: Date.now(),
   });
+  await safeAppendCaseEvent(caseId, {
+    kind: 'created',
+    actorName: senderName || '',
+    requestPreview: previewText(request, 60),
+  });
 }
 
-async function approveCase(caseId, option) {
+async function approveCase(caseId, option, meta = {}) {
   const existing = await getNoblesseCase(caseId);
   if (!existing) return null;
   const updated = {
@@ -40,14 +50,32 @@ async function approveCase(caseId, option) {
     approvedAt: Date.now(),
   };
   await saveNoblesseCase(caseId, updated);
+  await safeAppendCaseEvent(caseId, {
+    kind: 'approved',
+    option: option || '',
+    actorName: meta.actorName || '',
+    note: previewText(meta.note, 80),
+  });
   return updated;
 }
 
-async function cancelCase(caseId) {
+async function cancelCase(caseId, meta = {}) {
   const existing = await getNoblesseCase(caseId);
   if (!existing) return null;
   await saveNoblesseCase(caseId, { ...existing, status: 'cancelled', cancelledAt: Date.now() });
+  await safeAppendCaseEvent(caseId, {
+    kind: 'cancelled',
+    actorName: meta.actorName || '',
+    note: previewText(meta.note, 80),
+  });
   return existing;
+}
+
+async function logCaseEvent(caseId, kind, details = {}) {
+  await safeAppendCaseEvent(caseId, {
+    kind,
+    ...details,
+  });
 }
 
 // ── 分析テキストからオプション抽出 ──────────────────────────────────────────
@@ -63,7 +91,7 @@ function parseOptions(analysisText) {
     const m = text.match(pat);
     if (m) result[key] = m[1].trim().slice(0, 60);
   }
-  const rec = text.match(/推奨[:：]\s*案([ABC])/);
+  const rec = text.match(/推奨(?:案)?[:：]\s*案([ABC])/);
   if (rec) result.recommended = rec[1];
   if (!result.recommended) {
     const selfRec = text.match(/私なら案([ABC])/);
@@ -75,17 +103,19 @@ function parseOptions(analysisText) {
 // ── 承認後の実行レポートテキスト ─────────────────────────────────────────────
 function buildExecutionReport(caseId, option, caseData) {
   const opts = parseOptions(caseData?.analysis || '');
-  const chosen = opts[option] || `案${option}`;
+  const optionLabel = formatApprovalLabel(option);
+  const chosen = opts[option] || optionLabel;
   const senderLabel = caseData?.senderName ? `${caseData.senderName}さん、` : '';
   return [
-    `${senderLabel}案${option}で進めるね。`,
+    `${senderLabel}${optionLabel}で進めるね。`,
     '',
     `▶ 実行内容`,
-    `案${option}: ${chosen}`,
+    `${optionLabel}: ${chosen}`,
     '',
     `▶ 実行結果`,
     `状態: 承認済み`,
     `案件ID: ${caseId}`,
+    '外部影響: まだ候補提示や下書き作成まで。予約や送信は実行していないよ。',
     `次アクション: 必要に応じて詳細を追加で教えてね。私が整理する。`,
   ].join('\n');
 }
@@ -138,6 +168,14 @@ function buildApprovalFlex(caseId, analysis, request) {
             color: '#888888',
             margin: 'sm',
           }] : []),
+          {
+            type: 'text',
+            text: 'この承認で進むのは候補提示や下書き作成まで。予約・送信・購入はまだしないよ。',
+            size: 'xs',
+            color: '#8a8a8a',
+            margin: 'md',
+            wrap: true,
+          },
         ],
       },
       footer: {
@@ -195,7 +233,7 @@ function buildStatusText(cases) {
   const lines = [`直近${cases.length}件の案件状況だよ。`, ''];
   for (const c of cases) {
     const label = STATUS_LABEL[c.status] || c.status;
-    const option = c.approvedOption ? `（案${c.approvedOption}）` : '';
+    const option = c.approvedOption ? `（${formatApprovalLabel(c.approvedOption)}）` : '';
     const req = String(c.request || '').slice(0, 28);
     const reqLabel = req ? `「${req}${req.length >= 28 ? '…' : ''}」` : '';
     lines.push(`${c.caseId}  ${label}${option}`);
@@ -205,10 +243,10 @@ function buildStatusText(cases) {
   return lines.join('\n').trim();
 }
 
-function buildSingleCaseText(caseId, c) {
+function buildSingleCaseText(caseId, c, events = []) {
   if (!c) return `案件 ${caseId} は見つからなかったよ。IDを確認して。`;
   const label = STATUS_LABEL[c.status] || c.status;
-  const option = c.approvedOption ? `\n承認案: 案${c.approvedOption}` : '';
+  const option = c.approvedOption ? `\n承認案: ${formatApprovalLabel(c.approvedOption)}` : '';
   const req = String(c.request || '').slice(0, 80);
   const createdAt = c.createdAt ? new Date(c.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '不明';
   return [
@@ -218,7 +256,103 @@ function buildSingleCaseText(caseId, c) {
     `依頼: ${req}`,
     `作成: ${createdAt}`,
     c.senderName ? `依頼者: ${c.senderName}` : '',
+    ...(events.length ? [
+      '最近の動き:',
+      ...events.map(event => `・${formatCaseEvent(event)}`),
+    ] : []),
   ].filter(Boolean).join('\n');
 }
 
-module.exports = { generateCaseId, createCase, approveCase, cancelCase, buildApprovalFlex, buildExecutionReport, parseOptions, buildStatusText, buildSingleCaseText, extractSearchKeyword };
+function previewText(text, maxLen) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+  return normalized.length > maxLen ? `${normalized.slice(0, maxLen)}…` : normalized;
+}
+
+async function safeAppendCaseEvent(caseId, data) {
+  try {
+    await appendNoblesseCaseEvent(caseId, data);
+  } catch (err) {
+    console.error('[noblesse-case] append event failed', err?.message || err);
+  }
+}
+
+function formatApprovalLabel(option) {
+  if (!option) return '選択肢';
+  if (/^[ABC]$/.test(option)) return `案${option}`;
+  if (option === 'hotel') return 'ホテル候補';
+  if (option === 'restaurant') return 'お店候補';
+  return option;
+}
+
+function formatCaseEvent(event) {
+  const ts = event?.createdAt
+    ? new Date(event.createdAt).toLocaleString('ja-JP', {
+      timeZone: 'Asia/Tokyo',
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    : '時刻不明';
+  const actor = event?.actorName ? `${event.actorName} / ` : '';
+
+  switch (event?.kind) {
+    case 'created':
+      return `${ts} ${actor}案件作成${event.requestPreview ? ` (${event.requestPreview})` : ''}`;
+    case 'approved':
+      return `${ts} ${actor}${formatApprovalLabel(event.option)}で承認${event.note ? ` (${event.note})` : ''}`;
+    case 'cancelled':
+      return `${ts} ${actor}案件をキャンセル${event.note ? ` (${event.note})` : ''}`;
+    case 'report_sent':
+      return `${ts} ${actor}実行レポート送信`;
+    case 'message_draft_sent':
+      return `${ts} ${actor}文面草案を送信`;
+    case 'schedule_draft_sent':
+      return `${ts} ${actor}日程募集たたき台を送信`;
+    case 'restaurant_search':
+      return `${ts} ${actor}お店候補を検索${buildSearchSuffix(event)}`;
+    case 'hotel_search':
+      return `${ts} ${actor}ホテル候補を検索${buildSearchSuffix(event)}`;
+    case 'restaurant_selected':
+      return `${ts} ${actor}お店を選択${event.name ? ` (${event.name})` : ''}`;
+    case 'hotel_selected':
+      return `${ts} ${actor}ホテルを選択${event.name ? ` (${event.name})` : ''}`;
+    case 'transport_info':
+      return `${ts} ${actor}${buildTransportLabel(event)}`;
+    default:
+      return `${ts} ${actor}${event?.kind || '更新'}`;
+  }
+}
+
+function buildSearchSuffix(event) {
+  const parts = [];
+  if (event?.keyword) parts.push(event.keyword);
+  if (Number.isFinite(event?.count)) parts.push(`${event.count}件`);
+  if (Number.isFinite(event?.budgetYen) && event.budgetYen > 0) parts.push(`${Number(event.budgetYen).toLocaleString('ja-JP')}円`);
+  return parts.length ? ` (${parts.join(' / ')})` : '';
+}
+
+function buildTransportLabel(event) {
+  const mode = event?.mode === 'taxi'
+    ? 'タクシー情報を提示'
+    : event?.mode === 'flight'
+      ? 'フライト情報を提示'
+      : '経路情報を提示';
+  const route = [event?.from, event?.to].filter(Boolean).join(' → ');
+  return route ? `${mode} (${route})` : mode;
+}
+
+module.exports = {
+  generateCaseId,
+  createCase,
+  approveCase,
+  cancelCase,
+  logCaseEvent,
+  buildApprovalFlex,
+  buildExecutionReport,
+  parseOptions,
+  buildStatusText,
+  buildSingleCaseText,
+  extractSearchKeyword,
+};
