@@ -128,6 +128,7 @@ function formatOverallStatus([firebase, github], ai) {
     getImageOcrStatusLine(),
     getGithubActionsDispatchLine(),
     getExternalReminderRecoveryLine(),
+    getDiaryRecoveryLine(),
     firebaseLine,
     githubLine,
     ai,
@@ -160,6 +161,29 @@ function getExternalReminderRecoveryLine() {
   return protectedMode
     ? '外部Ping復帰: ON（/cron/reminders / secret保護あり）'
     : '外部Ping復帰: ON（/cron/reminders / secret未設定。UptimeRobot用に保護推奨）';
+}
+
+function getDiaryRecoveryLine() {
+  try {
+    const { getDiaryCronStatus } = require('./diary-cron');
+    const status = getDiaryCronStatus();
+    const protectedMode = !!String(process.env.DIARY_CRON_SECRET || process.env.REMINDER_CRON_SECRET || '').trim();
+    const guard = protectedMode ? 'secret保護あり' : 'secret未設定';
+    if (status.missingEnv?.length) {
+      return `日記復帰: 注意（/cron/diary / ${guard} / 不足env: ${status.missingEnv.join(', ')}）`;
+    }
+    if (status.running) {
+      return `日記復帰: 実行中（${status.date || '日付不明'} / /cron/diary / ${guard}）`;
+    }
+    if (status.finishedAtIso) {
+      const result = status.ok ? 'OK' : 'NG';
+      const reason = status.reason ? ` / ${trimError(status.reason)}` : '';
+      return `日記復帰: ${result}（${status.date || '日付不明'} / 最終 ${status.finishedAtIso}${reason} / ${guard}）`;
+    }
+    return `日記復帰: 待機中（/cron/diary / ${guard}）`;
+  } catch (err) {
+    return `日記復帰: 確認NG（${trimError(err?.message || err)}）`;
+  }
 }
 
 function getImageOcrStatusLine() {

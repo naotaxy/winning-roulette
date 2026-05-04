@@ -37,6 +37,7 @@ const {
   DIARY_GEMINI_MODEL,
   DIARY_GEMINI_FALLBACK_MODELS,
   DIARY_GROUP_SOURCE_ID, // LINEグループのsourceId（会話ハイライト取得用・任意）
+  DIARY_DATE,
 } = process.env;
 
 const BLOG_DIR = path.join(__dirname, '..', 'blog');
@@ -45,6 +46,11 @@ const DEFAULT_DIARY_GEMINI_MODEL = 'gemini-2.5-flash';
 const DEFAULT_DIARY_GEMINI_FALLBACK_MODELS = ['gemini-2.5-flash-lite'];
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 const GEMINI_RETRY_DELAYS_MS = [5000, 15000, 30000];
+const DIARY_DATE_OVERRIDE = normalizeDiaryDate(DIARY_DATE);
+const DIARY_DRY_RUN = isTruthy(process.env.DIARY_DRY_RUN);
+const DIARY_FORCE = isTruthy(process.env.DIARY_FORCE);
+const DIARY_REQUIRE_HATENA = isTruthy(process.env.DIARY_REQUIRE_HATENA);
+const DIARY_GEMINI_DISABLED = isTruthy(process.env.DIARY_GEMINI_DISABLED);
 
 const WORLD_CUP_2026 = {
   startsAt: '2026-06-11',
@@ -300,6 +306,7 @@ const OWNER_INTEREST_TOPICS = [
 
 // ── 日付ユーティリティ（JST） ─────────────────────────────
 function getJSTDate() {
+  if (DIARY_DATE_OVERRIDE) return DIARY_DATE_OVERRIDE;
   const now = new Date(Date.now() + 9 * 3600 * 1000);
   const y = now.getUTCFullYear();
   const m = String(now.getUTCMonth() + 1).padStart(2, '0');
@@ -308,8 +315,32 @@ function getJSTDate() {
 }
 
 function getJSTDateLabel() {
+  if (DIARY_DATE_OVERRIDE) {
+    const [y, m, d] = DIARY_DATE_OVERRIDE.split('-').map(Number);
+    return `${y}年${m}月${d}日`;
+  }
   const now = new Date(Date.now() + 9 * 3600 * 1000);
   return `${now.getUTCFullYear()}年${now.getUTCMonth() + 1}月${now.getUTCDate()}日`;
+}
+
+function normalizeDiaryDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) throw new Error(`DIARY_DATE must be YYYY-MM-DD: ${raw}`);
+  const date = new Date(`${raw}T00:00:00Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== raw) {
+    throw new Error(`DIARY_DATE is invalid: ${raw}`);
+  }
+  return raw;
+}
+
+function isTruthy(value) {
+  return /^(1|true|yes|on)$/i.test(String(value || '').trim());
+}
+
+function hasHatenaCredentials() {
+  return !!(HATENA_ID && HATENA_BLOG_ID && HATENA_API_KEY);
 }
 
 function ensureBlogDir() {
@@ -398,6 +429,18 @@ async function fetchRecentDiaryEntries(limit = 4) {
   } catch (err) {
     console.warn('[diary] fetchRecentDiaryEntries failed:', err.message);
     return [];
+  }
+}
+
+async function getExistingDiaryArchive(date) {
+  if (!FIREBASE_SERVICE_ACCOUNT || !FIREBASE_DATABASE_URL) return null;
+  try {
+    const db = initFirebase();
+    const snap = await db.ref(`diary/${date}`).once('value');
+    return snap.val() || null;
+  } catch (err) {
+    console.warn('[state] existing diary check skipped:', err.message);
+    return null;
   }
 }
 
@@ -797,6 +840,7 @@ async function fetchEfootballNews() {
 
 // ── Gemini 日記生成 ──────────────────────────────────────
 async function generateDiary(dateLabel, inputs) {
+  if (DIARY_GEMINI_DISABLED) throw new Error('Gemini disabled by DIARY_GEMINI_DISABLED');
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
   const {
     youtube,
@@ -927,6 +971,91 @@ ${recentDiaryBlock}
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error(`Gemini error: ${JSON.stringify(data.error || data)}`);
   return sanitizeDiaryText(humanizeDiaryText(text));
+}
+
+function buildFallbackDiary(dateLabel, inputs) {
+  const {
+    youtube,
+    news,
+    worldCup,
+    nineties,
+    storyPlan,
+    interestTopic,
+    groupHighlights,
+    shopItem,
+  } = inputs;
+  const paragraphs = [];
+  const video = youtube?.videosForDiary?.[0];
+  const officialNews = news?.[0];
+
+  paragraphs.push([
+    `${dateLabel}。`,
+    '今日は日記生成のAIが少し不安定だったので、私の手元にある材料を落ち着いて整理して書いておきます。',
+    '止まるより、ちゃんと記録を残す方が大事ですから。',
+  ].join('\n'));
+
+  if (groupHighlights?.hasGameEvent) {
+    paragraphs.push([
+      'グループでは、試合や集まりの気配がちゃんと残っていました。',
+      '誰の名前も出さずに書くけれど、こういう予定がある日は、結果だけではなく始まる前の空気まで覚えておきたくなります。',
+    ].join('\n'));
+  } else if (officialNews) {
+    paragraphs.push([
+      `ウイコレまわりでは「${officialNews.title}」を確認しました。`,
+      '大きく断定しすぎず、次のスカウトやイベントの流れを見る材料として覚えておきたい内容です。',
+    ].join('\n'));
+  } else if (video) {
+    paragraphs.push([
+      `YouTubeでは「${video.title}」が目に入りました。`,
+      'ただ、過去と似た話題を無理に広げるより、今日は今後の流れを静かに見ておく日だと思います。',
+    ].join('\n'));
+  } else {
+    paragraphs.push([
+      'ウイコレの新しい材料は少なめでした。',
+      'こういう日は、派手な話題を探しすぎず、次に動きが出た時のために余白を残しておきます。',
+    ].join('\n'));
+  }
+
+  if (shopItem?.item) {
+    paragraphs.push([
+      `今日の注目アイテムは、${shopItem.shop}の「${shopItem.item}」。`,
+      shopItem.angle,
+      shopItem.depth,
+    ].join('\n'));
+  }
+
+  if (interestTopic?.theme) {
+    paragraphs.push([
+      `考えていたテーマは「${interestTopic.theme}」。`,
+      interestTopic.angle,
+      interestTopic.depth,
+    ].join('\n'));
+  }
+
+  if (nineties?.title) {
+    paragraphs.push([
+      `それから、1990年代の「${nineties.title}」のことも少し考えていました。`,
+      nineties.perspective,
+    ].join('\n'));
+  }
+
+  if (worldCup?.active && worldCup.items?.length) {
+    paragraphs.push([
+      `ゲームではないワールドカップの話題では「${worldCup.items[0].title}」がありました。`,
+      'ウイコレとは別の現実のサッカーの熱が、少しずつ近づいてくる感じがします。',
+    ].join('\n'));
+  }
+
+  paragraphs.push([
+    storyPlan?.todayBeat || '机の端に残った小さなメモを見て、明日へ続く予定をそっと整えました。',
+    storyPlan?.isFinal
+      ? '今夜の小さな物語は、静かに閉じていきました。'
+      : 'まだ少し続きがありそうで、私はその気配を忘れないようにしています。',
+  ].join('\n'));
+
+  paragraphs.push('また明日も記録しておくから。');
+
+  return sanitizeDiaryText(humanizeDiaryText(paragraphs.join('\n\n')));
 }
 
 async function generateGeminiContentWithRetry(prompt) {
@@ -1202,6 +1331,10 @@ function diaryTextToHtml(text) {
 
 // ── はてなブログ AtomPub 投稿 ───────────────────────────
 async function postToHatenaBlog(date, dateLabel, diaryText) {
+  if (DIARY_DRY_RUN) {
+    console.log('[hatena] dry run, skipping post');
+    return null;
+  }
   if (!HATENA_ID || !HATENA_BLOG_ID || !HATENA_API_KEY) {
     console.warn('[hatena] credentials not set, skipping post');
     return null;
@@ -1336,6 +1469,12 @@ async function main() {
   await hydrateStateFromFirebase(state);
   console.log(`[diary] start ${date}`);
 
+  const existingDiary = await getExistingDiaryArchive(date);
+  if (!DIARY_FORCE && existingDiary?.blogUrl) {
+    console.log(`[diary] already posted ${date}: ${existingDiary.blogUrl}`);
+    process.exit(0);
+  }
+
   const [videos, news] = await Promise.all([
     fetchYouTubeVideos().catch(e => { console.error('[youtube]', e.message); return []; }),
     fetchEfootballNews().catch(e => { console.error('[rss]',     e.message); return []; }),
@@ -1379,12 +1518,23 @@ async function main() {
   const photo = getDiaryPhoto();
   if (photo) console.log(`[photo] using ${photo.url}`);
 
-  const diaryBody = await generateDiary(dateLabel, inputs);
+  let diaryBody;
+  try {
+    diaryBody = await generateDiary(dateLabel, inputs);
+  } catch (err) {
+    console.error('[diary] Gemini failed; using fallback diary:', err.message);
+    diaryBody = buildFallbackDiary(dateLabel, inputs);
+  }
   const diaryText = attachDiaryPhoto(diaryBody, photo);
   console.log(`[diary] generated ${diaryText.length}chars`);
 
+  let hatenaError = null;
   const postUrl = await postToHatenaBlog(date, dateLabel, diaryText)
-    .catch(e => { console.error('[hatena]', e.message); return null; });
+    .catch(e => {
+      hatenaError = e;
+      console.error('[hatena]', e.message);
+      return null;
+    });
 
   saveBlogMarkdown(date, dateLabel, diaryText, postUrl);
 
@@ -1402,6 +1552,16 @@ async function main() {
 
   updateDiaryStateAfterSuccess(state, date, inputs);
   saveDiaryState(state);
+
+  if (hatenaError && DIARY_REQUIRE_HATENA) {
+    throw hatenaError;
+  }
+  if (!postUrl && DIARY_REQUIRE_HATENA && hasHatenaCredentials() && !DIARY_DRY_RUN) {
+    throw new Error('Hatena post did not return a URL');
+  }
+  if (!postUrl && DIARY_REQUIRE_HATENA && !hasHatenaCredentials()) {
+    throw new Error('Hatena credentials missing');
+  }
 
   console.log('[diary] done');
   process.exit(0);

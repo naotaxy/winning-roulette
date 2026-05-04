@@ -6,6 +6,7 @@ const { middleware, Client } = require('@line/bot-sdk');
 const webhook = require('./src/webhook');
 const { runEventReminderSweep, hasReminderWorkerSecrets } = require('./src/event-reminder-worker');
 const { runWakeAlarmSweep, hasWakeWorkerSecrets } = require('./src/wake-alarm-worker');
+const { runDiaryCron, getDiaryCronStatus } = require('./src/diary-cron');
 const {
   hasGithubActionsDispatchToken,
   maybeDispatchSchedulerWorkflow,
@@ -28,6 +29,7 @@ const BACKGROUND_START_DELAY_MS = readNonNegativeIntEnv('BACKGROUND_START_DELAY_
 const WEBHOOK_RECOVERY_DELAY_MS = readNonNegativeIntEnv('WEBHOOK_RECOVERY_DELAY_MS', 2500);
 const WEBHOOK_RECOVERY_COOLDOWN_MS = readNonNegativeIntEnv('WEBHOOK_RECOVERY_COOLDOWN_MS', 60 * 1000);
 const REMINDER_CRON_SECRET = String(process.env.REMINDER_CRON_SECRET || '').trim();
+const DIARY_CRON_SECRET = String(process.env.DIARY_CRON_SECRET || process.env.REMINDER_CRON_SECRET || '').trim();
 const backgroundSweepTriggers = [];
 let lastWebhookRecoveryAt = 0;
 let webhookRecoveryTimer = null;
@@ -55,6 +57,9 @@ app.get('/health', (_req, res) => {
     externalRecovery: {
       reminderCron: '/cron/reminders',
       reminderCronProtected: !!REMINDER_CRON_SECRET,
+      diaryCron: '/cron/diary',
+      diaryCronProtected: !!DIARY_CRON_SECRET,
+      diary: getDiaryCronStatus(),
     },
   });
 });
@@ -79,6 +84,44 @@ app.get('/cron/reminders', async (req, res) => {
       type: 'local-reminder-sweep',
       protected: !!REMINDER_CRON_SECRET,
       results,
+    },
+  });
+});
+
+app.get('/cron/diary', async (req, res) => {
+  if (!isCronAuthorized(req, DIARY_CRON_SECRET)) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+
+  const result = runDiaryCron({
+    force: /^(1|true|yes|on)$/i.test(String(req.query?.force || '')),
+    date: String(req.query?.date || ''),
+  });
+
+  return res.json({
+    ok: result.ok !== false,
+    ts: new Date().toISOString(),
+    commit: process.env.RENDER_GIT_COMMIT ? process.env.RENDER_GIT_COMMIT.slice(0, 7) : null,
+    diary: {
+      protected: !!DIARY_CRON_SECRET,
+      result,
+      status: getDiaryCronStatus(),
+    },
+  });
+});
+
+app.get('/cron/diary/status', (req, res) => {
+  if (!isCronAuthorized(req, DIARY_CRON_SECRET)) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+
+  return res.json({
+    ok: true,
+    ts: new Date().toISOString(),
+    commit: process.env.RENDER_GIT_COMMIT ? process.env.RENDER_GIT_COMMIT.slice(0, 7) : null,
+    diary: {
+      protected: !!DIARY_CRON_SECRET,
+      status: getDiaryCronStatus(),
     },
   });
 });
@@ -174,12 +217,16 @@ async function runOneBackgroundSweep(name, trigger, reason = 'manual') {
 }
 
 function isReminderCronAuthorized(req) {
-  if (!REMINDER_CRON_SECRET) return true;
+  return isCronAuthorized(req, REMINDER_CRON_SECRET);
+}
+
+function isCronAuthorized(req, secret) {
+  if (!secret) return true;
   const querySecret = String(req.query?.secret || '').trim();
   const headerSecret = String(req.get('x-cron-secret') || '').trim();
   const authHeader = String(req.get('authorization') || '');
   const bearerSecret = authHeader.replace(/^Bearer\s+/i, '').trim();
-  return [querySecret, headerSecret, bearerSecret].includes(REMINDER_CRON_SECRET);
+  return [querySecret, headerSecret, bearerSecret].includes(secret);
 }
 
 function readNonNegativeIntEnv(name, fallback) {
