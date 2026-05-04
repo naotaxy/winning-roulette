@@ -4,6 +4,16 @@ on:
   schedule:
     - cron: '0 22 * * *'   # 毎日 07:00 JST (= UTC 22:00 前日)
   workflow_dispatch:         # 手動実行も可能
+    inputs:
+      diary_date:
+        description: '任意: YYYY-MM-DD（未指定なら当日JST）'
+        required: false
+        type: string
+      force:
+        description: '既存投稿があっても再生成する'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   generate-diary:
@@ -39,6 +49,9 @@ jobs:
           DIARY_PHOTO_CAPTION:      ${{ secrets.DIARY_PHOTO_CAPTION }}
           DIARY_GEMINI_MODEL:       ${{ vars.DIARY_GEMINI_MODEL }}
           DIARY_GEMINI_FALLBACK_MODELS: ${{ vars.DIARY_GEMINI_FALLBACK_MODELS }}
+          DIARY_DATE:               ${{ github.event.inputs.diary_date }}
+          DIARY_FORCE:              ${{ github.event.inputs.force }}
+          DIARY_REQUIRE_HATENA:     true
         run: node scripts/generate-diary.js
 
       - name: Commit blog archive
