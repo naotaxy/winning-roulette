@@ -257,6 +257,8 @@ Gemma4本気作戦会議は Gemini API 経由の Gemma 4（既定: `gemma-4-26b-
 
 日記はGitHub Actionsの `daily-diary.yml` が本線。GitHub Actionsがアカウント側で無効化・queued詰まりになった時は、Renderの `/cron/diary` が同じ `scripts/generate-diary.js` を直接起動する。Geminiが混雑・quota等で失敗した場合も、旬の献立、90年代カルチャー、連載ストーリーを使った固定文フォールバックで日記を止めない。はてな投稿が失敗した時は `DIARY_REQUIRE_HATENA=true` なら失敗として扱う。
 
+はてなAtomPub投稿では本文内の改行HTMLをXMLとして正しい `<br />` にしている。`XML Parse Failed` が出た時は、Renderのcommitがこの修正を含むものか `/health` で確認する。
+
 ---
 
 ## ファイル構成
