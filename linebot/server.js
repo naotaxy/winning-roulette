@@ -68,6 +68,9 @@ app.get('/health', (_req, res) => {
   });
 });
 
+// Firebase Web Config は GitHub Pages (naotaxy.github.io) からクロスオリジンで取得するため CORS * が必要。
+// Firebase Web API Key 自体はクライアントサイド向けで公開前提（秘密ではない）。
+// データ保護は database.rules.json の Firebase Security Rules が担う。
 app.get('/public/firebase-config', (_req, res) => {
   const firebaseConfig = getPublicFirebaseConfig();
   res.set('Access-Control-Allow-Origin', '*');
