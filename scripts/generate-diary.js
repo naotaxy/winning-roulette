@@ -147,23 +147,28 @@ const SEASONAL_RECIPES = {
   ],
 };
 
-// ── ショップアイテム ─────────────────────────────────────
+// ── Amazon・楽天 トレンド商品プール ──────────────────────
 const SHOP_ITEMS = [
-  { category: 'スカウト', name: 'Rare Score スカウト（バルセロナ型）', description: '過去の名試合スコアに連動した期間限定スカウト。狙いの選手が出るかは運次第。', coinCost: '1,200コイン', limited: true },
-  { category: 'スカウト', name: 'ヒーロースカウト', description: '特定イベントのMVP選手が対象。今週の試合結果次第で排出率が変動する。', coinCost: '800コイン', limited: true },
-  { category: 'スキルトレーナー', name: 'カーブ マスタートレーナー', description: 'カーブスキルを特定レベルまで一括強化できる。中盤のアタッカー育成に重宝。', coinCost: '500コイン', limited: false },
-  { category: 'スキルトレーナー', name: 'タイトマーク マスタートレーナー', description: '守備の要となるタイトマークを強化。縛りルールのCB固定に対応しやすい。', coinCost: '500コイン', limited: false },
-  { category: 'ブースト', name: '週間マッチング倍率ブースト', description: '対人戦のポイント獲得量が一定期間2倍になる。ランク上げのチャンス。', coinCost: '200コイン', limited: false },
-  { category: 'コスチューム', name: 'ホームユニフォーム フルキット', description: 'チームカラーに合わせた上下セット。スタジアムでの存在感が上がる。', coinCost: '0コイン（期間無料）', limited: true },
-  { category: 'スタジアム', name: 'スタジアムエフェクト：夜景 vol.3', description: '試合開始前と終了後に夜景エフェクトが演出される。コレクション向け。', coinCost: '300コイン', limited: false },
-  { category: 'エージェント', name: 'プレミアム移籍エージェント（3回）', description: '狙ったポジションから選手を引けるタイプ。FW中心のスカッドには特におすすめ。', coinCost: '1,500コイン', limited: true },
-  { category: 'パック', name: 'スキルボックス詰め合わせ（5種）', description: '育成中の選手に合わせて任意のスキルを選べる。ランダムではないのがポイント。', coinCost: '900コイン', limited: true },
-  { category: 'チケット', name: 'スーパースターコントラクト 1枚', description: 'スーパースターレートの選手と契約できるチケット。大型補強の一手に。', coinCost: '1,000コイン', limited: false },
-  { category: 'ブースト', name: '経験値ブースト（7日間）', description: '選手の経験値取得量が一定期間アップ。新加入選手の育成加速に役立てたい。', coinCost: '150コイン', limited: false },
-  { category: 'スカウト', name: 'プレイスタイルスカウト（ポゼッション型）', description: 'ポゼッション型チームスタイルに強い選手が排出されやすいスカウト。', coinCost: '700コイン', limited: true },
-  { category: 'コスチューム', name: 'クリエイター限定スキン', description: '特定のコンテンツクリエイターとのコラボで登場した期間限定スキン。', coinCost: '0コイン（イベント報酬）', limited: true },
-  { category: 'チケット', name: 'ポジション変更チケット（5枚セット）', description: '最大で2ポジション移動可能なチケット。フォーメーション組み換えのお供に。', coinCost: '400コイン', limited: false },
-  { category: 'パック', name: '強化アイテムパック（総合力向け）', description: '総合力底上げに使えるアイテムのセット。育成の中盤に差し込みやすい。', coinCost: '600コイン', limited: false },
+  { category: 'キッチン家電', name: 'バルミューダ ザ・トースター', description: 'スチームで焼き上げるオーブントースター。外カリ中ふんわりと話題で、ギフトにも人気。', price: '約26,000円', rank: 'Amazon キッチン週間1位', source: 'Amazon' },
+  { category: 'キッチン雑貨', name: 'ホットサンドメーカー（ダブルタイプ）', description: '具材をたっぷり挟めるダブル仕様。朝食もキャンプ飯もこれ一台でまとまる。', price: '約3,500円', rank: '楽天 キッチン週間売れ筋1位', source: '楽天' },
+  { category: 'ガジェット', name: 'AnkerのMagSafe対応モバイルバッテリー', description: 'マグネットで背面にくっつくタイプ。ケーブルを出さずに充電できるので外出時に重宝する。', price: '約5,800円', rank: 'Amazon ガジェット急上昇', source: 'Amazon' },
+  { category: 'コスメ', name: 'セラヴィ スキンケアセット（敏感肌向け）', description: '皮膚科医開発の保湿ライン。洗顔からクリームまで揃ったセットで肌荒れ対策にちょうどいい。', price: '約3,200円', rank: '楽天 ビューティー月間ランキング3位', source: '楽天' },
+  { category: 'インテリア', name: 'アロマディフューザー（超音波式・木目調）', description: '水と精油を入れてスイッチを押すだけ。部屋の湿度も上がってリラックスタイムにぴったり。', price: '約2,980円', rank: 'Amazon インテリア週間2位', source: 'Amazon' },
+  { category: '健康グッズ', name: 'EMSフットケアパッド', description: '足裏に貼るだけで筋肉をほぐすタイプ。デスクワーク後のむくみ対策として口コミ評価が高い。', price: '約4,500円', rank: '楽天 健康グッズ急上昇', source: '楽天' },
+  { category: 'ファッション小物', name: 'サーモス 真空断熱タンブラー 500ml', description: '保温・保冷が6時間以上続く定番タンブラー。カラーが増えて選びやすくなった。', price: '約2,200円', rank: 'Amazon キッチン・生活用品ベストセラー', source: 'Amazon' },
+  { category: 'フード・グルメ', name: '冷凍餃子（大阪王将 羽根つき）', description: '水も油も不要でフライパンに並べるだけ。パリッと仕上がるので楽天食品ランキングで常連。', price: '約950円（12個入）', rank: '楽天 冷凍食品1位', source: '楽天' },
+  { category: 'スポーツ', name: 'ナイキ エアズームペガサス 41', description: '長距離でも疲れにくいと評判のランニングシューズ。軽量で普段履きにも使える万能さが人気。', price: '約16,500円', rank: 'Amazon スポーツ週間3位', source: 'Amazon' },
+  { category: '生活雑貨', name: 'IKEA フリーサ 収納ボックスセット', description: 'クローゼット整理やデスク周りの整頓に使いやすい半透明ボックス。サイズ展開が豊富。', price: '約1,200円〜', rank: '楽天 生活雑貨週間5位', source: '楽天' },
+  { category: 'ガジェット', name: 'Kindle Paperwhite（防水）', description: '防水仕様で湯船でも読書できる電子書籍リーダー。目に優しいフロントライトが評価高め。', price: '約14,980円', rank: 'Amazon 電子書籍端末ベストセラー1位', source: 'Amazon' },
+  { category: 'コスメ', name: 'クレンジングバーム（毛穴ケア）', description: 'マッサージしながら落とすクレンジング。黒ずみ対策と保湿を同時にできると話題の一品。', price: '約1,800円', rank: '楽天 スキンケア月間ランキング2位', source: '楽天' },
+  { category: '健康グッズ', name: 'SIXPAD ボディフィット 2', description: '腹筋に貼って日常生活をしながらトレーニングできる。テレワーク中に使っている人が多い。', price: '約16,500円', rank: 'Amazon フィットネス週間2位', source: 'Amazon' },
+  { category: 'フード・グルメ', name: '出汁パック（茅乃舎だし 30袋入）', description: '煮出すだけで上品な和風だしが取れる。料理初心者からプロまで愛用者が多い定番品。', price: '約1,400円', rank: '楽天 食品月間ランキング上位', source: '楽天' },
+  { category: 'インテリア', name: 'MOTTERU コンパクト折りたたみテーブル', description: '脚を折り畳んでスリム収納できるローテーブル。ソファ前やベッドサイドに置きやすいサイズ感。', price: '約4,800円', rank: 'Amazon インテリア急上昇', source: 'Amazon' },
+  { category: 'ファッション小物', name: 'ポーター タンカー トートバッグ', description: 'ミリタリー素材を使ったシンプルなトート。男女問わず使えるデザインで楽天でも長期ランキング入り。', price: '約13,200円', rank: '楽天 バッグ週間3位', source: '楽天' },
+  { category: 'スポーツ', name: 'ヨガマット（10mm厚・非滑り止め）', description: '厚みがあるのでひざ・腰への負担が少ない。自宅トレーニング需要が続いていて売れ続けている。', price: '約3,200円', rank: 'Amazon スポーツ・フィットネス週間1位', source: 'Amazon' },
+  { category: 'ガジェット', name: 'スマートウォッチ（血中酸素計測対応）', description: '心拍・睡眠・ストレスを24時間モニタリング。3万円以下で買えるエントリーモデルとして人気。', price: '約22,000円', rank: '楽天 スマートウォッチ月間1位', source: '楽天' },
+  { category: 'キッチン家電', name: '山善 電気ケトル（温度調節つき）', description: 'コーヒーや緑茶に適した温度に設定できるケトル。シンプルなデザインで置き場所を選ばない。', price: '約4,980円', rank: 'Amazon キッチン週間3位', source: 'Amazon' },
+  { category: '生活雑貨', name: 'マーナ 洗い桶（折りたためるタイプ）', description: '使わないときは折り畳んでシンク下に収納できる。一人暮らしのキッチンにぴったりなサイズ感。', price: '約1,580円', rank: '楽天 生活雑貨急上昇', source: '楽天' },
 ];
 
 // ── 90年代カルチャー ─────────────────────────────────────
@@ -624,8 +629,8 @@ async function generateDiary(dateLabel, inputs) {
     : '（90年代カルチャーの材料は今日は使わない）';
 
   const shopBlock = shopItem
-    ? [`カテゴリ: ${shopItem.category}`, `商品名: ${shopItem.name}`, `説明: ${shopItem.description}`, `コスト: ${shopItem.coinCost}`, shopItem.limited ? '期間限定商品' : '常設商品'].join('\n')
-    : '（今日のショップ情報は省略）';
+    ? [`出典: ${shopItem.source}（${shopItem.rank}）`, `カテゴリ: ${shopItem.category}`, `商品名: ${shopItem.name}`, `価格帯: ${shopItem.price}`, `特徴: ${shopItem.description}`].join('\n')
+    : '（今日のトレンド商品情報は省略）';
 
   const highlightsBlock = highlights && highlights.length
     ? highlights.map(h => `・${h.home} vs ${h.away}（${h.score}）${h.date ? ' ' + h.date : ''}${h.comment ? '　' + h.comment : ''}`).join('\n')
@@ -665,7 +670,7 @@ ${ninetiesBlock}
 今日書く場面: ${storyPlan.todayBeat}
 今日がこの題材の終わりか: ${storyPlan.isFinal ? 'はい。余韻を残して物語を閉じる。次回から別題材にしてよい。' : 'いいえ。明日へ自然につながる余白を残す。'}
 
-▼ウイコレショップの注目商品（今日のおすすめ1品）
+▼Amazon・楽天 今日のトレンド商品（1品ピックアップ）
 ${shopBlock}
 
 ▼グループのウイコレ対戦ハイライト（最近の試合記録）
@@ -690,7 +695,7 @@ ${highlightsBlock}
 - 青空文庫由来の連載ストーリーを日記の中に自然に入れる。ただし読者に「青空文庫」「起承転結」「第何話」と説明しない。
 - 連載ストーリーは今日の場面だけを書く。題材を途中で変えない。
 - ウイコレのゲームとしての魅力や、メンバーの動向への期待感をにじませる。
-- ウイコレショップの注目商品を自然に1つ紹介する。商品名・カテゴリ・コスト・期間限定かどうかを日記の流れの中で伝える。押しつけ的なセールストークにしない。
+- Amazon・楽天のトレンド商品を1つ自然に紹介する。商品名・カテゴリ・価格帯・どんな用途に向いているか・どのランキングで話題かを日記の流れの中で伝える。広告っぽくならず、日常の発見として紹介する。
 - グループのウイコレ対戦ハイライトがあれば、試合の感想や注目ポイントを日記の中で自然に触れる。メンバーの名前は一切書かない。チーム名だけを使って誰がどう戦ったかを書く。
 - 情報がなかった日は「静かな一日」として日常の観察を綴る。
 - 最後の一文は「また明日も記録しておくから」「ちゃんと覚えておくね」のような締め方にする。`;
@@ -763,8 +768,8 @@ function buildFallbackDiary(dateLabel, inputs) {
   const { shopItem: si, highlights: hl } = inputs;
   if (si?.name) {
     paragraphs.push([
-      `ショップでは「${si.name}」（${si.category}・${si.coinCost}）が出ていました。`,
-      si.limited ? '期間限定なので、必要なら早めに確認しておいた方がよさそうです。' : '常設商品なので焦らなくても大丈夫。',
+      `${si.source}のランキングで「${si.name}」（${si.category}・${si.price}）が目に入りました。`,
+      `${si.description}`,
     ].join('\n'));
   }
 
