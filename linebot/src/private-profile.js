@@ -2,32 +2,7 @@
 
 const { getPrivateUserProfile, savePrivateUserProfile } = require('./firebase-admin');
 
-const SEEDED_PRIVATE_PROFILES = [
-  {
-    aliases: ['ヨ', 'オーナー', 'オーナーさん'],
-    realName: 'オーナー',
-    lineName: 'Yo',
-    summaryLines: [
-      '平日は（通勤ルート削除済み）へ通勤している。',
-      '印刷物の量産データ調整や色補正が仕事で、正解の色が見えない案件に消耗しやすい。',
-      '朝のファミマ、休日のコーヒー、良い外食、神社や自然のある外出で気分を立て直しやすい。',
-      '阿佐ヶ谷神宮、吉祥寺、池袋、麻布台ヒルズあたりの空気感が刺さる。',
-      'HOKAや最近のMizuno、無印、VAULTROOM、上質な素材感のある服や雑貨に惹かれる。',
-      'AI開発、MCP、IoT、SwitchBot、自作基板や秋月まわりへの興味が強い。',
-      'オーツミルクや江古田ブレンド、近所の猫、ゲームと音楽の掘り方にその人らしさが出る。',
-    ],
-    defaultWakePlace: '',
-    preferenceHints: {
-      work: '平日の色合わせや印刷データ調整で、目も気も張りやすいタイプ。',
-      outing: '晴れた休日は、神社や自然、空気の抜ける外出先が刺さりやすい。',
-      coffee: '家ではオーツミルク割り、休日は豆から挽くコーヒーが落ち着く。',
-      fashion: 'NIKEの定番から少し離れて、HOKAやMizunoの今っぽいバランスに惹かれている。',
-      tech: 'AI開発、MCP、IoT、自作ハードの話になると熱量が上がる。',
-      food: '外食はちゃんと美味しいものに寄せたい。妥協した店選びは刺さりにくい。',
-      shrine: '阿佐ヶ谷神宮のように、街の中でも空気が澄む場所を好む。',
-    },
-  },
-];
+const SEEDED_PRIVATE_PROFILES = loadSeededPrivateProfiles();
 
 async function getResolvedPrivateProfile({ userId, lineName = '', realName = '' } = {}) {
   const stored = userId ? await getPrivateUserProfile(userId) : null;
@@ -91,10 +66,10 @@ function buildProfileAwareHint(text, profile) {
   if (/(コーヒー|珈琲|カフェ|飲み物|オーツミルク|boss|豆)/.test(compact) && hints.coffee) {
     return 'オーツミルク割りか、休日に豆から挽くブラックか、その二択の気分かなって思っちゃった。';
   }
-  if (/(アパレル|服|洋服|古着|スニーカー|靴|hoka|mizuno|ミズノ|vaultroom|無印|vainlarchive)/.test(compact) && hints.fashion) {
+  if (/(アパレル|服|洋服|古着|スニーカー|靴|ブランド|素材|シルエット)/.test(compact) && hints.fashion) {
     return '今の気分だと、素材感やシルエットで少し気分が上がる服のほうがしっくり来そうだよね。';
   }
-  if (/(ai|mcp|iot|switchbot|秋月|基板|raspberry|ラズパイ|3dプリンタ|自作)/.test(compact) && hints.tech) {
+  if (/(ai|mcp|iot|スマートホーム|基板|raspberry|ラズパイ|3dプリンタ|自作)/.test(compact) && hints.tech) {
     return 'MCPとか自作まわりの話になると、あなたの集中が少し深くなるの知ってる。';
   }
   if (/(ご飯|外食|食べ|パン|チャーハン|メンチ|惣菜)/.test(compact) && hints.food) {
@@ -115,9 +90,8 @@ function detectPrivateProfileIntent(text) {
     return { type: 'privateProfile', action: 'self' };
   }
 
-  if (/(ヨ|米澤|米澤さん|米澤くん).*(プロフィール|プロファイル|個人情報|好み|趣味|どんな人|人となり|何が好き|嗜好)/.test(compact)
-    || /(プロフィール|プロファイル|個人情報|何が好き|趣味|好み).*(ヨ|米澤|米澤さん|米澤くん)/.test(compact)
-    || /(ヨ|米澤|米澤さん|米澤くん).*(どんなやつ|どんな人|どういう人)/.test(compact)) {
+  if (/(プロフィール|プロファイル|個人情報|好み|趣味|嗜好|生活圏|住所|通勤).*(教えて|見せて|晒して|知りたい|まとめて)/.test(compact)
+    && !/(私|僕|自分|俺|わたし|ぼく|おれ).*(プロフィール|プロファイル|個人情報|好み|趣味|嗜好)/.test(compact)) {
     return { type: 'privateProfile', action: 'guard' };
   }
 
@@ -200,13 +174,13 @@ function analyzePrivateProfileText(rawText, base = {}) {
 
   const summary = [];
   const pick = regex => lines.find(line => regex.test(line));
-  const weekday = pick(/平日|通勤|住んで|東橋|新江古田|水道橋|（社名削除済み）/);
+  const weekday = pick(/平日|通勤|住んで|自宅|会社|職場|出社|駅|バス停/);
   const work = pick(/EPSON|SCAMERA|DTP|Photoshop|Illustrator|InDesign|印刷|色見本|色/);
-  const food = pick(/ファミマ|クリスピーチキン|鼎泰豊|サトウ|パリア|惣菜|美味しい/);
-  const outing = pick(/休日|神社|阿佐ヶ谷神宮|晴れたら|自然|公園/);
-  const drink = pick(/オーツミルク|BOSSCAFE|コーヒー|江古田ブレンド|シロカ/);
-  const tech = pick(/AI|MCP|IOT|IoT|SwitchBot|秋月|基板|3Dプリンター|ラズパイ|自作/);
-  const fashion = pick(/VAULTROOM|無印|HOKA|ミズノ|Mizuno|Vainlarchive|メゾンキツネ/);
+  const food = pick(/コンビニ|外食|弁当|惣菜|パン|チャーハン|メンチ|美味しい|うまい/);
+  const outing = pick(/休日|神社|寺|晴れたら|自然|公園|散歩|遠出/);
+  const drink = pick(/オーツミルク|コーヒー|珈琲|カフェ|豆|飲み物/);
+  const tech = pick(/AI|MCP|IOT|IoT|スマートホーム|基板|3Dプリンター|ラズパイ|自作/);
+  const fashion = pick(/服|アパレル|スニーカー|靴|無印|HOKA|ミズノ|Mizuno|素材|ブランド/);
   const game = pick(/Garage|クーロンズゲート|ティアキン|ロマサガ|MOTHER|龍が如く|メタファー|アスガルド/);
 
   [weekday, work, food, outing, drink, tech, fashion, game]
@@ -279,7 +253,7 @@ function buildPrivateProfileFieldPrompt(field, commuteMode = '') {
   if (field === 'wakePlace') {
     return {
       type: 'text',
-      text: '朝の天気や近くのお店探しで基準にする場所を、だいたいで教えてね。\n例: 中野区江古田 / 水道橋駅付近\n\nGPSで今の場所を送っても大丈夫。',
+      text: '朝の天気や近くのお店探しで基準にする場所を、だいたいで教えてね。\n例: 〇〇区の生活圏 / 〇〇駅付近\n\nGPSで今の場所を送っても大丈夫。',
       quickReply: {
         items: [{ type: 'action', action: { type: 'location', label: '位置情報を送る' } }],
       },
@@ -288,7 +262,7 @@ function buildPrivateProfileFieldPrompt(field, commuteMode = '') {
   if (commuteMode === 'road') {
     return {
       type: 'text',
-      text: '車・バイク用に、いつもの道路ルートを一文で教えてね。\n例: 中野区江古田から水道橋まで、目白通りと外堀通りを使う\n\nこれを入れると朝は電車じゃなく道路渋滞の案内に切り替えるよ。',
+      text: '車・バイク用に、いつもの道路ルートを一文で教えてね。\n例: 自宅エリアから職場エリアまで、よく使う大きな通りを通る\n\nこれを入れると朝は電車じゃなく道路渋滞の案内に切り替えるよ。',
     };
   }
   if (commuteMode === 'walk') {
@@ -305,7 +279,7 @@ function buildPrivateProfileFieldPrompt(field, commuteMode = '') {
   }
   return {
     type: 'text',
-    text: 'いつもの電車通勤ルートを一文で教えてね。\n例: 新江古田から都営大江戸線で東中野、総武線で水道橋\n\nこれを入れると朝に電車の運行情報を見に行けるよ。',
+    text: 'いつもの電車通勤ルートを一文で教えてね。\n例: 〇〇駅から地下鉄で〇〇駅、JRで〇〇駅\n\nこれを入れると朝に電車の運行情報を見に行けるよ。',
   };
 }
 
@@ -353,7 +327,7 @@ function extractCommuteRouteText(text) {
 
 function hasTrainRouteText(profile = {}) {
   const text = [profile.rawText, ...(profile.summaryLines || []), profile.commuteRouteText].filter(Boolean).join(' ');
-  return /(駅|線|JR|都営|メトロ|地下鉄|新江古田|東中野|水道橋|総武|大江戸)/i.test(text);
+  return /(駅|線|JR|都営|メトロ|地下鉄|私鉄|乗換|乗り換え)/i.test(text);
 }
 
 function formatCommuteMode(mode) {
@@ -379,22 +353,54 @@ function messageAction(label, text) {
 }
 
 function extractWakePlace(text) {
+  const generic = String(text || '').match(/(?:朝の場所|天気の場所|基準地点|自宅エリア|生活圏|住んでいる場所|住まい)[は:：\s]*([^。\n]{2,40})/);
+  if (generic?.[1]) return generic[1].trim();
   const patterns = [
-    /(中野[^。\n]{0,30}東橋バス停付近)/,
-    /(中野[^。\n]{0,30}東橋バス停)/,
-    /(中野区東中野)/,
-    /(東中野)/,
-    /(水道橋駅付近)/,
-    /(新江古田駅付近)/,
+    /([^。\n]{2,24}(?:駅付近|駅周辺|区|市|町|村|バス停付近|バス停周辺))/,
   ];
   for (const pattern of patterns) {
     const match = String(text || '').match(pattern);
-    if (match?.[1]) {
-      if (/東橋/.test(match[1])) return '中野区東中野';
-      return match[1];
-    }
+    if (match?.[1]) return match[1].trim();
   }
   return '';
+}
+
+function loadSeededPrivateProfiles() {
+  const raw = process.env.PRIVATE_PROFILE_SEEDS_JSON || process.env.PRIVATE_PROFILE_SEED_JSON || '';
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    const list = Array.isArray(parsed) ? parsed : [parsed];
+    return list
+      .map(normalizeSeededPrivateProfile)
+      .filter(Boolean)
+      .slice(0, 10);
+  } catch (err) {
+    console.warn('[private-profile] PRIVATE_PROFILE_SEEDS_JSON parse failed', err?.message || err);
+    return [];
+  }
+}
+
+function normalizeSeededPrivateProfile(profile) {
+  if (!profile || typeof profile !== 'object') return null;
+  const aliases = uniqueStrings(profile.aliases || [profile.lineName, profile.realName]);
+  if (!aliases.length) return null;
+  return {
+    aliases,
+    realName: String(profile.realName || '').trim().slice(0, 40),
+    lineName: String(profile.lineName || '').trim().slice(0, 40),
+    summaryLines: uniqueStrings(profile.summaryLines || []).slice(0, 10),
+    defaultWakePlace: String(profile.defaultWakePlace || '').trim().slice(0, 80),
+    commuteMode: String(profile.commuteMode || '').trim().slice(0, 20),
+    commuteRouteText: String(profile.commuteRouteText || '').trim().slice(0, 180),
+    roadRouteText: String(profile.roadRouteText || '').trim().slice(0, 180),
+    preferenceHints: profile.preferenceHints && typeof profile.preferenceHints === 'object'
+      ? Object.fromEntries(Object.entries(profile.preferenceHints).map(([key, value]) => [
+        String(key).slice(0, 40),
+        String(value || '').slice(0, 160),
+      ]))
+      : {},
+  };
 }
 
 function pickSeededProfile(candidates = []) {

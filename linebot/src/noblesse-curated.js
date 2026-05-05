@@ -492,8 +492,8 @@ function buildCuratedPrompt(caseId, state) {
   if (field === 'origin') {
     const caller = state?.ownerName ? `${state.ownerName}、` : '';
     const outingOriginPrompt = state?.entryRoute === 'casual-chat'
-      ? `${caller}じゃあ、ここから私が整えるね。\nまずはどこから出るかだけ教えて。ふわっとで大丈夫。\n例: 中野区の東橋バス停 / 新宿駅\n\n今いる場所ならGPSでも受け取れるよ📍`
-      : 'どこから動き始めるか教えてね。\n例: 中野区の東橋バス停 / 新宿駅\n\nGPSで現在地を送ることもできるよ📍';
+      ? `${caller}じゃあ、ここから私が整えるね。\nまずはどこから出るかだけ教えて。ふわっとで大丈夫。\n例: 最寄りのバス停 / 新宿駅\n\n今いる場所ならGPSでも受け取れるよ📍`
+      : 'どこから動き始めるか教えてね。\n例: 最寄りのバス停 / 新宿駅\n\nGPSで現在地を送ることもできるよ📍';
     const shoppingOriginPrompt = state?.entryRoute === 'casual-chat'
       ? `${caller}じゃあ、どのあたりから動き始めようか。ふわっとで大丈夫。\n例: 新宿駅 / 中野\n\n今いる場所ならGPSでも受け取れるよ📍`
       : 'どの街から回り始めたいか教えてね。\n例: 新宿駅 / 中野\n\nGPSで現在地を送ることもできるよ📍';

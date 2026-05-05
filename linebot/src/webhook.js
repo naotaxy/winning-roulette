@@ -15,6 +15,7 @@ const {
   getUicolleNews,
   getRecentDiaries,
   saveConversationMessage,
+  saveSecurityEvent,
   getRecentConversation,
   getOcrAutomationState,
   setOcrAutoEnabled,
@@ -270,6 +271,7 @@ const {
   formatReminderMissingTimeReply,
   inferReminderHintFromConversation,
 } = require('./event-reminder');
+const { detectSecurityHoneypot, formatSecurityRefusal } = require('./security-utils');
 
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
 const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
@@ -871,9 +873,25 @@ async function handleText(event, client) {
   const sourceId = getScopedSourceId(event);
   const locationReadOptions = getLocationReadOptions(event);
   const senderName = await getSenderName(event, client, null);
+  const rawMentionInfo = getSecretaryMentionInfo(text);
+  const securityHit = detectSecurityHoneypot(text);
 
-  // 全メッセージを会話メモリに保存（userId付き）
+  // 全メッセージを会話メモリに保存（userId付き）。保存時にsecret/個人識別子はFirebase側で伏せる。
   saveConversationMessage(sourceId, senderName, text, userId).catch(() => {});
+  if (securityHit) {
+    saveSecurityEvent(sourceId, userId, {
+      ...securityHit,
+      senderName,
+      text,
+    }).catch(() => {});
+  }
+
+  if (securityHit && (isDirectChat || rawMentionInfo.mentioned)) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: formatSecurityRefusal(),
+    });
+  }
 
   const profileUpdateBody = isDirectChat ? extractPrivateProfileUpdate(text) : null;
   if (profileUpdateBody && userId) {
@@ -906,7 +924,6 @@ async function handleText(event, client) {
     if (privateProfileAwaitingReply) return privateProfileAwaitingReply;
   }
 
-  const rawMentionInfo = getSecretaryMentionInfo(text);
   const effectiveText = buildEffectiveSecretaryText(text, isDirectChat, rawMentionInfo.mentioned);
   const mentionInfo = getSecretaryMentionInfo(effectiveText);
 

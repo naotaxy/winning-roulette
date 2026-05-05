@@ -123,7 +123,7 @@ function buildBookingPrompt(caseId, form) {
   if (nextField === 'reserverName') {
     return {
       type: 'text',
-      text: '予約名を次の1通で送ってね。\n例: 米澤直人',
+      text: '予約名を次の1通で送ってね。\n例: 山田太郎',
     };
   }
 

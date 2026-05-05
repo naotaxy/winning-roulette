@@ -30,11 +30,11 @@ const MATCH_WEEK_OPTIONS = [1, 2, 3, 4, 5];
 
 /* デフォルトプレイヤー */
 const DEFAULT_PLAYERS = [
-  { name: '児玉',   lineId: 'DKJPN',    charName: 'D XIII'          },
-  { name: '柴田',   lineId: 'ﾌﾟｷﾞｰ',    charName: 'カラキソングシティ' },
-  { name: '米澤',   lineId: 'ヨ',        charName: 'トラペルソ'       },
-  { name: '矢部',   lineId: '矢部智也',  charName: 'ガパオFC'         },
-  { name: '潮田',   lineId: 'うしおだ',  charName: 'LOVE BEER?'      },
+  { name: 'Player 1', lineId: 'player1', charName: 'Club 1' },
+  { name: 'Player 2', lineId: 'player2', charName: 'Club 2' },
+  { name: 'Player 3', lineId: 'player3', charName: 'Club 3' },
+  { name: 'Player 4', lineId: 'player4', charName: 'Club 4' },
+  { name: 'Player 5', lineId: 'player5', charName: 'Club 5' },
 ];
 
 /* ── アプリ状態 ── */

@@ -16,6 +16,9 @@ const SYNC = (() => {
 
   /* ── Firebase 初期化 ── */
   async function init() {
+    if (typeof FIREBASE_CONFIG_PROMISE !== 'undefined') {
+      await FIREBASE_CONFIG_PROMISE;
+    }
     if (!FIREBASE_READY) {
       console.info('[SYNC] Firebase未設定 — LocalStorageモードで動作');
       _isReady = false;

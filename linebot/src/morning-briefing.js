@@ -211,33 +211,31 @@ function buildCommuteProfile(profile, alarm = {}) {
   const storedRouteLabel = String(alarm?.commuteRouteLabel || '').trim();
   const routeLabel = inferCommuteRouteLabel(sourceText);
   const inferredLines = [];
-  if (/(都営大江戸線|大江戸線|新江古田|東中野)/.test(sourceText)) {
+  if (/(都営大江戸線|大江戸線)/.test(sourceText)) {
     inferredLines.push({
       name: '都営大江戸線',
       source: 'yahoo',
       url: YAHOO_OEDO_STATUS_URL,
-      routeLabel: '新江古田〜東中野',
+      routeLabel,
     });
   }
-  if (/(中央・総武|総武線各駅|総武線|水道橋)/.test(sourceText)) {
+  if (/(中央・総武|総武線各駅|総武線)/.test(sourceText)) {
     inferredLines.push({
       name: 'JR中央・総武各駅停車',
       source: 'jr',
       url: JR_SOBU_LOCAL_STATUS_URL,
-      routeLabel: '東中野〜水道橋',
+      routeLabel,
     });
   }
   const lines = storedLines.length ? storedLines : inferredLines;
-  const resolvedRouteLabel = storedRouteLabel || routeLabel || (lines.length ? '東橋バス停 → 新江古田 → 東中野 → 水道橋' : '');
+  const resolvedRouteLabel = storedRouteLabel || routeLabel || '';
   return { mode: 'train', routeLabel: resolvedRouteLabel, lines };
 }
 
 function inferCommuteRouteLabel(text) {
-  const parts = [];
-  if (/東橋/.test(text)) parts.push('東橋バス停');
-  if (/新江古田/.test(text)) parts.push('新江古田');
-  if (/東中野/.test(text)) parts.push('東中野');
-  if (/水道橋/.test(text)) parts.push('水道橋');
+  const parts = [...String(text || '').matchAll(/([一-龥ぁ-んァ-ヶA-Za-z0-9]+(?:駅|バス停))/g)]
+    .map(match => match[1])
+    .filter(Boolean);
   return parts.length >= 2 ? parts.join(' → ') : '';
 }
 
@@ -307,7 +305,7 @@ function inferCommuteMode(text) {
   if (/(車通勤|クルマ通勤|自動車通勤|車で|車移動|マイカー|バイク通勤|オートバイ|原付|道路|通り)/.test(value)) return 'road';
   if (/(徒歩通勤|自転車通勤|徒歩|自転車|チャリ)/.test(value)) return 'walk';
   if (/(在宅勤務|リモート勤務|在宅|リモート)/.test(value)) return 'remote';
-  if (/(駅|線|JR|都営|メトロ|地下鉄|総武|大江戸)/i.test(value)) return 'train';
+  if (/(駅|線|JR|都営|メトロ|地下鉄|私鉄|乗換|乗り換え)/i.test(value)) return 'train';
   return 'train';
 }
 

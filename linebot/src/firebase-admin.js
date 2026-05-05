@@ -3,6 +3,7 @@
 const admin = require('firebase-admin');
 const { getTokyoDateParts } = require('./date-utils');
 const { normalizeMatchSchedule } = require('./match-schedule');
+const { redactSensitiveText } = require('./security-utils');
 
 let _db = null;
 
@@ -41,6 +42,7 @@ const FLYER_FAVORITE_STORE_ROOT = 'flyerFavoriteStores';
 const EVENT_REMINDER_ROOT = 'eventReminders';
 const PRIVATE_PROFILE_ROOT = 'privateProfiles';
 const INGREDIENT_PRICE_HISTORY_ROOT = 'ingredientPriceHistory';
+const SECURITY_EVENT_ROOT = 'securityEvents';
 const LOCATION_MEMORY_TTL_MS = 12 * 60 * 60 * 1000;
 const PENDING_LOCATION_REQUEST_TTL_MS = 30 * 60 * 1000;
 
@@ -1001,13 +1003,34 @@ const CONVERSATION_ROOT = 'conversations';
 
 async function saveConversationMessage(sourceId, senderName, text, userId = null) {
   if (!sourceId || !text) return;
+  const rawText = String(text);
+  const isPrivateProfileUpdate = /(?:プロフィール|プロファイル)(?:更新|登録|保存|記録)/.test(rawText);
   const entry = {
-    senderName: String(senderName || '不明').slice(0, 50),
-    text: String(text).slice(0, 500),
+    senderName: redactSensitiveText(String(senderName || '不明'), { redactPersonal: true }).slice(0, 50),
+    text: isPrivateProfileUpdate
+      ? '[PRIVATE_PROFILE_UPDATE_REDACTED]'
+      : redactSensitiveText(rawText, { redactPersonal: true }).slice(0, 500),
     timestamp: Date.now(),
   };
   if (userId) entry.userId = userId;
   await getDb().ref(`${CONVERSATION_ROOT}/${sourceId}/messages`).push(entry);
+}
+
+async function saveSecurityEvent(sourceId, userId, event = {}) {
+  if (!sourceId || !event) return null;
+  const now = Date.now();
+  const payload = {
+    type: String(event.type || 'security-event').slice(0, 80),
+    severity: String(event.severity || 'info').slice(0, 20),
+    sourceId: redactSensitiveText(sourceId, { redactPersonal: true }).slice(0, 80),
+    userId: userId ? redactSensitiveText(userId, { redactPersonal: true }).slice(0, 80) : '',
+    senderName: redactSensitiveText(String(event.senderName || ''), { redactPersonal: true }).slice(0, 60),
+    text: redactSensitiveText(String(event.text || ''), { redactPersonal: true }).slice(0, 500),
+    createdAt: now,
+    createdAtIso: new Date(now).toISOString(),
+  };
+  await getDb().ref(`${SECURITY_EVENT_ROOT}/${buildLocationUserKey(sourceId)}`).push(payload);
+  return payload;
 }
 
 async function getRecentConversation(sourceId, limit = 100) {
@@ -1179,6 +1202,7 @@ module.exports = {
   getUicolleNews,
   getRecentDiaries,
   saveConversationMessage,
+  saveSecurityEvent,
   getRecentConversation,
   checkFirebaseStatus,
   getGeoGameConfig,

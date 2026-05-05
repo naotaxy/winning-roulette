@@ -7,6 +7,7 @@ const webhook = require('./src/webhook');
 const { runEventReminderSweep, hasReminderWorkerSecrets } = require('./src/event-reminder-worker');
 const { runWakeAlarmSweep, hasWakeWorkerSecrets } = require('./src/wake-alarm-worker');
 const { runDiaryCron, getDiaryCronStatus } = require('./src/diary-cron');
+const { redactSensitiveText } = require('./src/security-utils');
 const {
   hasGithubActionsDispatchToken,
   maybeDispatchSchedulerWorkflow,
@@ -19,8 +20,8 @@ const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
 };
 
-process.on('uncaughtException',    err => console.error('[uncaught]', err));
-process.on('unhandledRejection',   err => console.error('[unhandledRejection]', err));
+process.on('uncaughtException',    err => console.error('[uncaught]', redactSensitiveText(err?.stack || err?.message || err, { redactPersonal: true })));
+process.on('unhandledRejection',   err => console.error('[unhandledRejection]', redactSensitiveText(err?.stack || err?.message || err, { redactPersonal: true })));
 
 const app  = express();
 const port = process.env.PORT || 3000;
@@ -45,6 +46,9 @@ app.get('/health', (_req, res) => {
       channelSecret: !!process.env.LINE_CHANNEL_SECRET,
       channelAccessToken: !!process.env.LINE_CHANNEL_ACCESS_TOKEN,
     },
+    publicConfig: {
+      firebaseWebConfig: isUsablePublicFirebaseConfig(getPublicFirebaseConfig()),
+    },
     workers: {
       eventReminders: hasReminderWorkerSecrets(),
       wakeAlarms: hasWakeWorkerSecrets(),
@@ -62,6 +66,20 @@ app.get('/health', (_req, res) => {
       diary: getDiaryCronStatus(),
     },
   });
+});
+
+app.get('/public/firebase-config', (_req, res) => {
+  const firebaseConfig = getPublicFirebaseConfig();
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Cache-Control', 'public, max-age=300');
+  if (!isUsablePublicFirebaseConfig(firebaseConfig)) {
+    return res.status(503).json({
+      ok: false,
+      error: 'firebase web config not configured',
+      missingEnv: ['FIREBASE_WEB_CONFIG_JSON or FIREBASE_WEB_API_KEY'],
+    });
+  }
+  return res.json({ ok: true, firebaseConfig });
 });
 
 /* ── 外部Ping復帰（UptimeRobot等） ── */
@@ -132,14 +150,14 @@ app.post('/webhook', middleware(config), (req, res) => {
   const client = new Client(config);
   req.body.events.forEach(event => {
     webhook.handle(event, client)
-      .catch(err => console.error('[webhook error]', err))
+      .catch(err => console.error('[webhook error]', redactSensitiveText(err?.stack || err?.message || err, { redactPersonal: true })))
       .finally(() => scheduleWebhookRecoverySweep());
   });
 });
 
 app.use((err, req, res, next) => {
   if (req.path === '/webhook') {
-    console.error('[line middleware error]', err?.message || err);
+    console.error('[line middleware error]', redactSensitiveText(err?.message || err, { redactPersonal: true }));
     return res.status(401).json({ ok: false, error: 'line webhook rejected' });
   }
   return next(err);
@@ -153,7 +171,7 @@ function startBackgroundSweep(name, task, intervalMs) {
     try {
       return await task();
     } catch (err) {
-      console.error(`[background:${name}]`, err?.message || err);
+      console.error(`[background:${name}]`, redactSensitiveText(err?.message || err, { redactPersonal: true }));
       throw err;
     } finally {
       running = false;
@@ -205,13 +223,13 @@ async function runOneBackgroundSweep(name, trigger, reason = 'manual') {
       result: result || null,
     };
   } catch (err) {
-    console.error(`[background:${reason}:${name}]`, err?.message || err);
+    console.error(`[background:${reason}:${name}]`, redactSensitiveText(err?.message || err, { redactPersonal: true }));
     return {
       name,
       ok: false,
       reason,
       latencyMs: Date.now() - startedAt,
-      error: String(err?.message || err || '').slice(0, 240),
+      error: redactSensitiveText(String(err?.message || err || ''), { redactPersonal: true }).slice(0, 240),
     };
   }
 }
@@ -234,6 +252,43 @@ function readNonNegativeIntEnv(name, fallback) {
   if (value == null || value === '') return fallback;
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback;
+}
+
+function getPublicFirebaseConfig() {
+  const fromJson = parseFirebaseWebConfigJson(process.env.FIREBASE_WEB_CONFIG_JSON);
+  if (isUsablePublicFirebaseConfig(fromJson)) return fromJson;
+
+  return pruneObject({
+    apiKey: process.env.FIREBASE_WEB_API_KEY,
+    authDomain: process.env.FIREBASE_WEB_AUTH_DOMAIN,
+    databaseURL: process.env.FIREBASE_WEB_DATABASE_URL || process.env.FIREBASE_DATABASE_URL,
+    projectId: process.env.FIREBASE_WEB_PROJECT_ID,
+    storageBucket: process.env.FIREBASE_WEB_STORAGE_BUCKET,
+    messagingSenderId: process.env.FIREBASE_WEB_MESSAGING_SENDER_ID,
+    appId: process.env.FIREBASE_WEB_APP_ID,
+  });
+}
+
+function parseFirebaseWebConfigJson(raw) {
+  if (!String(raw || '').trim()) return null;
+  try {
+    return pruneObject(JSON.parse(raw));
+  } catch (err) {
+    console.error('[public-config] FIREBASE_WEB_CONFIG_JSON parse failed', err?.message || err);
+    return null;
+  }
+}
+
+function isUsablePublicFirebaseConfig(config) {
+  return !!(config?.apiKey && config?.authDomain && config?.databaseURL && config?.projectId);
+}
+
+function pruneObject(source = {}) {
+  return Object.fromEntries(
+    Object.entries(source || {})
+      .map(([key, value]) => [key, String(value || '').trim()])
+      .filter(([, value]) => value)
+  );
 }
 
 if (hasReminderWorkerSecrets()) {

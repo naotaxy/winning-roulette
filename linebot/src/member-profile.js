@@ -90,7 +90,7 @@ async function updateGroupProfiles(recentMessages) {
 function formatProfileForContext(profile, lineName) {
   if (!profile) return null;
   const name = profile.realName || lineName || '不明';
-  const lines = [`本名: ${name}`];
+  const lines = [`呼び名: ${name}`];
   if (profile.memo) lines.push(`人物メモ: ${profile.memo}`);
   return lines.join('　');
 }

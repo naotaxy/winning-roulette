@@ -3,7 +3,7 @@ services:
     name: winning-roulette-linebot
     runtime: node
     rootDir: linebot
-    buildCommand: npm install
+    buildCommand: npm ci
     startCommand: node server.js
     plan: free
     envVars:
@@ -16,6 +16,16 @@ services:
       - key: FIREBASE_SERVICE_ACCOUNT
         sync: false
       - key: FIREBASE_DATABASE_URL
-        value: https://winning-roulette-c6de7-default-rtdb.asia-southeast1.firebasedatabase.app
+        sync: false
+      - key: FIREBASE_WEB_CONFIG_JSON
+        sync: false
+      - key: PRIVATE_PROFILE_SEEDS_JSON
+        sync: false
+      - key: TRAPERUKO_OWNER_DISPLAY_NAME
+        sync: false
+      - key: TRAPERUKO_ORIGIN_TEAM_NAME
+        sync: false
+      - key: TOKUBAI_COORDINATE_AREA_FALLBACKS_JSON
+        sync: false
       - key: PORT
         value: "3000"

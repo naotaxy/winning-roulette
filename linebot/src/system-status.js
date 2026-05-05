@@ -1,5 +1,7 @@
 'use strict';
 
+const { redactSensitiveText } = require('./security-utils');
+
 const GITHUB_OWNER = 'naotaxy';
 const GITHUB_REPO = 'winning-roulette';
 const GITHUB_BRANCH = 'feature/linebot';
@@ -383,7 +385,7 @@ function formatMemory(bytes) {
 }
 
 function trimError(error) {
-  return String(error || '不明').replace(/\s+/g, ' ').slice(0, 120);
+  return redactSensitiveText(String(error || '不明'), { redactPersonal: true }).replace(/\s+/g, ' ').slice(0, 120);
 }
 
 module.exports = {

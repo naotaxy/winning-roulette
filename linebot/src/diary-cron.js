@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { redactSensitiveText } = require('./security-utils');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const LINEBOT_ROOT = path.resolve(__dirname, '..');
@@ -175,7 +176,7 @@ function buildNodePath() {
 }
 
 function appendOutput(current, addition) {
-  const merged = `${current || ''}${addition || ''}`;
+  const merged = redactSensitiveText(`${current || ''}${addition || ''}`, { redactPersonal: true });
   return merged.length > OUTPUT_LIMIT ? merged.slice(-OUTPUT_LIMIT) : merged;
 }
 
