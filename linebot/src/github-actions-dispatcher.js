@@ -5,9 +5,12 @@ const GITHUB_REPO = process.env.GITHUB_REPO || 'winning-roulette';
 const DEFAULT_SCHEDULER_WORKFLOWS = ['event-reminder.yml', 'wake-alarm.yml'];
 const SCHEDULER_REF = process.env.GITHUB_SCHEDULER_REF || 'main';
 const DISPATCH_INTERVAL_MS = 5 * 60 * 1000;
+const DISABLED_COOLDOWN_MS = readNonNegativeIntEnv('GITHUB_ACTIONS_DISABLED_COOLDOWN_MS', 30 * 60 * 1000);
 
 let lastDispatchAt = 0;
 let inflight = false;
+let disabledUntil = 0;
+let disabledReason = '';
 let lastDispatchStatus = {
   attemptedAt: null,
   attemptedAtIso: '',
@@ -66,7 +69,10 @@ async function dispatchWorkflow(workflow, task = 'scheduler') {
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`workflow dispatch failed ${workflow}: ${res.status} ${body.slice(0, 300)}`);
+    const err = new Error(`workflow dispatch failed ${workflow}: ${res.status} ${body.slice(0, 300)}`);
+    err.status = res.status;
+    err.body = body;
+    throw err;
   }
   return true;
 }
@@ -103,17 +109,29 @@ async function dispatchSchedulerWorkflow(task = 'scheduler') {
     workflows,
     results: normalizedResults,
   };
+  const disabledHit = normalizedResults.find(result => isActionsDisabledError(result.error));
+  if (disabledHit) {
+    disabledUntil = Date.now() + DISABLED_COOLDOWN_MS;
+    disabledReason = 'GitHub Actions is disabled for this user';
+    console.warn(`[github-actions-dispatch] paused until ${new Date(disabledUntil).toISOString()}: ${disabledReason}`);
+  }
   return ok;
 }
 
 async function maybeDispatchSchedulerWorkflow(now = Date.now()) {
   if (!hasGithubActionsDispatchToken() || inflight) return false;
+  if (disabledUntil && now < disabledUntil) return false;
+  if (disabledUntil && now >= disabledUntil) {
+    disabledUntil = 0;
+    disabledReason = '';
+  }
   if (lastDispatchAt && now - lastDispatchAt < DISPATCH_INTERVAL_MS - 15 * 1000) return false;
 
   inflight = true;
   try {
     const ok = await dispatchSchedulerWorkflow('scheduler');
     if (ok) lastDispatchAt = now;
+    if (!ok) lastDispatchAt = now;
     return ok;
   } finally {
     inflight = false;
@@ -125,10 +143,25 @@ function getGithubActionsDispatchStatus() {
     enabled: hasGithubActionsDispatchToken(),
     workflows: getSchedulerWorkflows(),
     inflight,
+    paused: !!disabledUntil && Date.now() < disabledUntil,
+    disabledUntil,
+    disabledUntilIso: disabledUntil ? new Date(disabledUntil).toISOString() : '',
+    disabledReason,
     lastDispatchAt,
     lastDispatchAtIso: lastDispatchAt ? new Date(lastDispatchAt).toISOString() : '',
     lastDispatchStatus,
   };
+}
+
+function isActionsDisabledError(error) {
+  return /actions has been disabled for this user/i.test(String(error || ''));
+}
+
+function readNonNegativeIntEnv(name, fallback) {
+  const value = process.env[name];
+  if (value == null || value === '') return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback;
 }
 
 module.exports = {

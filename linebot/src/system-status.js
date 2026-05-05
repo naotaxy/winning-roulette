@@ -146,6 +146,9 @@ function getGithubActionsDispatchLine() {
     const status = getGithubActionsDispatchStatus();
     if (!status.enabled) return 'Actions復帰: OFF（dispatch tokenなし）';
     const workflows = (status.workflows || []).join(', ') || '未設定';
+    if (status.paused) {
+      return `Actions復帰: 一時停止（GitHub側でActions無効の可能性 / 再試行 ${status.disabledUntilIso || '後ほど'} / dispatch先: ${workflows}）`;
+    }
     const last = status.lastDispatchStatus;
     if (!last?.attemptedAt) return `Actions復帰: 待機中（dispatch先: ${workflows}）`;
     const result = last.ok ? 'OK' : '注意';
