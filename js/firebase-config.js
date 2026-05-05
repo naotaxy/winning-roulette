@@ -1,16 +1,51 @@
 /* ═══════════════════════════════════════════════════
-   Firebase Configuration — winning-roulette-c6de7
+   Firebase Configuration
+   公開ソースにはAPIキーを置かず、Renderの公開設定エンドポイントから取得する。
    ═══════════════════════════════════════════════════ */
+'use strict';
 
-const FIREBASE_CONFIG = {
-  apiKey:            "FIREBASE_WEB_API_KEY_REDACTED",
-  authDomain:        "winning-roulette-c6de7.firebaseapp.com",
-  databaseURL:       "https://winning-roulette-c6de7-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId:         "winning-roulette-c6de7",
-  storageBucket:     "winning-roulette-c6de7.firebasestorage.app",
-  messagingSenderId: "411093932837",
-  appId:             "1:411093932837:web:5e0c5b9008a448600dd8cc"
-};
+const FIREBASE_CONFIG = {};
+const FIREBASE_CONFIG_URL = window.FIREBASE_CONFIG_URL || 'https://winning-roulette.onrender.com/public/firebase-config';
+let FIREBASE_READY = false;
 
-/* ── 設定済みチェック ── */
-const FIREBASE_READY = FIREBASE_CONFIG.apiKey !== "YOUR_API_KEY";
+const FIREBASE_CONFIG_PROMISE = loadFirebaseConfig();
+
+async function loadFirebaseConfig() {
+  const inlineConfig = window.__FIREBASE_CONFIG__;
+  if (isUsableFirebaseConfig(inlineConfig)) {
+    Object.assign(FIREBASE_CONFIG, inlineConfig);
+    FIREBASE_READY = true;
+    return true;
+  }
+
+  if (!FIREBASE_CONFIG_URL || typeof fetch !== 'function') {
+    FIREBASE_READY = false;
+    return false;
+  }
+
+  try {
+    const res = await fetch(FIREBASE_CONFIG_URL, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const remoteConfig = data.firebaseConfig || data;
+    if (!isUsableFirebaseConfig(remoteConfig)) throw new Error('Firebase config is incomplete');
+    Object.assign(FIREBASE_CONFIG, remoteConfig);
+    FIREBASE_READY = true;
+    return true;
+  } catch (err) {
+    console.warn('[firebase-config] runtime config load failed:', err.message);
+    FIREBASE_READY = false;
+    return false;
+  }
+}
+
+function isUsableFirebaseConfig(config) {
+  return !!(
+    config &&
+    typeof config === 'object' &&
+    config.apiKey &&
+    config.authDomain &&
+    config.databaseURL &&
+    config.projectId
+  );
+}

@@ -320,6 +320,14 @@
       ".read": false,
       ".write": false
     },
+    "ocrAutomation": {
+      ".read": false,
+      ".write": false
+    },
+    "screenshotCandidates": {
+      ".read": false,
+      ".write": false
+    },
     "aiChatUsage": {
       ".read": false,
       ".write": false
@@ -331,6 +339,13 @@
         "messages": {
           ".indexOn": ["createdAt"]
         }
+      }
+    },
+    "securityEvents": {
+      ".read": false,
+      ".write": false,
+      "$eventId": {
+        ".indexOn": ["createdAt"]
       }
     }
   }

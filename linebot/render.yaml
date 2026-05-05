@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: winning-roulette-linebot
+    runtime: node
+    rootDir: linebot
+    buildCommand: npm ci
+    startCommand: node server.js
+    plan: free
+    envVars:
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: LINE_ADMIN_USER_ID
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+      - key: FIREBASE_DATABASE_URL
+        sync: false
+      - key: FIREBASE_WEB_CONFIG_JSON
+        sync: false
+      - key: PRIVATE_PROFILE_SEEDS_JSON
+        sync: false
+      - key: TRAPERUKO_OWNER_DISPLAY_NAME
+        sync: false
+      - key: TRAPERUKO_ORIGIN_TEAM_NAME
+        sync: false
+      - key: TOKUBAI_COORDINATE_AREA_FALLBACKS_JSON
+        sync: false
+      - key: PORT
+        value: "3000"

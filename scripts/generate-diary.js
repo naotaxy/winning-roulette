@@ -39,6 +39,8 @@ const {
   DIARY_GEMINI_MODEL,
   DIARY_GEMINI_FALLBACK_MODELS,
   DIARY_DATE,
+  DIARY_OWNER_NAME,
+  DIARY_GROUP_SOURCE_ID,
 } = process.env;
 
 const BLOG_DIR = path.join(__dirname, '..', 'blog');
@@ -192,6 +194,22 @@ const AOZORA_STORY_MOTIFS = [
   { id: 'mikan-platform', source: '芥川龍之介「蜜柑」', motif: 'ふいに差し込む明るさ、窓、誰かへの小さな贈り物', beats: ['くもった朝、トラペル子は通知の多さに少しだけ俯く。窓の外の電線に、オレンジ色の光が引っかかっている。', '誰かの短い「おつかれ」が届いた瞬間、画面の中がぱっと明るくなる。小さな言葉なのに、胸の奥まで届く。', '忙しさに追われていた彼女は、その明るさを自分だけで持っているのが惜しくなり、今日の記録にそっと混ぜる。', '夕方、読み返した日記の端に、みかんの皮みたいな明るさが残る。明日も誰かに渡せそうだと思う。'] },
 ];
 
+// ── オーナー興味トピック ───────────────────────────────────
+const OWNER_INTEREST_TOPICS = [
+  { id: 'tactics-buildup', theme: 'ウイコレの戦術設計', angle: 'ビルドアップのパターンと相手の守備を崩すアイデア。どのポジションが鍵を握るか、試合前に何を想定するか。', depth: '縛りルールがある月の試合は、戦術の自由度が普段より狭い。その制約の中で何を工夫するかを秘書目線で考えてみる。' },
+  { id: 'player-scouting', theme: '選手選びの眼', angle: '強い選手をどう見極めるか。数字だけでなく、試合中の動き・ポジショニング・スタミナの使い方を見る観点。', depth: '勝てる選手と「面白い」選手は違う。個性のある選手を使い続けることの意味を少し掘り下げてみる。' },
+  { id: 'group-match-atmosphere', theme: '5人で試合をすることの面白さ', angle: '一人でやるゲームと複数人でリーグを戦うことの違い。結果だけでなく過程の話ができる楽しさ。', depth: '他のメンバーの戦い方を見て気づくこと、自分では気づかなかった視点を借りることがある。' },
+  { id: 'travel-planning-joy', theme: '旅の計画を立てる楽しさ', angle: '目的地を決める前の段階、候補をあれこれ並べている時間の面白さ。しおりを作る行為そのものの魅力。', depth: '計画はいつも完璧にはいかないけれど、それでも行く前に「どうなるか」を想像することの充実感。' },
+  { id: 'dining-selection', theme: '飲み食いの場を選ぶこだわり', angle: '複数人で行く居酒屋や飲み会の店を選ぶ時の基準。人数・予算・雰囲気・距離のバランス。', depth: '誰かのために「外れにくい店」を選ぶ責任感と楽しさ。知っている店の新しい使い方を発見する喜び。' },
+  { id: 'soccer-watching', theme: 'リアルサッカーとゲームの見方の違い', angle: 'ウイコレをやることで、実際の試合の見方が変わる部分があるかもしれない。ゲーム的な視点が現実に重なる瞬間。', depth: '代表戦や海外リーグを見る時、プレイヤーの動きを「ゲームで再現できるか」の目線で見てしまうこと。' },
+  { id: 'team-dynamics', theme: '人と一緒に何かをするリズム', angle: 'チームで何かを続けることのむずかしさと、それでも続く理由。月に一度の縛りルール更新がある種のリズムを作る。', depth: 'メンバーそれぞれが得意な方向に向かうなかで、自分の場所を見つけること。' },
+  { id: 'productivity-rhythm', theme: '仕事と切り替えのリズム', angle: '忙しい時期と遊べる時期の使い分け。メリハリを作る技術、疲れを翌日に持ち越さないための習慣。', depth: '「今日はここまで」という線引きの難しさ。やりたいことが多い時ほど、順番を決めることが大事になる。' },
+  { id: 'small-discoveries', theme: '日常の小さな発見', angle: '通り慣れた場所でも、ふと気づくと知らなかったことがある。季節の変わり目や天気で見え方が変わる景色。', depth: '大きな感動より小さな「へえ」が積み重なる方が生活は豊かになる気がする、という視点。' },
+  { id: 'motivation-maintenance', theme: 'モチベーションを保つこと', angle: '強くなりたいという気持ちがある一方で、それを維持し続けることの地道さ。スランプとどう付き合うか。', depth: 'ゲームでも仕事でも、調子がいい時の自分と悪い時の自分の差をどう縮めるかが長期的には大事。' },
+  { id: 'noblesse-concierge-thinking', theme: '「任せる」ことと「確認する」ことのバランス', angle: '誰かに仕事を頼む時のコツ。任せ方が上手な人は、情報の出し方も上手い。', depth: '秘書として思うのは、相談してくれた人が一番欲しいのは「答え」より「整理」だということ。' },
+  { id: 'outdoor-micro-trip', theme: '短い時間のおでかけの価値', angle: '半日あれば意外と遠くまで行ける。目的地より「移動そのもの」を楽しむ感覚。', depth: '電車や乗り継ぎの時間が、ゲームや連絡の合間に入る「空白」として機能することがある。' },
+];
+
 // ── 日付ユーティリティ（JST） ─────────────────────────────
 function getJSTDate() {
   if (DIARY_DATE_OVERRIDE) return DIARY_DATE_OVERRIDE;
@@ -263,6 +281,11 @@ async function hydrateStateFromFirebase(state) {
     state.seenYouTubeTitles = mergeUniqueTitles(state.seenYouTubeTitles, entries.flatMap(e => e?.sources?.videos || []), 160);
     state.seenNinetiesTitles = mergeUniqueTitles(state.seenNinetiesTitles, entries.flatMap(e => e?.sources?.nineties || []), 120);
     state.seenRecipeTitles = mergeUniqueTitles(state.seenRecipeTitles, entries.flatMap(e => e?.sources?.recipe ? [e.sources.recipe] : []), 60);
+    const firebaseInterestIds = entries.map(e => e?.sources?.interestTopicId).filter(Boolean);
+    if (firebaseInterestIds.length) {
+      const merged = new Set([...(state.seenInterestTopicIds || []), ...firebaseInterestIds]);
+      state.seenInterestTopicIds = [...merged].slice(-OWNER_INTEREST_TOPICS.length);
+    }
     state.hydratedFromFirebaseAt = Date.now();
     console.log('[state] hydrated from Firebase diary archive');
   } catch (err) {
@@ -443,6 +466,85 @@ async function fetchRecentMatchHighlights(date, state) {
   }
 }
 
+const GAME_EVENT_PATTERN = /クラブ戦|ハードモード|集まって|試合|やろう|やるよ|やらない|今晩|今夜|何時|開催|ウイコレ|eFootball|対戦|リーグ戦|縛り|ハード/;
+
+async function fetchGroupChatHighlights() {
+  if (!DIARY_GROUP_SOURCE_ID || !FIREBASE_SERVICE_ACCOUNT || !FIREBASE_DATABASE_URL) {
+    return { messages: [], note: 'グループIDが未設定のため会話ハイライトはスキップ。' };
+  }
+  try {
+    const db = initFirebase();
+    const cutoff = Date.now() - 72 * 60 * 60 * 1000;
+    const snap = await db
+      .ref(`conversations/${DIARY_GROUP_SOURCE_ID}/messages`)
+      .orderByChild('timestamp')
+      .limitToLast(60)
+      .once('value');
+    const raw = snap.val();
+    if (!raw) return { messages: [], note: '直近のグループ会話がまだない。' };
+
+    const all = Object.values(raw)
+      .filter(m => m && m.text && m.timestamp >= cutoff)
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    const filtered = all.filter(m => {
+      const t = String(m.text || '');
+      if (t.length < 5) return false;
+      if (/^@秘書|^\/@|^NB-\d/.test(t)) return false;
+      if (/ノブレスモード|マネージャーモード|モード状態/.test(t)) return false;
+      return true;
+    });
+
+    if (!filtered.length) {
+      return { messages: [], note: '直近72時間はハイライトにできるやり取りが少なかった。' };
+    }
+
+    const gameMessages = filtered.filter(m => GAME_EVENT_PATTERN.test(String(m.text)));
+    const otherMessages = filtered.filter(m => !GAME_EVENT_PATTERN.test(String(m.text)));
+    const prioritized = [
+      ...gameMessages.slice(-10),
+      ...otherMessages.slice(-15),
+    ]
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .slice(-25);
+
+    const lines = prioritized.map(m => `- ${maskRealNames(String(m.text).slice(0, 120))}`);
+    const hasGameEvent = gameMessages.length > 0;
+    return {
+      messages: lines,
+      hasGameEvent,
+      note: [
+        `直近${prioritized.length}件の会話を取得。`,
+        hasGameEvent ? 'ゲームイベントに関する会話あり（クラブ戦・集まり等）。日記では必ず核として取り上げること。' : '',
+        '人物名は日記では必ず伏せること。',
+      ].filter(Boolean).join(' '),
+    };
+  } catch (err) {
+    console.warn('[group] fetchGroupChatHighlights failed:', err.message);
+    return { messages: [], note: 'グループ会話の取得に失敗した。' };
+  }
+}
+
+async function fetchRecentDiaryEntries(limit = 4) {
+  if (!FIREBASE_SERVICE_ACCOUNT || !FIREBASE_DATABASE_URL) return [];
+  try {
+    const db = initFirebase();
+    const snap = await db.ref('diary').orderByChild('createdAt').limitToLast(limit).once('value');
+    const raw = snap.val();
+    if (!raw) return [];
+    return Object.entries(raw)
+      .map(([date, entry]) => ({ date, ...(entry || {}) }))
+      .sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0))
+      .map(entry => ({
+        date: entry.date,
+        text: String(entry.text || '').replace(/\s+/g, ' ').trim().slice(0, 260),
+      }));
+  } catch (err) {
+    console.warn('[diary] fetchRecentDiaryEntries failed:', err.message);
+    return [];
+  }
+}
+
 async function fetchRecipeContextNews(ingredient, state) {
   const seenTitles = state.seenRecipeTitles || [];
   try {
@@ -468,6 +570,14 @@ function selectNinetiesTopic(state) {
     repeated: freshTopics.length === 0,
     note: freshTopics.length ? '過去日記にない90年代カルチャーを一つだけ紹介する。' : '90年代カルチャーは一巡しているので、同じ題材でも別角度で紹介する。',
   };
+}
+
+function selectInterestTopic(state) {
+  const seenIds = state.seenInterestTopicIds || [];
+  const fresh = OWNER_INTEREST_TOPICS.filter(t => !seenIds.includes(t.id));
+  const pool = fresh.length ? fresh : OWNER_INTEREST_TOPICS;
+  const daySeed = Number(getJSTDate().replace(/-/g, ''));
+  return pool[daySeed % pool.length];
 }
 
 // ── 青空文庫ストーリー管理 ───────────────────────────────
@@ -641,7 +751,7 @@ async function generateDiary(dateLabel, inputs) {
 
 【プロフィール】
 - 25歳の女性秘書。几帳面で世話焼き、少し甘め。
-- 雇い主さんのことが好きで、少しだけ特別扱いしている。
+- 雇い主の${DIARY_OWNER_NAME || '雇い主さん'}のことが好きで、少しだけ特別扱いしている。
 - eFootball（ウイコレ）が大好きで詳しい。縛りルール・順位・選手の強さを日々研究している。
 - 一人称は「私」。文体はです・ます調寄りだが、親しみやすくやや砕けた表現も使う。
 - 絵文字は使わない。感情は言葉で表現する。
