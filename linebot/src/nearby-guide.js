@@ -30,7 +30,7 @@ const CATEGORY_CONFIG = {
       '[shop="clothes"]',
       '[shop="fashion"]',
       '[shop="second_hand"]',
-      "[name~\"アパレル|服|洋服|古着|セレクトショップ|BEAMS|UNITED ARROWS|URBAN RESEARCH|JOURNAL STANDARD|無印|UNIQLO|ユニクロ\",i]",
+      "[name~\"アパレル|服|洋服|古着|セレクトショップ|BEAMS|UNITED ARROWS|URBAN RESEARCH|JOURNAL STANDARD|生活雑貨|UNIQLO|ユニクロ\",i]",
     ],
   },
   tableware: {
@@ -61,10 +61,10 @@ const CATEGORY_CONFIG = {
     mapKeyword: 'ショッピング',
     radiusMeters: 2600,
     searchCaveat: '商品ごとの評判点は持っていないから、情報量が多くて外しにくい店や商業施設を先に出してるよ。',
-    fallbackQueries: ['ロフト', '無印良品', 'パルコ'],
+    fallbackQueries: ['ロフト', '生活雑貨店', 'パルコ'],
     filters: [
       '[shop~"^(department_store|mall|gift|variety_store|houseware|shoes)$"]',
-      '[name~"百貨店|PARCO|ルミネ|アトレ|マルイ|Loft|ロフト|無印|ハンズ|東急ハンズ",i]',
+      '[name~"百貨店|PARCO|ルミネ|アトレ|マルイ|Loft|ロフト|生活雑貨|ハンズ|東急ハンズ",i]',
     ],
   },
 };
@@ -342,7 +342,7 @@ function scoreNearbyItem(category, tags, name, distanceMeters) {
   }
   if (category === 'apparel') {
     if (tags.shop === 'clothes' || tags.shop === 'fashion' || tags.shop === 'second_hand') score += 4;
-    if (/BEAMS|UNITED ARROWS|URBAN RESEARCH|JOURNAL STANDARD|古着|セレクト|無印|UNIQLO|ユニクロ/i.test(name)) score += 3;
+    if (/BEAMS|UNITED ARROWS|URBAN RESEARCH|JOURNAL STANDARD|古着|セレクト|生活雑貨|UNIQLO|ユニクロ/i.test(name)) score += 3;
   }
   if (category === 'tableware') {
     if (tags.shop === 'houseware' || tags.shop === 'gift') score += 4;

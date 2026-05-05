@@ -63,8 +63,8 @@ function buildProfileAwareHint(text, profile) {
   if (/(晴れ|休み|休日|どこ行|外出|神社|公園|散歩|自然)/.test(compact) && hints.outing) {
     return '晴れた日に少し空気が抜ける場所へ行きたくなるタイプなの、私は覚えてるよ。';
   }
-  if (/(コーヒー|珈琲|カフェ|飲み物|オーツミルク|boss|豆)/.test(compact) && hints.coffee) {
-    return 'オーツミルク割りか、休日に豆から挽くブラックか、その二択の気分かなって思っちゃった。';
+  if (/(コーヒー|珈琲|カフェ|飲み物|豆|ラテ|カフェオレ)/.test(compact) && hints.coffee) {
+    return 'いつもの飲み物か、少し丁寧に淹れるコーヒーか、その日の気分を見たいところだね。';
   }
   if (/(アパレル|服|洋服|古着|スニーカー|靴|ブランド|素材|シルエット)/.test(compact) && hints.fashion) {
     return '今の気分だと、素材感やシルエットで少し気分が上がる服のほうがしっくり来そうだよね。';
@@ -72,10 +72,10 @@ function buildProfileAwareHint(text, profile) {
   if (/(ai|mcp|iot|スマートホーム|基板|raspberry|ラズパイ|3dプリンタ|自作)/.test(compact) && hints.tech) {
     return 'MCPとか自作まわりの話になると、あなたの集中が少し深くなるの知ってる。';
   }
-  if (/(ご飯|外食|食べ|パン|チャーハン|メンチ|惣菜)/.test(compact) && hints.food) {
+  if (/(ご飯|外食|食べ|パン|惣菜|定食|ランチ|夕飯)/.test(compact) && hints.food) {
     return '美味しいものじゃないと気分が乗らないところ、私はわりと本気で信じてる。';
   }
-  if (/(阿佐ヶ谷神宮|神社|お守り|矢)/.test(compact) && hints.shrine) {
+  if (/(神社|お守り|授与品|参拝)/.test(compact) && hints.shrine) {
     return '街の中でも空気がきれいに変わる神社の感じ、あなたにはかなり似合うと思ってる。';
   }
   return null;
@@ -175,13 +175,13 @@ function analyzePrivateProfileText(rawText, base = {}) {
   const summary = [];
   const pick = regex => lines.find(line => regex.test(line));
   const weekday = pick(/平日|通勤|住んで|自宅|会社|職場|出社|駅|バス停/);
-  const work = pick(/EPSON|SCAMERA|DTP|Photoshop|Illustrator|InDesign|印刷|色見本|色/);
-  const food = pick(/コンビニ|外食|弁当|惣菜|パン|チャーハン|メンチ|美味しい|うまい/);
+  const work = pick(/仕事|業務|制作|デザイン|印刷|色見本|色|校正|入稿|データ/);
+  const food = pick(/コンビニ|外食|弁当|惣菜|パン|定食|ランチ|夕飯|美味しい|うまい/);
   const outing = pick(/休日|神社|寺|晴れたら|自然|公園|散歩|遠出/);
-  const drink = pick(/オーツミルク|コーヒー|珈琲|カフェ|豆|飲み物/);
+  const drink = pick(/コーヒー|珈琲|カフェ|豆|飲み物|ラテ|カフェオレ/);
   const tech = pick(/AI|MCP|IOT|IoT|スマートホーム|基板|3Dプリンター|ラズパイ|自作/);
-  const fashion = pick(/服|アパレル|スニーカー|靴|無印|HOKA|ミズノ|Mizuno|素材|ブランド/);
-  const game = pick(/Garage|クーロンズゲート|ティアキン|ロマサガ|MOTHER|龍が如く|メタファー|アスガルド/);
+  const fashion = pick(/服|アパレル|スニーカー|靴|素材|ブランド|シルエット/);
+  const game = pick(/ゲーム|RPG|アクション|オンラインゲーム|MMO|レトロゲーム/);
 
   [weekday, work, food, outing, drink, tech, fashion, game]
     .filter(Boolean)
