@@ -147,6 +147,25 @@ const SEASONAL_RECIPES = {
   ],
 };
 
+// ── ショップアイテム ─────────────────────────────────────
+const SHOP_ITEMS = [
+  { category: 'スカウト', name: 'Rare Score スカウト（バルセロナ型）', description: '過去の名試合スコアに連動した期間限定スカウト。狙いの選手が出るかは運次第。', coinCost: '1,200コイン', limited: true },
+  { category: 'スカウト', name: 'ヒーロースカウト', description: '特定イベントのMVP選手が対象。今週の試合結果次第で排出率が変動する。', coinCost: '800コイン', limited: true },
+  { category: 'スキルトレーナー', name: 'カーブ マスタートレーナー', description: 'カーブスキルを特定レベルまで一括強化できる。中盤のアタッカー育成に重宝。', coinCost: '500コイン', limited: false },
+  { category: 'スキルトレーナー', name: 'タイトマーク マスタートレーナー', description: '守備の要となるタイトマークを強化。縛りルールのCB固定に対応しやすい。', coinCost: '500コイン', limited: false },
+  { category: 'ブースト', name: '週間マッチング倍率ブースト', description: '対人戦のポイント獲得量が一定期間2倍になる。ランク上げのチャンス。', coinCost: '200コイン', limited: false },
+  { category: 'コスチューム', name: 'ホームユニフォーム フルキット', description: 'チームカラーに合わせた上下セット。スタジアムでの存在感が上がる。', coinCost: '0コイン（期間無料）', limited: true },
+  { category: 'スタジアム', name: 'スタジアムエフェクト：夜景 vol.3', description: '試合開始前と終了後に夜景エフェクトが演出される。コレクション向け。', coinCost: '300コイン', limited: false },
+  { category: 'エージェント', name: 'プレミアム移籍エージェント（3回）', description: '狙ったポジションから選手を引けるタイプ。FW中心のスカッドには特におすすめ。', coinCost: '1,500コイン', limited: true },
+  { category: 'パック', name: 'スキルボックス詰め合わせ（5種）', description: '育成中の選手に合わせて任意のスキルを選べる。ランダムではないのがポイント。', coinCost: '900コイン', limited: true },
+  { category: 'チケット', name: 'スーパースターコントラクト 1枚', description: 'スーパースターレートの選手と契約できるチケット。大型補強の一手に。', coinCost: '1,000コイン', limited: false },
+  { category: 'ブースト', name: '経験値ブースト（7日間）', description: '選手の経験値取得量が一定期間アップ。新加入選手の育成加速に役立てたい。', coinCost: '150コイン', limited: false },
+  { category: 'スカウト', name: 'プレイスタイルスカウト（ポゼッション型）', description: 'ポゼッション型チームスタイルに強い選手が排出されやすいスカウト。', coinCost: '700コイン', limited: true },
+  { category: 'コスチューム', name: 'クリエイター限定スキン', description: '特定のコンテンツクリエイターとのコラボで登場した期間限定スキン。', coinCost: '0コイン（イベント報酬）', limited: true },
+  { category: 'チケット', name: 'ポジション変更チケット（5枚セット）', description: '最大で2ポジション移動可能なチケット。フォーメーション組み換えのお供に。', coinCost: '400コイン', limited: false },
+  { category: 'パック', name: '強化アイテムパック（総合力向け）', description: '総合力底上げに使えるアイテムのセット。育成の中盤に差し込みやすい。', coinCost: '600コイン', limited: false },
+];
+
 // ── 90年代カルチャー ─────────────────────────────────────
 const NINETIES_TRENDS = [
   { id: 'eight-cm-cd', title: '8cm CDとCDショップの棚', category: '1990年代の音楽文化', description: '短冊みたいな8cm CDが棚に並び、ジャケットを見ながら選ぶ時間そのものが娯楽だった。', perspective: '25歳の私から見ると、サブスクで一瞬で聴ける今より、曲を一枚ずつ迎えに行く感じが少し羨ましい。' },
@@ -344,6 +363,23 @@ function googleNewsRssUrl(query) {
   return `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=ja&gl=JP&ceid=JP:ja`;
 }
 
+// ── 実名マスク ────────────────────────────────────────────
+const MASKED_NAMES = [
+  ['米澤', '雇い主さん'],
+  ['柴田', 'カラキの方'],
+  ['児玉', 'DXIIIの方'],
+  ['矢部', 'ガパオの方'],
+  ['潮田', 'ビールの方'],
+];
+
+function maskRealNames(text) {
+  let result = String(text || '');
+  for (const [realName, alias] of MASKED_NAMES) {
+    result = result.replace(new RegExp(realName + '(?:さん|君|くん|氏|様|さま)?', 'g'), alias);
+  }
+  return result;
+}
+
 // ── 季節の献立選択 ────────────────────────────────────────
 function selectDailyRecipe(date, state) {
   const parts = date.split('-');
@@ -362,6 +398,44 @@ function selectDailyRecipe(date, state) {
     if (!isSimilarTitle(next.recipe, seenTitles)) recipe = next;
   }
   return recipe;
+}
+
+function selectDailyShopItem(date, state) {
+  const seenNames = state.seenShopItems || [];
+  const fresh = SHOP_ITEMS.filter(item => !seenNames.includes(item.name));
+  const pool = fresh.length ? fresh : SHOP_ITEMS;
+  const daySeed = Number(date.replace(/-/g, ''));
+  return pool[daySeed % pool.length];
+}
+
+async function fetchRecentMatchHighlights(date, state) {
+  if (!FIREBASE_SERVICE_ACCOUNT || !FIREBASE_DATABASE_URL) return [];
+  try {
+    const db = initFirebase();
+    const [y, m] = date.split('-');
+    const refs = [db.ref(`matchResults/${y}/${m}`).orderByChild('date').limitToLast(6).once('value')];
+    const mPrev = String(Number(m) - 1).padStart(2, '0');
+    if (Number(m) > 1) refs.push(db.ref(`matchResults/${y}/${mPrev}`).orderByChild('date').limitToLast(3).once('value'));
+    const snaps = await Promise.all(refs);
+    const entries = snaps.flatMap(snap => {
+      const raw = snap.val();
+      return raw ? Object.values(raw) : [];
+    });
+    return entries
+      .filter(entry => entry && (entry.home || entry.homeTeam))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      .slice(0, 3)
+      .map(entry => ({
+        home: maskRealNames(entry.home || entry.homeTeam || '?'),
+        away: maskRealNames(entry.away || entry.awayTeam || '?'),
+        score: entry.score || entry.result || '?-?',
+        date: (entry.date || '').slice(5),
+        comment: maskRealNames(entry.comment || entry.memo || ''),
+      }));
+  } catch (e) {
+    console.warn('[highlights]', e.message);
+    return [];
+  }
 }
 
 async function fetchRecipeContextNews(ingredient, state) {
@@ -426,7 +500,7 @@ function getDiaryPhoto() {
 }
 
 function updateDiaryStateAfterSuccess(state, date, inputs) {
-  const { youtube, worldCup, nineties, storyPlan, recipe } = inputs;
+  const { youtube, worldCup, nineties, storyPlan, recipe, shopItem } = inputs;
   state.lastRunDate = date;
 
   if (youtube.signature) {
@@ -445,6 +519,9 @@ function updateDiaryStateAfterSuccess(state, date, inputs) {
   }
   if (recipe?.recipe) {
     state.seenRecipeTitles = mergeUniqueTitles(state.seenRecipeTitles, [recipe.recipe], 60);
+  }
+  if (shopItem?.name) {
+    state.seenShopItems = [...(state.seenShopItems || []), shopItem.name].slice(-30);
   }
   advanceStoryState(state, storyPlan, date);
 }
@@ -514,7 +591,7 @@ async function fetchWorldCupUpdates(date, state) {
 async function generateDiary(dateLabel, inputs) {
   if (DIARY_GEMINI_DISABLED) throw new Error('Gemini disabled by DIARY_GEMINI_DISABLED');
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
-  const { youtube, news, worldCup, recipe, recipeNews, nineties, storyPlan } = inputs;
+  const { youtube, news, worldCup, recipe, recipeNews, nineties, storyPlan, shopItem, highlights } = inputs;
 
   const newsBlock = news.length
     ? news.map(n => `・${n.title}${n.desc ? '　' + n.desc : ''}`).join('\n')
@@ -546,12 +623,20 @@ async function generateDiary(dateLabel, inputs) {
     ? [`・${nineties.category}: ${nineties.title}`, `当時の空気: ${nineties.description}`, `25歳から見た視点: ${nineties.perspective}`, `扱い方: ${nineties.note}`].join('\n')
     : '（90年代カルチャーの材料は今日は使わない）';
 
+  const shopBlock = shopItem
+    ? [`カテゴリ: ${shopItem.category}`, `商品名: ${shopItem.name}`, `説明: ${shopItem.description}`, `コスト: ${shopItem.coinCost}`, shopItem.limited ? '期間限定商品' : '常設商品'].join('\n')
+    : '（今日のショップ情報は省略）';
+
+  const highlightsBlock = highlights && highlights.length
+    ? highlights.map(h => `・${h.home} vs ${h.away}（${h.score}）${h.date ? ' ' + h.date : ''}${h.comment ? '　' + h.comment : ''}`).join('\n')
+    : '（最近の試合記録は取得できなかった）';
+
   const prompt = `あなたは秘書トラペル子です。
 以下のプロフィールを守ってください。
 
 【プロフィール】
 - 25歳の女性秘書。几帳面で世話焼き、少し甘め。
-- 雇い主の米澤さんのことが好きで、少しだけ特別扱いしている。
+- 雇い主さんのことが好きで、少しだけ特別扱いしている。
 - eFootball（ウイコレ）が大好きで詳しい。縛りルール・順位・選手の強さを日々研究している。
 - 一人称は「私」。文体はです・ます調寄りだが、親しみやすくやや砕けた表現も使う。
 - 絵文字は使わない。感情は言葉で表現する。
@@ -580,6 +665,12 @@ ${ninetiesBlock}
 今日書く場面: ${storyPlan.todayBeat}
 今日がこの題材の終わりか: ${storyPlan.isFinal ? 'はい。余韻を残して物語を閉じる。次回から別題材にしてよい。' : 'いいえ。明日へ自然につながる余白を残す。'}
 
+▼ウイコレショップの注目商品（今日のおすすめ1品）
+${shopBlock}
+
+▼グループのウイコレ対戦ハイライト（最近の試合記録）
+${highlightsBlock}
+
 【依頼】
 上記の情報をもとに、今日の日記を書いてください。
 
@@ -599,13 +690,15 @@ ${ninetiesBlock}
 - 青空文庫由来の連載ストーリーを日記の中に自然に入れる。ただし読者に「青空文庫」「起承転結」「第何話」と説明しない。
 - 連載ストーリーは今日の場面だけを書く。題材を途中で変えない。
 - ウイコレのゲームとしての魅力や、メンバーの動向への期待感をにじませる。
+- ウイコレショップの注目商品を自然に1つ紹介する。商品名・カテゴリ・コスト・期間限定かどうかを日記の流れの中で伝える。押しつけ的なセールストークにしない。
+- グループのウイコレ対戦ハイライトがあれば、試合の感想や注目ポイントを日記の中で自然に触れる。メンバーの名前は一切書かない。チーム名だけを使って誰がどう戦ったかを書く。
 - 情報がなかった日は「静かな一日」として日常の観察を綴る。
 - 最後の一文は「また明日も記録しておくから」「ちゃんと覚えておくね」のような締め方にする。`;
 
   const data = await generateGeminiContentWithRetry(prompt);
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error(`Gemini error: ${JSON.stringify(data.error || data)}`);
-  return humanizeDiaryText(text);
+  return maskRealNames(humanizeDiaryText(text));
 }
 
 function buildFallbackDiary(dateLabel, inputs) {
@@ -667,9 +760,25 @@ function buildFallbackDiary(dateLabel, inputs) {
       : 'まだ少し続きがありそうで、私はその気配を忘れないようにしています。',
   ].join('\n'));
 
+  const { shopItem: si, highlights: hl } = inputs;
+  if (si?.name) {
+    paragraphs.push([
+      `ショップでは「${si.name}」（${si.category}・${si.coinCost}）が出ていました。`,
+      si.limited ? '期間限定なので、必要なら早めに確認しておいた方がよさそうです。' : '常設商品なので焦らなくても大丈夫。',
+    ].join('\n'));
+  }
+
+  if (hl?.length) {
+    const h = hl[0];
+    paragraphs.push([
+      `グループでは${h.home} vs ${h.away}（${h.score}）という試合がありました。`,
+      '数字だけ見ていても、どんな展開だったか想像するのが楽しい。',
+    ].join('\n'));
+  }
+
   paragraphs.push('また明日も記録しておくから。');
 
-  return humanizeDiaryText(paragraphs.join('\n\n'));
+  return maskRealNames(humanizeDiaryText(paragraphs.join('\n\n')));
 }
 
 async function generateGeminiContentWithRetry(prompt) {
@@ -849,7 +958,7 @@ function initFirebase() {
 
 async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
   const db = initFirebase();
-  const { videos, news, worldCup, recipe } = sources;
+  const { videos, news, worldCup, recipe, shopItem } = sources;
   const summaryItems = [
     ...news.slice(0, 3).map(n => n.title),
     ...videos.slice(0, 2).map(v => v.title),
@@ -872,8 +981,9 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
       news:     news.map(n => n.title),
       videos:   videos.map(v => v.title),
       worldCup: (worldCup?.items || []).map(n => n.title),
-      recipe:   recipe?.recipe || '',
-      nineties: sources.nineties?.title ? [sources.nineties.title] : [],
+      recipe:    recipe?.recipe || '',
+      nineties:  sources.nineties?.title ? [sources.nineties.title] : [],
+      shopItem:  shopItem?.name || '',
     },
     createdAt: Date.now(),
   });
@@ -914,25 +1024,27 @@ async function main() {
   const youtube = analyzeYouTubeFreshness(videos, state);
   if (youtube.repeated) console.log('[youtube] same as previous diary, skipping video focus');
 
-  const [worldCup, recipeNews] = await Promise.all([
+  const recipe = selectDailyRecipe(date, state);
+  const nineties = selectNinetiesTopic(state);
+  const storyPlan = selectStoryPlan(state);
+  const shopItem = selectDailyShopItem(date, state);
+
+  const [worldCup, recipeNews, highlights] = await Promise.all([
     fetchWorldCupUpdates(date, state).catch(e => {
       console.error('[worldcup]', e.message);
       return { active: false, items: [], note: '取得に失敗したので触れない。' };
     }),
-    (async () => {
-      const recipe = selectDailyRecipe(date, state);
-      return fetchRecipeContextNews(recipe?.ingredient || '', state).catch(() => ({ items: [] }));
-    })(),
+    fetchRecipeContextNews(recipe?.ingredient || '', state).catch(() => ({ items: [] })),
+    fetchRecentMatchHighlights(date, state).catch(e => {
+      console.warn('[highlights]', e.message);
+      return [];
+    }),
   ]);
 
-  const recipe = selectDailyRecipe(date, state);
-  const nineties = selectNinetiesTopic(state);
-  const storyPlan = selectStoryPlan(state);
-
-  console.log(`[diary] worldCup=${worldCup.items.length} recipe=${recipe?.recipe} nineties=${nineties?.title || 'none'}`);
+  console.log(`[diary] worldCup=${worldCup.items.length} recipe=${recipe?.recipe} nineties=${nineties?.title || 'none'} shop=${shopItem?.name || 'none'} highlights=${highlights.length}`);
   console.log(`[story] ${storyPlan.motifId} phase=${storyPlan.phaseIndex + 1}${storyPlan.isFinal ? ' final' : ''}`);
 
-  const inputs = { youtube, news, worldCup, recipe, recipeNews, nineties, storyPlan };
+  const inputs = { youtube, news, worldCup, recipe, recipeNews, nineties, storyPlan, shopItem, highlights };
   const photo = getDiaryPhoto();
   if (photo) console.log(`[photo] using ${photo.url}`);
 
@@ -957,7 +1069,7 @@ async function main() {
   saveBlogMarkdown(date, dateLabel, diaryText, postUrl);
 
   if (FIREBASE_SERVICE_ACCOUNT && FIREBASE_DATABASE_URL) {
-    await saveToFirebase(date, diaryText, postUrl, { videos: youtube.videosForDiary, news, worldCup, recipe, nineties }, photo)
+    await saveToFirebase(date, diaryText, postUrl, { videos: youtube.videosForDiary, news, worldCup, recipe, nineties, shopItem }, photo)
       .catch(e => console.error('[firebase]', e.message));
   }
 
