@@ -798,7 +798,7 @@ function diaryTextToHtml(text) {
   return String(text || '').split(/\n{2,}/).map(p => {
     const lines = p.trim().split('\n').map(l => escapeHtml(l.trim())).filter(Boolean);
     if (!lines.length) return '';
-    return `<p>${lines.join('<br>')}</p>`;
+    return `<p>${lines.join('<br />')}</p>`;
   }).filter(Boolean).join('\n');
 }
 
