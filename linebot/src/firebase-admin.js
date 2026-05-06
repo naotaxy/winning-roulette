@@ -56,6 +56,15 @@ async function getPlayers() {
   return _playersCache;
 }
 
+/* config/players の lineUserId フィールドで実名を引く */
+async function getRealNameByLineUserId(userId) {
+  if (!userId) return null;
+  const players = await getPlayers();
+  const list = Array.isArray(players) ? players : Object.values(players || {});
+  const found = list.find(p => p?.lineUserId === userId);
+  return found?.name || null;
+}
+
 /* OCR結果を一時保留（TTL: 1時間） */
 async function savePending(msgId, data) {
   await getDb().ref(`pendingOcr/${msgId}`).set({
@@ -1191,6 +1200,7 @@ async function initMemberProfileStub(userId, lineName) {
 
 module.exports = {
   getPlayers,
+  getRealNameByLineUserId,
   savePending,
   getPending,
   deletePending,

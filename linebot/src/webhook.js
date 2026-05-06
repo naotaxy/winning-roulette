@@ -33,6 +33,7 @@ const {
   updateScreenshotCandidate,
   getScreenshotCandidates,
   getMemberProfile,
+  getRealNameByLineUserId,
   getNoblesseCase,
   getNoblesseCases,
   getNoblesseCaseEvents,
@@ -632,9 +633,20 @@ async function getSenderName(event, client, fallback = null) {
   if (lineName && lineName !== fallback) {
     initMemberProfileStub(userId, lineName).catch(() => {});
   }
+
+  // 1. config/memberProfiles.realName で解決
   const memberRealName = await resolveRealName(userId, lineName);
   if (memberRealName && memberRealName !== lineName) return memberRealName;
 
+  // 2. config/players.lineUserId で解決（Firebase に lineUserId フィールドを追加すれば機能する）
+  const playerRealName = await getRealNameByLineUserId(userId).catch(() => null);
+  if (playerRealName) {
+    // 解決できたら memberProfiles に書き戻してキャッシュ
+    initMemberProfileStub(userId, lineName).catch(() => {});
+    return playerRealName;
+  }
+
+  // 3. PRIVATE_PROFILE_SEEDS_JSON による静的マッピング
   const privateProfile = await getResolvedPrivateProfile({
     userId,
     lineName: lineName || '',
