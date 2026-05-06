@@ -639,7 +639,7 @@ function updateDiaryStateAfterSuccess(state, date, inputs) {
     state.seenShopItems = [...(state.seenShopItems || []), shopItem.name].slice(-30);
   }
   if (campaigns?.items?.length) {
-    state.seenWicolleCampaignTitles = mergeUniqueTitles(state.seenWicolleCampaignTitles, campaigns.items.map(c => c.title), 40);
+    state.seenWicolleNewsTitles = mergeUniqueTitles(state.seenWicolleNewsTitles, campaigns.items.map(c => c.title), 80);
   }
   advanceStoryState(state, storyPlan, date);
 }
@@ -691,52 +691,82 @@ async function fetchEfootballNews() {
   return [];
 }
 
-async function fetchWicolleCampaigns(state) {
-  const seenTitles = state.seenWicolleCampaignTitles || [];
+async function fetchWicolleNews(state) {
+  const ssid = process.env.WICOLLE_SSID;
+  if (!ssid) {
+    console.warn('[wicolle] WICOLLE_SSID not set');
+    return { items: [], note: 'ウイコレ公式インフォメーションは未設定。' };
+  }
+
+  const cookie = [
+    `_ssid=${ssid}`,
+    `WEBVIEW=lang%3D1%26tz_offset%3D9%26_ssid%3D${ssid}%26ssid%3D%26legal_country%3D164`,
+    'INFORMATION_PAGE_0=infoFlags%3D%5B%5D',
+  ].join('; ');
+
+  let html;
+  try {
+    const res = await fetch(
+      'https://wecc.mo.konami.net/aut/main/html/news/index.php?ssid=1&lang=1&tz_offset=9&display_type=0',
+      {
+        signal: AbortSignal.timeout(10000),
+        headers: {
+          Cookie: cookie,
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'ja',
+          'Accept-Encoding': 'gzip, deflate, br',
+        },
+      }
+    );
+    if (!res.ok) {
+      console.warn(`[wicolle] HTTP ${res.status}`);
+      return { items: [], note: 'ウイコレ公式インフォメーション取得失敗。' };
+    }
+    html = await res.text();
+  } catch (e) {
+    console.warn('[wicolle] fetch error:', e.message);
+    return { items: [], note: 'ウイコレ公式インフォメーション取得エラー。' };
+  }
+
+  if (html.includes('ログイン') && !html.includes('インフォメーション')) {
+    console.warn('[wicolle] session expired — update WICOLLE_SSID on Render');
+    return { items: [], note: 'ウイコレセッション期限切れ（WICOLLE_SSIDの更新が必要）。' };
+  }
+
+  const seenTitles = state.seenWicolleNewsTitles || [];
+  const cutoff = new Date(Date.now() - 14 * 24 * 3600 * 1000);
   const allItems = [];
 
-  // Google News RSS: ガチャ・イベント情報（2クエリ）
-  const queries = ['ウイコレ ガチャ 開催中', 'ウイコレ イベント スカウト 最新'];
-  for (const q of queries) {
-    const items = await fetchRSS(googleNewsRssUrl(q)).catch(() => []);
-    for (const item of items) {
-      if (!allItems.some(x => isSimilarTitle(x.title, [item.title]))) {
-        allItems.push(item);
-      }
+  // each news item: <a href="./detail.php?idx=YYYYMMDDNN...">...</a>
+  const itemRe = /<a href="\.\/detail\.php\?idx=(\d{8})\d+[^"]*">([\s\S]*?)<\/a>/g;
+  for (const m of html.matchAll(itemRe)) {
+    const dateStr = m[1]; // YYYYMMDD
+    const block = m[2];
+    const itemDate = new Date(`${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`);
+    if (itemDate < cutoff) continue;
+
+    let title = '';
+    const altMatch = block.match(/alt="([^"]+)"/);
+    if (altMatch) {
+      title = altMatch[1].trim();
+    } else {
+      const noImgMatch = block.match(/infolist_title no_img[^>]*>([\s\S]*?)<\/div>/);
+      if (noImgMatch) title = noImgMatch[1].replace(/<[^>]+>/g, '').trim();
     }
+
+    if (!title || allItems.some(x => x.title === title)) continue;
+    const date = `${dateStr.slice(0, 4)}/${dateStr.slice(4, 6)}/${dateStr.slice(6, 8)}`;
+    allItems.push({ title, date, desc: '' });
   }
 
-  // Konami 公式ウイコレサイトのお知らせ一覧（タイトル+日付）
-  try {
-    const res = await fetch('https://www.konami.com/wepes/mobile/wecc/ja/', {
-      signal: AbortSignal.timeout(6000),
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; diary-bot/1.0)' },
-    });
-    if (res.ok) {
-      const html = await res.text();
-      const dateRe = /topics_date[^>]*>([^<]+)<\/[^>]+>[\s\S]*?topics_title[^>]*>([^<]+)<\/[^>]+>/g;
-      const seen = new Set();
-      for (const m of html.matchAll(dateRe)) {
-        const date = m[1].trim().replace(' JST', '');
-        const title = m[2].trim();
-        if (!title || seen.has(title)) continue;
-        seen.add(title);
-        if (!allItems.some(x => isSimilarTitle(x.title, [title]))) {
-          allItems.push({ title: `[公式 ${date}] ${title}`, desc: '' });
-        }
-        if (allItems.length >= 15) break;
-      }
-    }
-  } catch (e) {
-    console.warn('[wicolle] konami page fetch failed:', e.message);
-  }
-
-  const fresh = allItems.filter(item => !isSimilarTitle(item.title, seenTitles)).slice(0, 6);
+  console.log(`[wicolle] ${allItems.length} items in last 14 days`);
+  const fresh = allItems.filter(item => !seenTitles.includes(item.title)).slice(0, 8);
   return {
     items: fresh,
     note: fresh.length
-      ? `直近のウイコレキャンペーン情報${fresh.length}件。現在開催中の内容として自然に触れること。`
-      : '直近の新しいウイコレキャンペーン情報は取得できなかった。',
+      ? `ウイコレ公式インフォメーション${fresh.length}件（直近14日）。現在開催中または予告として自然に触れること。`
+      : 'ウイコレ公式インフォメーションに新しい情報はない。',
   };
 }
 
@@ -799,8 +829,8 @@ async function generateDiary(dateLabel, inputs) {
     : '（最近の試合記録は取得できなかった）';
 
   const campaignBlock = campaigns?.items?.length
-    ? campaigns.items.map(c => `・${c.title}${c.desc ? '　' + c.desc : ''}`).join('\n')
-    : '（直近のウイコレキャンペーン情報は取得できなかった）';
+    ? campaigns.items.map(c => `・${c.date ? `[${c.date}] ` : ''}${c.title}`).join('\n')
+    : '（直近のウイコレ公式インフォメーションは取得できなかった）';
 
   const prompt = `あなたは秘書トラペル子です。
 以下のプロフィールを守ってください。
@@ -818,7 +848,7 @@ async function generateDiary(dateLabel, inputs) {
 ▼公式ニュース
 ${newsBlock}
 
-▼現在開催中のウイコレキャンペーン・ガチャ・イベント情報（メディア・公式ソース）
+▼ウイコレ公式インフォメーション（直近14日・ゲーム内と同一ソース）
 ${campaignBlock}
 ${campaigns?.note || ''}
 
@@ -1215,9 +1245,9 @@ async function main() {
       console.warn('[highlights]', e.message);
       return [];
     }),
-    fetchWicolleCampaigns(state).catch(e => {
+    fetchWicolleNews(state).catch(e => {
       console.warn('[wicolle]', e.message);
-      return { items: [], note: 'キャンペーン情報の取得に失敗した。' };
+      return { items: [], note: 'インフォメーションの取得に失敗した。' };
     }),
   ]);
 
