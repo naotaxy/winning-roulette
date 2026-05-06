@@ -1795,9 +1795,27 @@ async function handleText(event, client) {
     let text;
     if (kind === 'news') {
       const news = await getUicolleNews();
-      text = news
-        ? `最新情報、登録されてたよ。\n\n${news.event ? `【イベント】\n${news.event}` : ''}${news.gacha ? `\n\n【ガチャ・スカウト】\n${news.gacha}` : ''}${news.updatedAt ? `\n\n（更新: ${news.updatedAt}）` : ''}`
-        : 'ごめん、今のところ最新情報が登録されてないみたい。\n管理者が Firebase の config/uicolleNews に書き込んでくれれば、すぐ伝えられるよ。';
+      if (!news) {
+        text = 'ごめん、今のところ最新情報が登録されてないみたい。日記生成後に自動で更新されるよ。';
+      } else {
+        const userText = event.message?.text || '';
+        const isGachaQ = /(ガチャ|スカウト|ピックアップ|プロメテウス)/.test(userText);
+        const isEventQ = /(イベント|ミッション|チャレンジ|開催中|今なに)/.test(userText);
+        let parts = [];
+        if (isGachaQ && news.gacha && !news.gacha.includes('なし')) {
+          parts.push(`🎲 ガチャ・スカウト情報\n${news.gacha}`);
+          if (news.event && !news.event.includes('なし') && !isEventQ) parts.push(`📋 イベント情報は「今のイベントは？」で聞いてね`);
+        } else if (isEventQ && news.event && !news.event.includes('なし')) {
+          parts.push(`🏆 イベント情報\n${news.event}`);
+          if (news.gacha && !news.gacha.includes('なし') && !isGachaQ) parts.push(`🎲 ガチャ情報は「今のガチャは？」で聞いてね`);
+        } else {
+          if (news.event && !news.event.includes('なし')) parts.push(`🏆 イベント\n${news.event.slice(0, 600)}`);
+          if (news.gacha && !news.gacha.includes('なし')) parts.push(`🎲 ガチャ・スカウト\n${news.gacha.slice(0, 400)}`);
+        }
+        if (!parts.length) parts.push('直近14日の新着情報はないみたい。');
+        if (news.updatedAt) parts.push(`（更新: ${news.updatedAt}）`);
+        text = parts.join('\n\n');
+      }
     } else if (kind === 'sense') {
       const senseKind = detectSenseKeyword(event.message.text || '');
       text = formatSenseGuide(senseKind);

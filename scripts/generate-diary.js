@@ -691,11 +691,35 @@ async function fetchEfootballNews() {
   return [];
 }
 
+async function fetchWicolleDetailContent(idx, cookie) {
+  try {
+    const url = `https://wecc.mo.konami.net/aut/main/html/news/detail.php?idx=${idx}&ssid=1&lang=1&tz_offset=9&display_type=0`;
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: {
+        Cookie: cookie,
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+        'Accept-Encoding': 'gzip, deflate, br',
+      },
+    });
+    if (!res.ok) return '';
+    const html = await res.text();
+    const styleEnd = html.lastIndexOf('</style>');
+    const relevant = styleEnd >= 0 ? html.slice(styleEnd) : html;
+    const m = relevant.match(/class="detail_body">([\s\S]*?)(?:<\/article>|<\/section>)/);
+    if (!m) return '';
+    return m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  } catch (e) {
+    console.warn(`[wicolle] detail fetch error idx=${idx}:`, e.message);
+    return '';
+  }
+}
+
 async function fetchWicolleNews(state) {
   const ssid = process.env.WICOLLE_SSID;
   if (!ssid) {
     console.warn('[wicolle] WICOLLE_SSID not set');
-    return { items: [], note: 'ウイコレ公式インフォメーションは未設定。' };
+    return { items: [], allItems: [], note: 'ウイコレ公式インフォメーションは未設定。' };
   }
 
   const cookie = [
@@ -721,17 +745,17 @@ async function fetchWicolleNews(state) {
     );
     if (!res.ok) {
       console.warn(`[wicolle] HTTP ${res.status}`);
-      return { items: [], note: 'ウイコレ公式インフォメーション取得失敗。' };
+      return { items: [], allItems: [], note: 'ウイコレ公式インフォメーション取得失敗。' };
     }
     html = await res.text();
   } catch (e) {
     console.warn('[wicolle] fetch error:', e.message);
-    return { items: [], note: 'ウイコレ公式インフォメーション取得エラー。' };
+    return { items: [], allItems: [], note: 'ウイコレ公式インフォメーション取得エラー。' };
   }
 
   if (html.includes('ログイン') && !html.includes('インフォメーション')) {
     console.warn('[wicolle] session expired — update WICOLLE_SSID on Render');
-    return { items: [], note: 'ウイコレセッション期限切れ（WICOLLE_SSIDの更新が必要）。' };
+    return { items: [], allItems: [], note: 'ウイコレセッション期限切れ（WICOLLE_SSIDの更新が必要）。' };
   }
 
   const seenTitles = state.seenWicolleNewsTitles || [];
@@ -739,10 +763,11 @@ async function fetchWicolleNews(state) {
   const allItems = [];
 
   // each news item: <a href="./detail.php?idx=YYYYMMDDNN...">...</a>
-  const itemRe = /<a href="\.\/detail\.php\?idx=(\d{8})\d+[^"]*">([\s\S]*?)<\/a>/g;
+  const itemRe = /<a href="\.\/detail\.php\?idx=(\d{8})(\d+)[^"]*">([\s\S]*?)<\/a>/g;
   for (const m of html.matchAll(itemRe)) {
     const dateStr = m[1]; // YYYYMMDD
-    const block = m[2];
+    const seq = m[2];
+    const block = m[3];
     const itemDate = new Date(`${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`);
     if (itemDate < cutoff) continue;
 
@@ -757,13 +782,20 @@ async function fetchWicolleNews(state) {
 
     if (!title || allItems.some(x => x.title === title)) continue;
     const date = `${dateStr.slice(0, 4)}/${dateStr.slice(4, 6)}/${dateStr.slice(6, 8)}`;
-    allItems.push({ title, date, desc: '' });
+    allItems.push({ idx: `${dateStr}${seq}`, title, date, content: '' });
   }
 
   console.log(`[wicolle] ${allItems.length} items in last 14 days`);
+
+  // 詳細本文を並列取得（最大8件）
+  const targets = allItems.slice(0, 8);
+  const contents = await Promise.all(targets.map(item => fetchWicolleDetailContent(item.idx, cookie)));
+  targets.forEach((item, i) => { item.content = contents[i]; });
+
   const fresh = allItems.filter(item => !seenTitles.includes(item.title)).slice(0, 8);
   return {
     items: fresh,
+    allItems,   // Firebase 保存用（直近14日の全件）
     note: fresh.length
       ? `ウイコレ公式インフォメーション${fresh.length}件（直近14日）。現在開催中または予告として自然に触れること。`
       : 'ウイコレ公式インフォメーションに新しい情報はない。',
@@ -1164,20 +1196,29 @@ function initFirebase() {
 
 async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
   const db = initFirebase();
-  const { videos, news, worldCup, recipe, shopItem } = sources;
-  const summaryItems = [
-    ...news.slice(0, 3).map(n => n.title),
-    ...videos.slice(0, 2).map(v => v.title),
-    ...(worldCup?.items || []).slice(0, 1).map(v => v.title),
-    ...(recipe?.recipe ? [recipe.recipe] : []),
-  ];
+  const { videos, news, worldCup, recipe, shopItem, campaigns } = sources;
+
+  // ウイコレ公式インフォメーション（詳細本文付き）を Firebase に保存
+  const wicolleItems = campaigns?.allItems || [];
+  const eventItems = wicolleItems.filter(i =>
+    /(イベント|チャレンジ|ミッション|eCLUB|リーグ|カップ|コラボ|スペシャル)/.test(i.title)
+  );
+  const gachaItems = wicolleItems.filter(i =>
+    /(スカウト|ガチャ|ピックアップ|プロメテウス|ダイヤモンド)/.test(i.title)
+  );
+  const otherItems = wicolleItems.filter(i => !eventItems.includes(i) && !gachaItems.includes(i));
+
+  const formatItems = arr =>
+    arr.map(i => `【${i.date}】${i.title}${i.content ? '\n' + i.content : ''}`).join('\n\n');
+
   await db.ref('config/uicolleNews').set({
-    event:     summaryItems.slice(0, 3).join('\n') || '今日の情報は少なめだったみたい',
-    gacha:     '',
+    event:     formatItems([...eventItems, ...otherItems]).slice(0, 1500) || '（直近14日のイベント情報なし）',
+    gacha:     formatItems(gachaItems).slice(0, 800) || '（直近14日のスカウト・ガチャ情報なし）',
     updatedAt: date,
     diary:     diaryText.slice(0, 600),
     blogUrl:   postUrl || '',
     photoUrl:  photo?.url || '',
+    items:     wicolleItems.map(i => ({ idx: i.idx, title: i.title, date: i.date, content: (i.content || '').slice(0, 500) })),
   });
   await db.ref(`diary/${date}`).set({
     text:      diaryText,
@@ -1279,7 +1320,7 @@ async function main() {
   saveBlogMarkdown(date, dateLabel, diaryText, postUrl);
 
   if (FIREBASE_SERVICE_ACCOUNT && FIREBASE_DATABASE_URL) {
-    await saveToFirebase(date, diaryText, postUrl, { videos: youtube.videosForDiary, news, worldCup, recipe, nineties, shopItem }, photo)
+    await saveToFirebase(date, diaryText, postUrl, { videos: youtube.videosForDiary, news, worldCup, recipe, nineties, shopItem, campaigns }, photo)
       .catch(e => console.error('[firebase]', e.message));
   }
 
