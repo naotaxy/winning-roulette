@@ -615,7 +615,7 @@ function getDiaryPhoto() {
 }
 
 function updateDiaryStateAfterSuccess(state, date, inputs) {
-  const { youtube, worldCup, nineties, storyPlan, recipe, shopItem } = inputs;
+  const { youtube, worldCup, nineties, storyPlan, recipe, shopItem, campaigns } = inputs;
   state.lastRunDate = date;
 
   if (youtube.signature) {
@@ -637,6 +637,9 @@ function updateDiaryStateAfterSuccess(state, date, inputs) {
   }
   if (shopItem?.name) {
     state.seenShopItems = [...(state.seenShopItems || []), shopItem.name].slice(-30);
+  }
+  if (campaigns?.items?.length) {
+    state.seenWicolleCampaignTitles = mergeUniqueTitles(state.seenWicolleCampaignTitles, campaigns.items.map(c => c.title), 40);
   }
   advanceStoryState(state, storyPlan, date);
 }
@@ -688,6 +691,55 @@ async function fetchEfootballNews() {
   return [];
 }
 
+async function fetchWicolleCampaigns(state) {
+  const seenTitles = state.seenWicolleCampaignTitles || [];
+  const allItems = [];
+
+  // Google News RSS: ガチャ・イベント情報（2クエリ）
+  const queries = ['ウイコレ ガチャ 開催中', 'ウイコレ イベント スカウト 最新'];
+  for (const q of queries) {
+    const items = await fetchRSS(googleNewsRssUrl(q)).catch(() => []);
+    for (const item of items) {
+      if (!allItems.some(x => isSimilarTitle(x.title, [item.title]))) {
+        allItems.push(item);
+      }
+    }
+  }
+
+  // Konami 公式ウイコレサイトのお知らせ一覧（タイトル+日付）
+  try {
+    const res = await fetch('https://www.konami.com/wepes/mobile/wecc/ja/', {
+      signal: AbortSignal.timeout(6000),
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; diary-bot/1.0)' },
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const dateRe = /topics_date[^>]*>([^<]+)<\/[^>]+>[\s\S]*?topics_title[^>]*>([^<]+)<\/[^>]+>/g;
+      const seen = new Set();
+      for (const m of html.matchAll(dateRe)) {
+        const date = m[1].trim().replace(' JST', '');
+        const title = m[2].trim();
+        if (!title || seen.has(title)) continue;
+        seen.add(title);
+        if (!allItems.some(x => isSimilarTitle(x.title, [title]))) {
+          allItems.push({ title: `[公式 ${date}] ${title}`, desc: '' });
+        }
+        if (allItems.length >= 15) break;
+      }
+    }
+  } catch (e) {
+    console.warn('[wicolle] konami page fetch failed:', e.message);
+  }
+
+  const fresh = allItems.filter(item => !isSimilarTitle(item.title, seenTitles)).slice(0, 6);
+  return {
+    items: fresh,
+    note: fresh.length
+      ? `直近のウイコレキャンペーン情報${fresh.length}件。現在開催中の内容として自然に触れること。`
+      : '直近の新しいウイコレキャンペーン情報は取得できなかった。',
+  };
+}
+
 async function fetchWorldCupUpdates(date, state) {
   if (!isWithinDateRange(date, WORLD_CUP_2026.startsAt, WORLD_CUP_2026.endsAt)) {
     return { active: false, items: [], note: 'FIFAワールドカップ開催期間外。' };
@@ -706,7 +758,7 @@ async function fetchWorldCupUpdates(date, state) {
 async function generateDiary(dateLabel, inputs) {
   if (DIARY_GEMINI_DISABLED) throw new Error('Gemini disabled by DIARY_GEMINI_DISABLED');
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
-  const { youtube, news, worldCup, recipe, recipeNews, nineties, storyPlan, shopItem, highlights } = inputs;
+  const { youtube, news, worldCup, recipe, recipeNews, nineties, storyPlan, shopItem, highlights, campaigns } = inputs;
 
   const newsBlock = news.length
     ? news.map(n => `・${n.title}${n.desc ? '　' + n.desc : ''}`).join('\n')
@@ -746,6 +798,10 @@ async function generateDiary(dateLabel, inputs) {
     ? highlights.map(h => `・${h.home} vs ${h.away}（${h.score}）${h.date ? ' ' + h.date : ''}${h.comment ? '　' + h.comment : ''}`).join('\n')
     : '（最近の試合記録は取得できなかった）';
 
+  const campaignBlock = campaigns?.items?.length
+    ? campaigns.items.map(c => `・${c.title}${c.desc ? '　' + c.desc : ''}`).join('\n')
+    : '（直近のウイコレキャンペーン情報は取得できなかった）';
+
   const prompt = `あなたは秘書トラペル子です。
 以下のプロフィールを守ってください。
 
@@ -761,6 +817,10 @@ async function generateDiary(dateLabel, inputs) {
 
 ▼公式ニュース
 ${newsBlock}
+
+▼現在開催中のウイコレキャンペーン・ガチャ・イベント情報（メディア・公式ソース）
+${campaignBlock}
+${campaigns?.note || ''}
 
 ▼YouTube 最新動画（過去と同じ・似た話題なら無理に書かない）
 ${videoBlock}
@@ -805,6 +865,7 @@ ${highlightsBlock}
 - 青空文庫由来の連載ストーリーを日記の中に自然に入れる。ただし読者に「青空文庫」「起承転結」「第何話」と説明しない。
 - 連載ストーリーは今日の場面だけを書く。題材を途中で変えない。
 - ウイコレのゲームとしての魅力や、メンバーの動向への期待感をにじませる。
+- 現在開催中のウイコレキャンペーン・ガチャ・イベント情報がある場合、ゲームを実際にプレイしている設定ではなく「秘書として把握している情報」として自然に触れる。例：「今期はこういうスカウトが来ているらしい」「コラボイベントが始まった」のような秘書目線の把握感。課金・ガチャ確率・石の話は書かない。
 - Amazon・楽天のトレンド商品を1つ自然に紹介する。商品名・カテゴリ・価格帯・どんな用途に向いているか・どのランキングで話題かを日記の流れの中で伝える。広告っぽくならず、日常の発見として紹介する。
 - グループのウイコレ対戦ハイライトがあれば、試合の感想や注目ポイントを日記の中で自然に触れる。メンバーの名前は一切書かない。チーム名だけを使って誰がどう戦ったかを書く。
 - 情報がなかった日は「静かな一日」として日常の観察を綴る。
@@ -1144,7 +1205,7 @@ async function main() {
   const storyPlan = selectStoryPlan(state);
   const shopItem = selectDailyShopItem(date, state);
 
-  const [worldCup, recipeNews, highlights] = await Promise.all([
+  const [worldCup, recipeNews, highlights, campaigns] = await Promise.all([
     fetchWorldCupUpdates(date, state).catch(e => {
       console.error('[worldcup]', e.message);
       return { active: false, items: [], note: '取得に失敗したので触れない。' };
@@ -1154,12 +1215,16 @@ async function main() {
       console.warn('[highlights]', e.message);
       return [];
     }),
+    fetchWicolleCampaigns(state).catch(e => {
+      console.warn('[wicolle]', e.message);
+      return { items: [], note: 'キャンペーン情報の取得に失敗した。' };
+    }),
   ]);
 
-  console.log(`[diary] worldCup=${worldCup.items.length} recipe=${recipe?.recipe} nineties=${nineties?.title || 'none'} shop=${shopItem?.name || 'none'} highlights=${highlights.length}`);
+  console.log(`[diary] worldCup=${worldCup.items.length} wicolle=${campaigns.items.length} recipe=${recipe?.recipe} nineties=${nineties?.title || 'none'} shop=${shopItem?.name || 'none'} highlights=${highlights.length}`);
   console.log(`[story] ${storyPlan.motifId} phase=${storyPlan.phaseIndex + 1}${storyPlan.isFinal ? ' final' : ''}`);
 
-  const inputs = { youtube, news, worldCup, recipe, recipeNews, nineties, storyPlan, shopItem, highlights };
+  const inputs = { youtube, news, worldCup, recipe, recipeNews, nineties, storyPlan, shopItem, highlights, campaigns };
   const photo = getDiaryPhoto();
   if (photo) console.log(`[photo] using ${photo.url}`);
 
