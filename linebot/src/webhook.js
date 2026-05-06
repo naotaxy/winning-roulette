@@ -1801,16 +1801,29 @@ async function handleText(event, client) {
         const userText = event.message?.text || '';
         const isGachaQ = /(ガチャ|スカウト|ピックアップ|プロメテウス)/.test(userText);
         const isEventQ = /(イベント|ミッション|チャレンジ|開催中|今なに)/.test(userText);
+        const isAnalysisQ = /(使用感|考察|強い|評価|おすすめ|どう|どんな|引いた|選手)/.test(userText);
         let parts = [];
+
         if (isGachaQ && news.gacha && !news.gacha.includes('なし')) {
           parts.push(`🎲 ガチャ・スカウト情報\n${news.gacha}`);
+          if (news.ytAnalysis && !news.ytAnalysis.includes('なし')) {
+            parts.push(`💬 考察・使用感\n${news.ytAnalysis.slice(0, 500)}`);
+          }
           if (news.event && !news.event.includes('なし') && !isEventQ) parts.push(`📋 イベント情報は「今のイベントは？」で聞いてね`);
         } else if (isEventQ && news.event && !news.event.includes('なし')) {
           parts.push(`🏆 イベント情報\n${news.event}`);
+          if (news.ytAnalysis && !news.ytAnalysis.includes('なし') && isAnalysisQ) {
+            parts.push(`💬 考察・使用感\n${news.ytAnalysis.slice(0, 500)}`);
+          }
           if (news.gacha && !news.gacha.includes('なし') && !isGachaQ) parts.push(`🎲 ガチャ情報は「今のガチャは？」で聞いてね`);
+        } else if (isAnalysisQ && news.ytAnalysis && !news.ytAnalysis.includes('なし')) {
+          parts.push(`💬 考察・使用感情報\n${news.ytAnalysis.slice(0, 800)}`);
+          if (news.event && !news.event.includes('なし')) parts.push(`🏆 イベント情報は「今のイベントは？」で聞いてね`);
+          if (news.gacha && !news.gacha.includes('なし')) parts.push(`🎲 ガチャ情報は「今のガチャは？」で聞いてね`);
         } else {
-          if (news.event && !news.event.includes('なし')) parts.push(`🏆 イベント\n${news.event.slice(0, 600)}`);
-          if (news.gacha && !news.gacha.includes('なし')) parts.push(`🎲 ガチャ・スカウト\n${news.gacha.slice(0, 400)}`);
+          if (news.event && !news.event.includes('なし')) parts.push(`🏆 イベント\n${news.event.slice(0, 500)}`);
+          if (news.gacha && !news.gacha.includes('なし')) parts.push(`🎲 ガチャ・スカウト\n${news.gacha.slice(0, 300)}`);
+          if (news.ytAnalysis && !news.ytAnalysis.includes('なし')) parts.push(`💬 考察・使用感\n${news.ytAnalysis.slice(0, 300)}`);
         }
         if (!parts.length) parts.push('直近14日の新着情報はないみたい。');
         if (news.updatedAt) parts.push(`（更新: ${news.updatedAt}）`);
@@ -2376,7 +2389,7 @@ function detectTextIntent(text, options = {}) {
 
   const uicolleKind = detectUicolleIntent(targetText);
   if (uicolleKind) return `uicolle:${uicolleKind}`;
-  if (/(今のイベント|開催中のイベント|今のガチャ|開催中.*ガチャ|ガチャ.*今|最新情報|ウイコレ.*情報)/.test(targetText)) return 'uicolle:news';
+  if (/(今のイベント|開催中のイベント|今のガチャ|開催中.*ガチャ|ガチャ.*今|最新情報|ウイコレ.*情報|ウイコレ.*使用感|ウイコレ.*考察|ウイコレ.*どう|ウイコレ.*強い|ウイコレ.*評価)/.test(targetText)) return 'uicolle:news';
   if (/(名場面|名シーン|ハイライト|月間まとめ|今月まとめ|日記連動|日記.*名場面|日記.*ハイライト)/.test(targetText)) return 'monthlyHighlights';
   if (/(口癖|因縁|相性|ライバル|メンバー.*煽|みんな.*煽|各メンバー|人物メモ|メンバー分析|キャラ分析)/.test(targetText)) return 'memberFlavor';
   if (/(未対戦|未消化ペア|あと誰.*誰|誰と誰|対戦.*残|残り.*対戦|対戦残り|やってない.*ペア)/.test(targetText)) return 'missingMatchups';

@@ -802,6 +802,79 @@ async function fetchWicolleNews(state) {
   };
 }
 
+// ── YouTube チャンネル Atom フィード（API キー不要） ────────
+async function fetchYouTubeAtom(channelId) {
+  const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return [];
+    const xml = await res.text();
+    const items = [];
+    for (const m of xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)) {
+      const block = m[1];
+      const title = (block.match(/<title>([\s\S]*?)<\/title>/)?.[1] || '').trim();
+      const published = (block.match(/<published>(.*?)<\/published>/)?.[1] || '').slice(0, 10);
+      const desc = (block.match(/<media:description>([\s\S]*?)<\/media:description>/)?.[1] || '')
+        .replace(/\s+/g, ' ').trim().slice(0, 400);
+      const videoId = (block.match(/<yt:videoId>(.*?)<\/yt:videoId>/)?.[1] || '').trim();
+      const channel = (block.match(/<name>(.*?)<\/name>/)?.[1] || '').trim();
+      if (title) items.push({ title, published, desc, videoId, channel });
+    }
+    return items;
+  } catch (e) {
+    console.warn(`[ytAtom] channel ${channelId}:`, e.message);
+    return [];
+  }
+}
+
+// ── ウイコレ考察・使用感（YouTube Atom + Google News RSS） ──
+async function fetchWicolleYouTubeAnalysis(campaigns) {
+  const channelIds = (process.env.WICOLLE_YT_CHANNELS || 'UC_hoPrAl4ST5N7N_ZODXLRg')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  const since7d = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+
+  // YouTube チャンネル Atom フィード（並列取得）
+  const channelVideos = (await Promise.all(channelIds.map(id => fetchYouTubeAtom(id)))).flat();
+  const recentVideos = channelVideos.filter(v => {
+    if (!v.published || new Date(v.published) < since7d) return false;
+    return /(ウイコレ|使用感|考察|スカウト|評価|強い|選手|ガチャ|引いた|イベント)/.test(v.title);
+  });
+
+  // Google News RSS で使用感・考察記事を補完
+  const newsItems = await fetchRSS(googleNewsRssUrl('ウイコレ 使用感 考察 選手')).catch(() => []);
+  const analysisNews = newsItems.filter(n =>
+    /(使用感|考察|評価|選手|引いた|ガチャ|おすすめ)/.test(n.title)
+  ).slice(0, 3);
+
+  // 現在の公式インフォメーションとのキーワード照合でスコアリング
+  const campaignKeywords = (campaigns?.allItems || [])
+    .flatMap(item => item.title.replace(/[【】「」（）、。！？\s]/g, ' ').split(/\s+/))
+    .filter(w => w.length >= 2 && !/^(予告|開催|について|のお知らせ|情報|開催中)$/.test(w));
+
+  const scoreText = text =>
+    campaignKeywords.filter(kw => text.includes(kw)).length;
+
+  const scoredVideos = recentVideos
+    .map(v => ({ ...v, type: 'youtube', score: scoreText(v.title + ' ' + v.desc) }))
+    .sort((a, b) => b.score - a.score || b.published.localeCompare(a.published))
+    .slice(0, 5);
+
+  const scoredNews = analysisNews
+    .map(n => ({ ...n, type: 'news', score: scoreText(n.title + ' ' + (n.desc || '')) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2);
+
+  const items = [...scoredVideos, ...scoredNews];
+  console.log(`[wicolle-yt] ${recentVideos.length} recent channel videos, ${analysisNews.length} news → ${items.length} combined`);
+
+  return {
+    items,
+    note: items.length
+      ? `ウイコレ考察・使用感情報${items.length}件。公式インフォと組み合わせて秘書として把握している情報として自然に反映させること。課金・ガチャ確率・石の話は書かない。`
+      : '直近7日のウイコレ考察・使用感情報は見つからなかった。',
+  };
+}
+
 async function fetchWorldCupUpdates(date, state) {
   if (!isWithinDateRange(date, WORLD_CUP_2026.startsAt, WORLD_CUP_2026.endsAt)) {
     return { active: false, items: [], note: 'FIFAワールドカップ開催期間外。' };
@@ -820,7 +893,7 @@ async function fetchWorldCupUpdates(date, state) {
 async function generateDiary(dateLabel, inputs) {
   if (DIARY_GEMINI_DISABLED) throw new Error('Gemini disabled by DIARY_GEMINI_DISABLED');
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
-  const { youtube, news, worldCup, recipe, recipeNews, nineties, storyPlan, shopItem, highlights, campaigns } = inputs;
+  const { youtube, news, worldCup, recipe, recipeNews, nineties, storyPlan, shopItem, highlights, campaigns, wicolleAnalysis } = inputs;
 
   const newsBlock = news.length
     ? news.map(n => `・${n.title}${n.desc ? '　' + n.desc : ''}`).join('\n')
@@ -864,6 +937,14 @@ async function generateDiary(dateLabel, inputs) {
     ? campaigns.items.map(c => `・${c.date ? `[${c.date}] ` : ''}${c.title}`).join('\n')
     : '（直近のウイコレ公式インフォメーションは取得できなかった）';
 
+  const analysisBlock = wicolleAnalysis?.items?.length
+    ? wicolleAnalysis.items.map(v =>
+        v.type === 'youtube'
+          ? `[YouTube: ${v.channel || '考察Ch'}] ${v.title}（${v.published}）\n  ${v.desc.slice(0, 200)}`
+          : `[記事] ${v.title}\n  ${(v.desc || '').slice(0, 150)}`
+      ).join('\n\n')
+    : '（直近7日のウイコレ考察・使用感情報は取得できなかった）';
+
   const prompt = `あなたは秘書トラペル子です。
 以下のプロフィールを守ってください。
 
@@ -883,6 +964,10 @@ ${newsBlock}
 ▼ウイコレ公式インフォメーション（直近14日・ゲーム内と同一ソース）
 ${campaignBlock}
 ${campaigns?.note || ''}
+
+▼ウイコレ考察・使用感（YouTubeチャンネル動画＋ニュース記事）
+${analysisBlock}
+${wicolleAnalysis?.note || ''}
 
 ▼YouTube 最新動画（過去と同じ・似た話題なら無理に書かない）
 ${videoBlock}
@@ -928,6 +1013,7 @@ ${highlightsBlock}
 - 連載ストーリーは今日の場面だけを書く。題材を途中で変えない。
 - ウイコレのゲームとしての魅力や、メンバーの動向への期待感をにじませる。
 - 現在開催中のウイコレキャンペーン・ガチャ・イベント情報がある場合、ゲームを実際にプレイしている設定ではなく「秘書として把握している情報」として自然に触れる。例：「今期はこういうスカウトが来ているらしい」「コラボイベントが始まった」のような秘書目線の把握感。課金・ガチャ確率・石の話は書かない。
+- ウイコレ考察・使用感情報（YouTubeやニュース）がある場合、公式インフォメーションと組み合わせて「詳しい秘書が外で仕入れた情報」として自然に加える。例：「このスカウトで出た選手について調べてたら、けっこう評判いいらしくて」「今のイベントで〇〇が強いって話があちこちで出てる」という聞いた・調べた感覚にする。YouTubeの動画タイトルをそのまま引用しない。動画のチャンネル名や「YouTubeで」という表現も使わない。
 - Amazon・楽天のトレンド商品を1つ自然に紹介する。商品名・カテゴリ・価格帯・どんな用途に向いているか・どのランキングで話題かを日記の流れの中で伝える。広告っぽくならず、日常の発見として紹介する。
 - グループのウイコレ対戦ハイライトがあれば、試合の感想や注目ポイントを日記の中で自然に触れる。メンバーの名前は一切書かない。チーム名だけを使って誰がどう戦ったかを書く。
 - 情報がなかった日は「静かな一日」として日常の観察を綴る。
@@ -1196,7 +1282,7 @@ function initFirebase() {
 
 async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
   const db = initFirebase();
-  const { videos, news, worldCup, recipe, shopItem, campaigns } = sources;
+  const { videos, news, worldCup, recipe, shopItem, campaigns, wicolleAnalysis } = sources;
 
   // ウイコレ公式インフォメーション（詳細本文付き）を Firebase に保存
   const wicolleItems = campaigns?.allItems || [];
@@ -1211,14 +1297,22 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
   const formatItems = arr =>
     arr.map(i => `【${i.date}】${i.title}${i.content ? '\n' + i.content : ''}`).join('\n\n');
 
+  // YouTube考察・使用感のサマリーテキスト生成
+  const ytSummary = (wicolleAnalysis?.items || [])
+    .filter(v => v.type === 'youtube')
+    .map(v => `【${v.published}】${v.title}\n${v.desc.slice(0, 200)}`)
+    .join('\n\n')
+    .slice(0, 1200);
+
   await db.ref('config/uicolleNews').set({
-    event:     formatItems([...eventItems, ...otherItems]).slice(0, 1500) || '（直近14日のイベント情報なし）',
-    gacha:     formatItems(gachaItems).slice(0, 800) || '（直近14日のスカウト・ガチャ情報なし）',
-    updatedAt: date,
-    diary:     diaryText.slice(0, 600),
-    blogUrl:   postUrl || '',
-    photoUrl:  photo?.url || '',
-    items:     wicolleItems.map(i => ({ idx: i.idx, title: i.title, date: i.date, content: (i.content || '').slice(0, 500) })),
+    event:      formatItems([...eventItems, ...otherItems]).slice(0, 1500) || '（直近14日のイベント情報なし）',
+    gacha:      formatItems(gachaItems).slice(0, 800) || '（直近14日のスカウト・ガチャ情報なし）',
+    ytAnalysis: ytSummary || '（直近7日のYouTube考察情報なし）',
+    updatedAt:  date,
+    diary:      diaryText.slice(0, 600),
+    blogUrl:    postUrl || '',
+    photoUrl:   photo?.url || '',
+    items:      wicolleItems.map(i => ({ idx: i.idx, title: i.title, date: i.date, content: (i.content || '').slice(0, 500) })),
   });
   await db.ref(`diary/${date}`).set({
     text:      diaryText,
@@ -1288,14 +1382,20 @@ async function main() {
     }),
     fetchWicolleNews(state).catch(e => {
       console.warn('[wicolle]', e.message);
-      return { items: [], note: 'インフォメーションの取得に失敗した。' };
+      return { items: [], allItems: [], note: 'インフォメーションの取得に失敗した。' };
     }),
   ]);
 
-  console.log(`[diary] worldCup=${worldCup.items.length} wicolle=${campaigns.items.length} recipe=${recipe?.recipe} nineties=${nineties?.title || 'none'} shop=${shopItem?.name || 'none'} highlights=${highlights.length}`);
+  // 公式インフォ取得後に YouTube 考察を並行取得（公式情報とのキーワード照合に使う）
+  const wicolleAnalysis = await fetchWicolleYouTubeAnalysis(campaigns).catch(e => {
+    console.warn('[wicolle-yt]', e.message);
+    return { items: [], note: '考察情報の取得に失敗した。' };
+  });
+
+  console.log(`[diary] worldCup=${worldCup.items.length} wicolle=${campaigns.items.length} ytAnalysis=${wicolleAnalysis.items.length} recipe=${recipe?.recipe} nineties=${nineties?.title || 'none'} shop=${shopItem?.name || 'none'} highlights=${highlights.length}`);
   console.log(`[story] ${storyPlan.motifId} phase=${storyPlan.phaseIndex + 1}${storyPlan.isFinal ? ' final' : ''}`);
 
-  const inputs = { youtube, news, worldCup, recipe, recipeNews, nineties, storyPlan, shopItem, highlights, campaigns };
+  const inputs = { youtube, news, worldCup, recipe, recipeNews, nineties, storyPlan, shopItem, highlights, campaigns, wicolleAnalysis };
   const photo = getDiaryPhoto();
   if (photo) console.log(`[photo] using ${photo.url}`);
 
@@ -1320,7 +1420,7 @@ async function main() {
   saveBlogMarkdown(date, dateLabel, diaryText, postUrl);
 
   if (FIREBASE_SERVICE_ACCOUNT && FIREBASE_DATABASE_URL) {
-    await saveToFirebase(date, diaryText, postUrl, { videos: youtube.videosForDiary, news, worldCup, recipe, nineties, shopItem, campaigns }, photo)
+    await saveToFirebase(date, diaryText, postUrl, { videos: youtube.videosForDiary, news, worldCup, recipe, nineties, shopItem, campaigns, wicolleAnalysis }, photo)
       .catch(e => console.error('[firebase]', e.message));
   }
 
