@@ -1805,25 +1805,25 @@ async function handleText(event, client) {
         let parts = [];
 
         if (isGachaQ && news.gacha && !news.gacha.includes('なし')) {
-          parts.push(`🎲 ガチャ・スカウト情報\n${news.gacha}`);
+          parts.push(`【ガチャ・スカウト情報】\n${news.gacha}`);
           if (news.ytAnalysis && !news.ytAnalysis.includes('なし')) {
-            parts.push(`💬 考察・使用感\n${news.ytAnalysis.slice(0, 500)}`);
+            parts.push(`【考察・使用感】\n${news.ytAnalysis.slice(0, 500)}`);
           }
-          if (news.event && !news.event.includes('なし') && !isEventQ) parts.push(`📋 イベント情報は「今のイベントは？」で聞いてね`);
+          if (news.event && !news.event.includes('なし') && !isEventQ) parts.push('イベント情報は「今のイベントは？」で聞いてね');
         } else if (isEventQ && news.event && !news.event.includes('なし')) {
-          parts.push(`🏆 イベント情報\n${news.event}`);
+          parts.push(`【イベント情報】\n${news.event}`);
           if (news.ytAnalysis && !news.ytAnalysis.includes('なし') && isAnalysisQ) {
-            parts.push(`💬 考察・使用感\n${news.ytAnalysis.slice(0, 500)}`);
+            parts.push(`【考察・使用感】\n${news.ytAnalysis.slice(0, 500)}`);
           }
-          if (news.gacha && !news.gacha.includes('なし') && !isGachaQ) parts.push(`🎲 ガチャ情報は「今のガチャは？」で聞いてね`);
+          if (news.gacha && !news.gacha.includes('なし') && !isGachaQ) parts.push('ガチャ情報は「今のガチャは？」で聞いてね');
         } else if (isAnalysisQ && news.ytAnalysis && !news.ytAnalysis.includes('なし')) {
-          parts.push(`💬 考察・使用感情報\n${news.ytAnalysis.slice(0, 800)}`);
-          if (news.event && !news.event.includes('なし')) parts.push(`🏆 イベント情報は「今のイベントは？」で聞いてね`);
-          if (news.gacha && !news.gacha.includes('なし')) parts.push(`🎲 ガチャ情報は「今のガチャは？」で聞いてね`);
+          parts.push(`【考察・使用感】\n${news.ytAnalysis.slice(0, 800)}`);
+          if (news.event && !news.event.includes('なし')) parts.push('イベント情報は「今のイベントは？」で聞いてね');
+          if (news.gacha && !news.gacha.includes('なし')) parts.push('ガチャ情報は「今のガチャは？」で聞いてね');
         } else {
-          if (news.event && !news.event.includes('なし')) parts.push(`🏆 イベント\n${news.event.slice(0, 500)}`);
-          if (news.gacha && !news.gacha.includes('なし')) parts.push(`🎲 ガチャ・スカウト\n${news.gacha.slice(0, 300)}`);
-          if (news.ytAnalysis && !news.ytAnalysis.includes('なし')) parts.push(`💬 考察・使用感\n${news.ytAnalysis.slice(0, 300)}`);
+          if (news.event && !news.event.includes('なし')) parts.push(`【イベント】\n${news.event.slice(0, 500)}`);
+          if (news.gacha && !news.gacha.includes('なし')) parts.push(`【ガチャ・スカウト】\n${news.gacha.slice(0, 300)}`);
+          if (news.ytAnalysis && !news.ytAnalysis.includes('なし')) parts.push(`【考察・使用感】\n${news.ytAnalysis.slice(0, 300)}`);
         }
         if (!parts.length) parts.push('直近14日の新着情報はないみたい。');
         if (news.updatedAt) parts.push(`（更新: ${news.updatedAt}）`);
