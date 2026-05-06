@@ -56,12 +56,12 @@ async function getPlayers() {
   return _playersCache;
 }
 
-/* config/players の lineUserId フィールドで実名を引く */
+/* config/players の lineId フィールドで実名を引く */
 async function getRealNameByLineUserId(userId) {
   if (!userId) return null;
   const players = await getPlayers();
   const list = Array.isArray(players) ? players : Object.values(players || {});
-  const found = list.find(p => p?.lineUserId === userId);
+  const found = list.find(p => p?.lineId === userId);
   return found?.name || null;
 }
 
