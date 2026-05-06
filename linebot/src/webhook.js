@@ -3249,7 +3249,7 @@ function buildDiningKeywordsFromProfile(profile) {
 
 function buildProfileIntroLine(profile, area) {
   if (!profile) return `${area}で見つけてきたよ。気になるところある？`;
-  const name = profile.lineName || profile.realName || '';
+  const name = profile.realName || profile.lineName || '';
   const food = profile.preferenceHints?.food;
   if (food) return `${name ? name + 'さんの「' + food.slice(0, 18) + '」' : 'あなたの好みの感じ'}に近いところ、${area}で探してきたよ。`;
   return `${name ? name + 'さんに向きそうなところ、' : ''}${area}で見つけてきたよ。`;

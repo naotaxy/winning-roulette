@@ -50,7 +50,8 @@ async function getPlayers() {
   if (_playersCache && Date.now() - _playersCacheTs < CACHE_TTL) return _playersCache;
   const snap = await getDb().ref('config/players').once('value');
   const raw = snap.val();
-  console.log('[firebase] config/players raw:', JSON.stringify(raw)?.slice(0, 200));
+  const playerCount = Array.isArray(raw) ? raw.length : Object.keys(raw || {}).length;
+  console.log(`[firebase] config/players loaded: count=${playerCount}`);
   _playersCache = raw || [];
   _playersCacheTs = Date.now();
   return _playersCache;

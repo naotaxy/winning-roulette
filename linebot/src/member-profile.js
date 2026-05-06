@@ -1,16 +1,48 @@
 'use strict';
 
-const { getMemberProfile, saveMemberProfile } = require('./firebase-admin');
+const { getPlayers, getMemberProfile, saveMemberProfile } = require('./firebase-admin');
 
 // ── 実名解決 ────────────────────────────────────────────────────────────────
 async function resolveRealName(userId, lineName) {
   if (!userId) return lineName || null;
   try {
     const profile = await getMemberProfile(userId);
-    return profile?.realName || lineName || null;
-  } catch (_) {
+    if (profile?.realName) return profile.realName;
+
+    const playerRealName = await resolvePlayerRealName(userId);
+    if (playerRealName) {
+      saveMemberProfile(userId, {
+        lineName: lineName || profile?.lineName || '',
+        realName: playerRealName,
+      }).catch(() => {});
+      return playerRealName;
+    }
+
+    return lineName || null;
+  } catch (err) {
+    console.error('[member-profile] resolveRealName failed', err?.message || err);
     return lineName || null;
   }
+}
+
+async function resolvePlayerRealName(userId) {
+  if (!userId) return null;
+  const players = await getPlayers();
+  const list = Array.isArray(players) ? players : Object.values(players || {});
+  const found = list.find(player => isSameLineUser(player, userId));
+  return found?.name || null;
+}
+
+function isSameLineUser(player, userId) {
+  if (!player || !userId) return false;
+  const ids = [
+    player.lineId,
+    player.lineUserId,
+    player.lineUserID,
+    player.userId,
+    ...(Array.isArray(player.lineIds) ? player.lineIds : []),
+  ];
+  return ids.map(value => String(value || '').trim()).some(value => value === userId);
 }
 
 // ── パーソナリティシグナル ────────────────────────────────────────────────────
