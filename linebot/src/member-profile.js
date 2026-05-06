@@ -9,7 +9,7 @@ async function resolveRealName(userId, lineName) {
     const profile = await getMemberProfile(userId);
     if (profile?.realName) return profile.realName;
 
-    const playerRealName = await resolvePlayerRealName(userId);
+    const playerRealName = await resolvePlayerRealName({ userId, lineName });
     if (playerRealName) {
       saveMemberProfile(userId, {
         lineName: lineName || profile?.lineName || '',
@@ -25,24 +25,35 @@ async function resolveRealName(userId, lineName) {
   }
 }
 
-async function resolvePlayerRealName(userId) {
-  if (!userId) return null;
+async function resolvePlayerRealName({ userId = '', lineName = '' } = {}) {
+  if (!userId && !lineName) return null;
   const players = await getPlayers();
   const list = Array.isArray(players) ? players : Object.values(players || {});
-  const found = list.find(player => isSameLineUser(player, userId));
+  const found = list.find(player => isSameLineUser(player, { userId, lineName }));
   return found?.name || null;
 }
 
-function isSameLineUser(player, userId) {
-  if (!player || !userId) return false;
+function isSameLineUser(player, { userId = '', lineName = '' } = {}) {
+  if (!player) return false;
   const ids = [
     player.lineId,
     player.lineUserId,
     player.lineUserID,
     player.userId,
+    player.lineName,
+    player.displayName,
+    player.accountName,
+    player.charName,
     ...(Array.isArray(player.lineIds) ? player.lineIds : []),
+    ...(Array.isArray(player.aliases) ? player.aliases : []),
   ];
-  return ids.map(value => String(value || '').trim()).some(value => value === userId);
+  const targets = [userId, lineName].map(normalizeIdentity).filter(Boolean);
+  if (!targets.length) return false;
+  return ids.map(normalizeIdentity).filter(Boolean).some(value => targets.includes(value));
+}
+
+function normalizeIdentity(value) {
+  return String(value || '').normalize('NFKC').trim().toLowerCase();
 }
 
 // ── パーソナリティシグナル ────────────────────────────────────────────────────
