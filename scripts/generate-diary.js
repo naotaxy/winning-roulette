@@ -16,7 +16,8 @@
  *
  * 任意:
  *   DIARY_PHOTO_URL, DIARY_PHOTO_CAPTION,
- *   DIARY_GEMINI_MODEL, DIARY_GEMINI_FALLBACK_MODELS
+ *   DIARY_GEMINI_MODEL, DIARY_GEMINI_FALLBACK_MODELS,
+ *   WICOLLE_SSID
  */
 
 const fs   = require('fs');
@@ -39,6 +40,7 @@ const {
   DIARY_GROUP_SOURCE_ID, // LINEグループのsourceId（会話ハイライト取得用・任意）
   DIARY_DATE,
   DIARY_OWNER_NAME,
+  WICOLLE_SSID,
 } = process.env;
 
 const BLOG_DIR = path.join(__dirname, '..', 'blog');
@@ -52,6 +54,8 @@ const DIARY_DRY_RUN = isTruthy(process.env.DIARY_DRY_RUN);
 const DIARY_FORCE = isTruthy(process.env.DIARY_FORCE);
 const DIARY_REQUIRE_HATENA = isTruthy(process.env.DIARY_REQUIRE_HATENA);
 const DIARY_GEMINI_DISABLED = isTruthy(process.env.DIARY_GEMINI_DISABLED);
+const WICOLLE_NEWS_URL = 'https://wecc.mo.konami.net/aut/main/html/news/index.php?ssid=1&lang=1&tz_offset=9&display_type=0';
+const WICOLLE_DETAIL_URL = 'https://wecc.mo.konami.net/aut/main/html/news/detail.php';
 
 const WORLD_CUP_2026 = {
   startsAt: '2026-06-11',
@@ -839,6 +843,119 @@ async function fetchEfootballNews() {
   return [];
 }
 
+// ── ウイコレ公式インフォ（Proxymanで確認したゲーム内ニュースHTML） ────────
+async function fetchWicolleNews() {
+  const ssid = String(WICOLLE_SSID || '').trim();
+  if (!ssid) {
+    console.warn('[wicolle] WICOLLE_SSID not set');
+    return { allItems: [], note: 'WICOLLE_SSID not set' };
+  }
+
+  const cookie = buildWicolleCookie(ssid);
+  try {
+    const res = await fetch(WICOLLE_NEWS_URL, {
+      headers: buildWicolleHeaders(cookie),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      console.warn(`[wicolle] list fetch failed status=${res.status}`);
+      return { allItems: [], note: `list status ${res.status}` };
+    }
+    const html = await res.text();
+    if (/login|session|expired|error/i.test(stripTags(html).slice(0, 500)) && !/detail\.php\?idx=/.test(html)) {
+      console.warn('[wicolle] session expired — update WICOLLE_SSID on Render');
+      return { allItems: [], note: 'session expired' };
+    }
+
+    const listItems = parseWicolleNewsList(html).filter(item => isRecentWicolleIdx(item.idx));
+    const limited = listItems.slice(0, 8);
+    const detailed = await Promise.all(limited.map(async item => ({
+      ...item,
+      content: await fetchWicolleDetailContent(item.idx, cookie).catch(() => ''),
+    })));
+    console.log(`[wicolle] got ${detailed.length} items from game news`);
+    return {
+      allItems: detailed.filter(item => item.title),
+      note: detailed.length ? '' : 'no current items',
+    };
+  } catch (err) {
+    console.warn('[wicolle] failed', err?.message || err);
+    return { allItems: [], note: err?.message || String(err) };
+  }
+}
+
+async function fetchWicolleDetailContent(idx, cookie) {
+  if (!idx) return '';
+  const url = `${WICOLLE_DETAIL_URL}?idx=${encodeURIComponent(idx)}`;
+  const res = await fetch(url, {
+    headers: buildWicolleHeaders(cookie),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) return '';
+  const html = await res.text();
+  const bodyHtml = html.split(/<\/style>/i).pop() || html;
+  const detail = bodyHtml.match(/<div[^>]+class=["'][^"']*detail_body[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]
+    || bodyHtml.match(/<article[^>]*>([\s\S]*?)<\/article>/i)?.[1]
+    || '';
+  return normalizeWicolleText(detail).slice(0, 1000);
+}
+
+function parseWicolleNewsList(html) {
+  const items = [];
+  const seen = new Set();
+  const source = String(html || '');
+  for (const match of source.matchAll(/<a[^>]+href=["']\.\/detail\.php\?idx=(\d+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const idx = match[1];
+    if (!idx || seen.has(idx)) continue;
+    seen.add(idx);
+    const block = match[2] || '';
+    const title = decodeHtml(
+      block.match(/<img[^>]+alt=["']([^"']+)["']/i)?.[1]
+      || block.match(/<div[^>]+class=["'][^"']*infolist_title[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]
+      || stripTags(block)
+    ).trim();
+    items.push({
+      idx,
+      date: formatWicolleIdxDate(idx),
+      title: normalizeWicolleText(title).slice(0, 120),
+      content: '',
+    });
+  }
+  return items;
+}
+
+function buildWicolleCookie(ssid) {
+  const webview = encodeURIComponent(`lang=1&tz_offset=9&_ssid=${ssid}`);
+  return `_ssid=${ssid}; WEBVIEW=${webview}`;
+}
+
+function buildWicolleHeaders(cookie) {
+  return {
+    Cookie: cookie,
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'ja,en-US;q=0.8,en;q=0.6',
+  };
+}
+
+function isRecentWicolleIdx(idx) {
+  const date = parseWicolleIdxDate(idx);
+  if (!date) return true;
+  const ageMs = Date.now() - date.getTime();
+  return ageMs <= 14 * 24 * 60 * 60 * 1000 && ageMs >= -2 * 24 * 60 * 60 * 1000;
+}
+
+function parseWicolleIdxDate(idx) {
+  const m = String(idx || '').match(/^(\d{4})(\d{2})(\d{2})/);
+  if (!m) return null;
+  return new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00+09:00`);
+}
+
+function formatWicolleIdxDate(idx) {
+  const m = String(idx || '').match(/^(\d{4})(\d{2})(\d{2})/);
+  return m ? `${m[1]}/${m[2]}/${m[3]}` : '';
+}
+
 // ── Gemini 日記生成 ──────────────────────────────────────
 async function generateDiary(dateLabel, inputs) {
   if (DIARY_GEMINI_DISABLED) throw new Error('Gemini disabled by DIARY_GEMINI_DISABLED');
@@ -1388,25 +1505,95 @@ function initFirebase() {
   return admin.database();
 }
 
+function buildUicolleFieldSummary(items, kind) {
+  const filtered = (Array.isArray(items) ? items : [])
+    .filter(item => kind === 'gacha' ? isWicolleGachaItem(item) : isWicolleEventItem(item));
+
+  return filtered.slice(0, 4).map(item => {
+    const title = normalizeWicolleText(item.title || '');
+    const header = `【${item.date || item.idx || '日付不明'}】${title}`;
+    const content = item.content ? `\n${clipWicolleText(item.content, 360)}` : '';
+    return `${header}${content}`;
+  }).join('\n\n');
+}
+
+function isWicolleEventItem(item) {
+  const text = normalizeWicolleText(`${item?.title || ''} ${item?.content || ''}`);
+  if (!text || isNonWicolleDiaryTopic(text)) return false;
+  if (isWicolleGachaItem(item)) return false;
+  return /(イベント|チャレンジ|デイズ|キャンペーン|ロード・?トゥ・?グローリー|ボーナスタイム|ログインボーナス|ミッション|カップ|ツアー|フェス|リーグ|マッチ|ゲストチーム|開催|ランキング|スタジアム)/i.test(text);
+}
+
+function isWicolleGachaItem(item) {
+  const text = normalizeWicolleText(`${item?.title || ''} ${item?.content || ''}`);
+  if (!text || isNonWicolleDiaryTopic(text)) return false;
+  return /(ガチャ|スカウト|パック|カード|選手登場|スペシャル.*選手|レジェンド|エピック|epic|legend|potw|show\s*time|ショータイム|ブースター|booster|ナショナル|ピックアップ)/i.test(text);
+}
+
+function isNonWicolleDiaryTopic(text) {
+  return /(ikea|イケア|ダイソー|セリア|キャンドゥ|100均|百均|unico|standard products|スタンダードプロダクツ|ポケベル|90年代|注目アイテム|ショップ|グッズ|家具|収納|ソファ|トレー|シリコン|文具|JMOOC|講座|青空文庫)/i.test(String(text || ''));
+}
+
+function normalizeWicolleText(value) {
+  return decodeHtml(stripTags(String(value || '')))
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function stripTags(value) {
+  return String(value || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ');
+}
+
+function decodeHtml(value) {
+  return String(value || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)));
+}
+
+function clipWicolleText(text, maxLength) {
+  const normalized = normalizeWicolleText(text);
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
 async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
   const db = initFirebase();
-  const { videos, news, worldCup, nineties, interestTopic, shopItem } = sources;
+  const { videos, news, worldCup, nineties, interestTopic, shopItem, wicolleNews } = sources;
 
-  // Bot の「今のイベント」返答用サマリ
-  const summaryItems = [
-    ...news.slice(0, 3).map(n => n.title),
-    ...videos.slice(0, 2).map(v => v.title),
-    ...(worldCup?.items || []).slice(0, 1).map(v => v.title),
-    ...(shopItem ? [`${shopItem.shop}: ${shopItem.item}`] : []),
-    ...(nineties?.title ? [nineties.title] : []),
-  ];
+  const wicolleItems = Array.isArray(wicolleNews?.allItems) ? wicolleNews.allItems : [];
+  const eventSummary = buildUicolleFieldSummary(wicolleItems, 'event');
+  const gachaSummary = buildUicolleFieldSummary(wicolleItems, 'gacha');
+
+  // Bot の「今のイベント/ガチャ」返答用サマリ。
+  // 日記用の雑貨・90年代・YouTubeネタは混ぜず、ゲーム内インフォだけを保存する。
   await db.ref('config/uicolleNews').set({
-    event:     summaryItems.slice(0, 3).join('\n') || '今日の情報は少なめだったみたい',
-    gacha:     '',
+    event:     eventSummary,
+    gacha:     gachaSummary,
     updatedAt: date,
     diary:     diaryText.slice(0, 600),
     blogUrl:   postUrl || '',
     photoUrl:  photo?.url || '',
+    source:    wicolleItems.length ? 'wicolle-game-news' : 'none',
+    note:      wicolleNews?.note || '',
+    items:     wicolleItems.slice(0, 20).map(item => ({
+      idx:      item.idx || '',
+      date:     item.date || '',
+      title:    item.title || '',
+      content:  clipWicolleText(item.content || '', 700),
+      category: isWicolleGachaItem(item) ? 'gacha' : (isWicolleEventItem(item) ? 'event' : 'other'),
+    })),
   });
 
   // 全文アーカイブ（Bot の長期知識）
@@ -1421,6 +1608,7 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
       shopItemId: shopItem?.id || null,
       nineties: nineties?.title ? [nineties.title] : [],
       interestTopicId: interestTopic?.id || null,
+      wicolleNews: (wicolleNews?.allItems || []).map(n => n.title),
     },
     createdAt: Date.now(),
   });
@@ -1478,11 +1666,19 @@ async function main() {
     process.exit(0);
   }
 
-  const [videos, news] = await Promise.all([
+  const [videos, rssNews, wicolleNews] = await Promise.all([
     fetchYouTubeVideos().catch(e => { console.error('[youtube]', e.message); return []; }),
     fetchEfootballNews().catch(e => { console.error('[rss]',     e.message); return []; }),
+    fetchWicolleNews().catch(e => {
+      console.error('[wicolle]', e.message);
+      return { allItems: [], note: e.message || 'failed' };
+    }),
   ]);
-  console.log(`[diary] youtube=${videos.length} news=${news.length}`);
+  const wicolleItems = Array.isArray(wicolleNews?.allItems) ? wicolleNews.allItems : [];
+  const news = wicolleItems.length
+    ? wicolleItems.map(item => ({ title: item.title, desc: item.content || '' }))
+    : rssNews;
+  console.log(`[diary] youtube=${videos.length} news=${news.length} wicolle=${wicolleItems.length}`);
 
   const youtube = analyzeYouTubeFreshness(videos, state);
   if (youtube.repeated) console.log('[youtube] same as previous diary, skipping video focus');
@@ -1516,6 +1712,7 @@ async function main() {
     groupHighlights,
     shopItem,
     recentDiaries,
+    wicolleNews,
   };
 
   const photo = getDiaryPhoto();
@@ -1549,6 +1746,7 @@ async function main() {
       nineties,
       interestTopic,
       shopItem,
+      wicolleNews,
     }, photo)
       .catch(e => console.error('[firebase]', e.message));
   }

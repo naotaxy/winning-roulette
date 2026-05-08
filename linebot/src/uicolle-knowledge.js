@@ -101,26 +101,92 @@ function formatDynamicUicolleNewsReply(news, kind = 'news') {
     return 'ごめん、今のところ最新情報が登録されてないみたい。\n管理者が Firebase の config/uicolleNews に書き込んでくれれば、すぐ伝えられるよ。';
   }
 
-  const updated = news.updatedAt ? `\n\n（更新: ${news.updatedAt}）` : '';
+  const safeNews = normalizeDynamicUicolleNews(news);
+  const updated = safeNews.updatedAt ? `\n\n（更新: ${safeNews.updatedAt}）` : '';
   if (kind === 'gacha') {
-    return news.gacha
-      ? `今開催中のガチャ・スカウト情報だよ。\n\n【ガチャ・スカウト】\n${news.gacha}${updated}`
-      : `ガチャ・スカウト情報は、今の登録データだとまだ空みたい。\n\n${news.event ? `【登録済みイベント】\n${news.event}` : 'イベント側の最新情報もまだ薄めだよ。'}${updated}`;
+    return safeNews.gacha
+      ? `今開催中のガチャ・スカウト情報だよ。\n\n【ガチャ・スカウト】\n${safeNews.gacha}${updated}`
+      : `ガチャ・スカウト情報は、今の登録データだとまだ空みたい。\n\n${safeNews.event ? `【登録済みイベント】\n${safeNews.event}` : 'イベント側の最新情報もまだ薄めだよ。'}${updated}`;
   }
 
   if (kind === 'event') {
-    return news.event
-      ? `今開催中のイベント情報だよ。\n\n【イベント】\n${news.event}${updated}`
-      : `イベント情報は、今の登録データだとまだ空みたい。\n\n${news.gacha ? `【登録済みガチャ・スカウト】\n${news.gacha}` : 'ガチャ側の最新情報もまだ薄めだよ。'}${updated}`;
+    return safeNews.event
+      ? `今開催中のイベント情報だよ。\n\n【イベント】\n${safeNews.event}${updated}`
+      : `イベント情報は、今の登録データだとまだ空みたい。\n\n${safeNews.gacha ? `【登録済みガチャ・スカウト】\n${safeNews.gacha}` : 'ガチャ側の最新情報もまだ薄めだよ。'}${updated}`;
   }
 
   const blocks = [];
-  if (news.event) blocks.push(`【イベント】\n${news.event}`);
-  if (news.gacha) blocks.push(`【ガチャ・スカウト】\n${news.gacha}`);
-  if (news.blogUrl) blocks.push(`【日記】\n${news.blogUrl}`);
+  if (safeNews.event) blocks.push(`【イベント】\n${safeNews.event}`);
+  if (safeNews.gacha) blocks.push(`【ガチャ・スカウト】\n${safeNews.gacha}`);
+  if (safeNews.blogUrl) blocks.push(`【日記】\n${safeNews.blogUrl}`);
   return blocks.length
     ? `最新情報、登録されてたよ。\n\n${blocks.join('\n\n')}${updated}`
     : `最新情報は登録されてるけど、中身はまだ薄めみたい。${updated}`;
+}
+
+function normalizeDynamicUicolleNews(news) {
+  const items = Array.isArray(news?.items) ? news.items : [];
+  return {
+    event: sanitizeDynamicUicolleText(news?.event, 'event') || buildDynamicSummaryFromItems(items, 'event'),
+    gacha: sanitizeDynamicUicolleText(news?.gacha, 'gacha') || buildDynamicSummaryFromItems(items, 'gacha'),
+    blogUrl: news?.blogUrl || '',
+    updatedAt: news?.updatedAt || '',
+  };
+}
+
+function buildDynamicSummaryFromItems(items, kind) {
+  return (Array.isArray(items) ? items : [])
+    .filter(item => isDynamicItemKind(item, kind))
+    .slice(0, 4)
+    .map(item => {
+      const title = normalizeDynamicText(item.title || '');
+      const date = item.date || item.idx || '日付不明';
+      const content = item.content ? `\n${clipDynamicUicolleText(item.content, 360)}` : '';
+      return `【${date}】${title}${content}`;
+    })
+    .join('\n\n');
+}
+
+function sanitizeDynamicUicolleText(text, kind) {
+  const normalized = normalizeDynamicText(text);
+  if (!normalized || isNonUicolleDiaryTopic(normalized)) return '';
+  if (kind === 'gacha') return isDynamicUicolleGachaText(normalized) ? String(text).trim() : '';
+  if (kind === 'event') return isDynamicUicolleEventText(normalized) ? String(text).trim() : '';
+  return normalized;
+}
+
+function isDynamicItemKind(item, kind) {
+  if (item?.category === kind) return true;
+  const text = normalizeDynamicText(`${item?.title || ''} ${item?.content || ''}`);
+  if (!text || isNonUicolleDiaryTopic(text)) return false;
+  if (kind === 'gacha') return isDynamicUicolleGachaText(text);
+  if (kind === 'event') return isDynamicUicolleEventText(text) && !isDynamicUicolleGachaText(text);
+  return false;
+}
+
+function isDynamicUicolleEventText(text) {
+  return /(イベント|チャレンジ|デイズ|キャンペーン|ロード・?トゥ・?グローリー|ボーナスタイム|ログインボーナス|ミッション|カップ|ツアー|フェス|リーグ|マッチ|ゲストチーム|開催|ランキング|スタジアム)/i.test(String(text || ''));
+}
+
+function isDynamicUicolleGachaText(text) {
+  return /(ガチャ|スカウト|パック|カード|選手登場|スペシャル.*選手|レジェンド|エピック|epic|legend|potw|show\s*time|ショータイム|ブースター|booster|ナショナル|ピックアップ)/i.test(String(text || ''));
+}
+
+function isNonUicolleDiaryTopic(text) {
+  return /(ikea|イケア|ダイソー|セリア|キャンドゥ|100均|百均|unico|standard products|スタンダードプロダクツ|ポケベル|90年代|注目アイテム|ショップ|グッズ|家具|収納|ソファ|トレー|シリコン|文具|JMOOC|講座|青空文庫)/i.test(String(text || ''));
+}
+
+function normalizeDynamicText(value) {
+  return String(value || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function clipDynamicUicolleText(text, maxLength) {
+  const normalized = normalizeDynamicText(text);
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
 /* 属性キーワードの検出 */

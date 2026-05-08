@@ -19,6 +19,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 const { _test } = require('../src/webhook');
+const { formatDynamicUicolleNewsReply } = require('../src/uicolle-knowledge');
 
 const PREFIX = '@秘書トラペル子 ';
 
@@ -139,8 +140,56 @@ if (failed) {
 
 console.log(`OK ${cases.length} help intent checks passed.`);
 
+const pollutedEventReply = formatDynamicUicolleNewsReply({
+  event: 'IKEA: SKUBB スカップ ボックス6ピースセット\nダイソー: PPクリアボックス',
+  updatedAt: '2026-05-08',
+}, 'event');
+assertNotIncludes(pollutedEventReply, /(IKEA|ダイソー|SKUBB|クリアボックス)/, 'polluted diary shop topics must not be returned as Uicolle events');
+
+const itemEventReply = formatDynamicUicolleNewsReply({
+  updatedAt: '2026-05-08',
+  items: [
+    {
+      date: '2026/05/08',
+      title: 'スペシャルチャレンジデイズ開催',
+      content: 'ロード・トゥ・グローリーのミッションで報酬を獲得できます。',
+      category: 'event',
+    },
+  ],
+}, 'event');
+assertIncludes(itemEventReply, /スペシャルチャレンジデイズ|ロード・トゥ・グローリー/, 'event items should be returned from config/uicolleNews.items');
+
+const itemGachaReply = formatDynamicUicolleNewsReply({
+  updatedAt: '2026-05-08',
+  items: [
+    {
+      date: '2026/05/08',
+      title: 'ピックアップスカウト開催',
+      content: 'スペシャル選手登場。',
+      category: 'gacha',
+    },
+  ],
+}, 'gacha');
+assertIncludes(itemGachaReply, /ピックアップスカウト|スペシャル選手/, 'gacha items should be returned from config/uicolleNews.items');
+
+console.log('OK dynamic Uicolle content guard passed.');
+
 function matches(actual, expected) {
   if (typeof expected === 'string') return actual === expected;
   if (!actual || typeof actual !== 'object') return false;
   return Object.entries(expected).every(([key, value]) => actual[key] === value);
+}
+
+function assertIncludes(text, pattern, message) {
+  if (!pattern.test(text)) {
+    console.error(`NG ${message}: ${JSON.stringify(text)}`);
+    process.exit(1);
+  }
+}
+
+function assertNotIncludes(text, pattern, message) {
+  if (pattern.test(text)) {
+    console.error(`NG ${message}: ${JSON.stringify(text)}`);
+    process.exit(1);
+  }
 }
