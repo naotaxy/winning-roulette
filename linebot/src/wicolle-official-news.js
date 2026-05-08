@@ -32,7 +32,7 @@ async function fetchWicolleOfficialNews(options = {}) {
       listNote = `list fetch ${err?.message || err}`;
     }
 
-    if (html && /login|session|expired|error/i.test(stripTags(html).slice(0, 500)) && !/detail\.php\?idx=/.test(html)) {
+    if (html && /login|session|expired|error|ログイン|セッション|認証|ログアウト/i.test(stripTags(html).slice(0, 500)) && !/detail\.php\?idx=/.test(html)) {
       return { allItems: [], ok: false, note: 'session expired' };
     }
 
@@ -87,7 +87,7 @@ async function fetchWicolleDetailItem(idx, cookie, fetchImpl = fetch, timeoutMs 
   if (!idx) return { idx: '', title: '', content: '' };
   const url = buildWicolleDetailUrl(idx);
   const res = await fetchImpl(url, {
-    headers: buildWicolleHeaders(cookie),
+    headers: buildWicolleHeaders(cookie, WICOLLE_NEWS_URL),
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) return { idx, title: '', content: '' };
@@ -260,8 +260,14 @@ function isUsableWicolleItem(item) {
   const title = normalizeWicolleText(item?.title || '');
   const content = normalizeWicolleText(item?.content || '');
   if (!item?.idx || content.length < 8) return false;
+  // Reject error/login pages (English and Japanese)
+  // NOTE: ログイン(?!ボーナス) to avoid false-rejecting "ログインボーナス" (game feature)
   if (/ページが見つかりません|not found|error|session expired|login/i.test(content)) return false;
-  return !!(title || content);
+  if (/ログイン(?!ボーナス)|セッション.*切れ|ご利用には.*ログイン|アクセス.*制限|unauthorized/.test(content)) return false;
+  // Must contain game-specific content to avoid false positives from login/redirect pages
+  const combined = title + ' ' + content;
+  if (!/(ウイコレ|ウイニングイレブン|eFootball|ガチャ|スカウト|イベント|チャレンジ|ミッション|ログインボーナス|ボーナスタイム|選手|カード|開催|スペシャル|KONAMI|コラボ)/i.test(combined)) return false;
+  return true;
 }
 
 function extractWicolleDetailTitle(html, detailHtml = '') {
@@ -396,13 +402,15 @@ function buildWicolleCookie(ssid) {
   return `_ssid=${ssid}; WEBVIEW=${webview}`;
 }
 
-function buildWicolleHeaders(cookie) {
-  return {
+function buildWicolleHeaders(cookie, referer = '') {
+  const headers = {
     Cookie: cookie,
     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
     Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Accept-Language': 'ja',
   };
+  if (referer) headers['Referer'] = referer;
+  return headers;
 }
 
 function buildWicolleDetailUrl(idx) {

@@ -873,20 +873,31 @@ function withProfileSetupQuickReplies(message, profile = null, context = '') {
   };
 }
 
+let _uicolleLastFailedAtMs = 0;
+const UICOLLE_FETCH_COOLDOWN_MS = 5 * 60 * 1000;
+
 async function getUicolleNewsForReply(kind) {
   const existing = await getUicolleNews();
   const today = getTokyoDateParts().date;
   if (!shouldRefreshUicolleNews(existing, kind, today)) return existing;
 
+  // フェッチ失敗後5分間はKONAMIサーバーへの再試行を抑制
+  if (_uicolleLastFailedAtMs && Date.now() - _uicolleLastFailedAtMs < UICOLLE_FETCH_COOLDOWN_MS) {
+    console.warn(`[uicolle] fetch cooldown active (${Math.round((Date.now() - _uicolleLastFailedAtMs) / 1000)}s since last fail)`);
+    return existing || buildWicolleNewsSnapshot({ allItems: [], ok: false, note: 'cooldown' }, { date: today });
+  }
+
   const result = await fetchWicolleOfficialNews({ maxItems: 8, timeoutMs: 6500 });
   if (Array.isArray(result.allItems) && result.allItems.length) {
+    _uicolleLastFailedAtMs = 0;
     const snapshot = buildWicolleNewsSnapshot(result, { date: today, existing });
     await saveUicolleNews(snapshot);
     console.log(`[uicolle] refreshed official news for ${kind}: items=${snapshot.items.length}`);
     return snapshot;
   }
 
-  console.warn(`[uicolle] official news refresh skipped for ${kind}: ${result.note || 'no items'}`);
+  _uicolleLastFailedAtMs = Date.now();
+  console.warn(`[uicolle] official news refresh failed for ${kind}: ${result.note || 'no items'}`);
   if (existing) {
     return {
       ...existing,

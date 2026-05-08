@@ -198,10 +198,13 @@ function formatDynamicUicolleFetchNote(news) {
   if (/WICOLLE_SSID not set/i.test(note)) {
     return '\n\n公式インフォを取りに行くための `WICOLLE_SSID` が未設定みたい。Renderの環境変数を確認してね。';
   }
-  if (/session expired/i.test(note)) {
-    return '\n\n公式インフォのセッションが切れてるみたい。Proxymanで新しい `_ssid` を取り直して `WICOLLE_SSID` を更新してね。';
+  if (/session expired|cooldown/i.test(note)) {
+    return '\n\nセッションが切れてるか、最近の取得に失敗してる。Proxymanで新しい `_ssid` を取り直して `WICOLLE_SSID` を更新してね。';
   }
-  if (/status|fetch|timeout|aborted|network|no current items/i.test(note)) {
+  if (/no current items/i.test(note)) {
+    return '\n\n現在のウイコレ公式インフォが取得できなかったよ。SSIDが期限切れの可能性あり。Proxymanで新しい `_ssid` を確認してね。';
+  }
+  if (/status|fetch|timeout|aborted|network/i.test(note)) {
     return `\n\n公式インフォの再取得メモ: ${note}`;
   }
   return '';
