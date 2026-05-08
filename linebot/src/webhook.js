@@ -15,6 +15,8 @@ const {
   getUicolleNews,
   saveUicolleNews,
   getWicolleKnowledge,
+  saveWicolleHistory,
+  getWicolleHistory,
   getRecentDiaries,
   saveConversationMessage,
   saveSecurityEvent,
@@ -106,6 +108,7 @@ const {
   formatFormationTips,
   formatMetaKnowledge,
   formatDynamicMetaKnowledge,
+  formatWicolleHistoryReply,
   formatBeginnerTips,
   formatDynamicUicolleNewsReply,
   detectAttributeKeyword,
@@ -894,6 +897,7 @@ async function getUicolleNewsForReply(kind) {
     _uicolleLastFailedAtMs = 0;
     const snapshot = buildWicolleNewsSnapshot(result, { date: today, existing });
     await saveUicolleNews(snapshot);
+    saveWicolleHistory(today, result.allItems).catch(e => console.warn('[uicolle] history save failed:', e.message));
     console.log(`[uicolle] refreshed official news for ${kind}: items=${snapshot.items.length}`);
     return snapshot;
   }
@@ -1852,6 +1856,9 @@ async function handleText(event, client) {
       text = formatFormationTips();
     } else if (kind === 'beginner') {
       text = formatBeginnerTips();
+    } else if (kind === 'history') {
+      const history = await getWicolleHistory(30);
+      text = formatWicolleHistoryReply(history, event.message.text || '');
     } else {
       const knowledge = await getWicolleKnowledge();
       text = formatDynamicMetaKnowledge(knowledge);

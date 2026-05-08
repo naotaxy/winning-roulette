@@ -106,12 +106,44 @@ async function saveUicolleNews(news) {
   });
 }
 
-/* 日記アーカイブ — 直近N件 */
+/* ウイコレ動的メタ知識 */
 async function getWicolleKnowledge() {
   const snap = await getDb().ref('config/wicolleKnowledge').once('value');
   return snap.val() || null;
 }
 
+/* ウイコレ履歴 — 日付キー(YYYYMMDD)で蓄積 */
+function clipForHistory(text, max) {
+  const t = String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
+}
+
+async function saveWicolleHistory(date, items) {
+  const key = String(date).replace(/-/g, '');
+  await getDb().ref(`wicolleHistory/${key}`).set({
+    date,
+    items: (Array.isArray(items) ? items : []).slice(0, 20).map(item => ({
+      idx: item.idx || '',
+      date: item.date || '',
+      title: clipForHistory(item.title || '', 120),
+      content: clipForHistory(item.content || '', 400),
+      category: item.category || 'other',
+      keywords: Array.isArray(item.keywords) ? item.keywords.slice(0, 8) : [],
+    })),
+    savedAt: Date.now(),
+  });
+}
+
+async function getWicolleHistory(limit = 30) {
+  const snap = await getDb().ref('wicolleHistory').orderByKey().limitToLast(limit).once('value');
+  const raw = snap.val();
+  if (!raw) return [];
+  return Object.values(raw)
+    .filter(entry => Array.isArray(entry?.items) && entry.items.length)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+/* 日記アーカイブ — 直近N件 */
 async function getRecentDiaries(limit = 7) {
   const snap = await getDb().ref('diary').orderByChild('createdAt').limitToLast(limit).once('value');
   const raw = snap.val();
@@ -1215,6 +1247,8 @@ module.exports = {
   getUicolleNews,
   saveUicolleNews,
   getWicolleKnowledge,
+  saveWicolleHistory,
+  getWicolleHistory,
   getRecentDiaries,
   saveConversationMessage,
   saveSecurityEvent,

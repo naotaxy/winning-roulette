@@ -117,6 +117,54 @@ function formatBeginnerTips() {
   return `ウイコレの基本的なコツ、私なりにまとめてみたよ。\n\n${BEGINNER_TIPS.join('\n\n')}`;
 }
 
+function extractHistoryKeyword(text) {
+  const t = String(text || '').normalize('NFKC');
+  if (/プロメテウス/.test(t)) return 'プロメテウス';
+  if (/ピックアップ/.test(t)) return 'ピックアップ';
+  if (/ダイヤモンド/.test(t)) return 'ダイヤモンド';
+  if (/コラボ/.test(t)) return 'コラボ';
+  if (/NARUTO|ナルト/i.test(t)) return 'NARUTO|ナルト';
+  return '';
+}
+
+function formatWicolleHistoryReply(history, msgText) {
+  if (!Array.isArray(history) || !history.length) {
+    return '過去のウイコレ情報はまだ蓄積されてないよ。毎日の日記生成かLINEでの取得が積み重なると、ここに履歴が溜まってくよ。';
+  }
+
+  const keyword = extractHistoryKeyword(msgText);
+  const allItems = history.flatMap(day =>
+    (day.items || []).map(item => ({ ...item, dayDate: day.date }))
+  );
+  const filtered = keyword
+    ? allItems.filter(item => new RegExp(keyword, 'i').test(`${item.title} ${item.content}`))
+    : allItems;
+
+  const gachaItems = filtered.filter(item => item.category === 'gacha').slice(0, 6);
+  const eventItems = filtered.filter(item => item.category === 'event').slice(0, 6);
+
+  if (!gachaItems.length && !eventItems.length) {
+    return keyword
+      ? `「${keyword}」に関する過去のウイコレ履歴は見当たらなかったよ。`
+      : '履歴はあるけど、ガチャ・イベントの情報がまだ取れてないみたい。';
+  }
+
+  const blocks = [];
+  if (gachaItems.length) {
+    const lines = gachaItems.map(item => `【${item.date || item.dayDate || '日付不明'}】${item.title}`);
+    blocks.push(`【スカウト履歴】\n${lines.join('\n')}`);
+  }
+  if (eventItems.length) {
+    const lines = eventItems.map(item => `【${item.date || item.dayDate || '日付不明'}】${item.title}`);
+    blocks.push(`【イベント履歴】\n${lines.join('\n')}`);
+  }
+
+  const oldest = history[history.length - 1]?.date || '';
+  const newest = history[0]?.date || '';
+  const range = oldest && newest ? `（${oldest} 〜 ${newest}）` : '';
+  return `過去のウイコレ情報だよ。${range}\n\n${blocks.join('\n\n')}`;
+}
+
 function formatDynamicUicolleNewsReply(news, kind = 'news') {
   if (!news) {
     return 'ごめん、今のところ最新情報が登録されてないみたい。\n管理者が Firebase の config/uicolleNews に書き込んでくれれば、すぐ伝えられるよ。';
@@ -265,6 +313,12 @@ function detectUicolleIntent(text) {
 
 function detectDynamicUicolleInfoIntent(text) {
   const t = String(text || '').normalize('NFKC');
+
+  // 過去履歴クエリ（現在クエリより先に判定）
+  if (/(先月|先週|過去|以前|前回|前の).*(ガチャ|スカウト|イベント|プロメテウス|ピックアップ)/.test(t)) return 'history';
+  if (/(ガチャ|スカウト|イベント|プロメテウス|ピックアップ).*(先月|先週|過去|以前|前回|いつ来た|いつあった|何日|何月)/.test(t)) return 'history';
+  if (/ウイコレ.*(履歴|ログ|記録|振り返り)/.test(t)) return 'history';
+
   const asksNow = /(今|現在|開催中|開催して|実施中|やってる|最新|最近|今日|このガチャ|このイベント|今開催中)/.test(t);
   const asksInfo = /(情報|教えて|どう|なに|何|どれ|内容|一覧|状況|開催)/.test(t);
 
@@ -282,6 +336,7 @@ module.exports = {
   formatFormationTips,
   formatMetaKnowledge,
   formatDynamicMetaKnowledge,
+  formatWicolleHistoryReply,
   formatBeginnerTips,
   formatDynamicUicolleNewsReply,
   detectAttributeKeyword,

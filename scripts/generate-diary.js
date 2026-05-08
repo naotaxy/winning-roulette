@@ -1535,6 +1535,22 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
   const wicolleKnowledge = buildWicolleKnowledge(wicolleItems, date);
   await db.ref('config/wicolleKnowledge').set(wicolleKnowledge);
 
+  // 履歴への蓄積（「先月のガチャは？」等の過去参照用）
+  if (wicolleItems.length) {
+    await db.ref(`wicolleHistory/${date.replace(/-/g, '')}`).set({
+      date,
+      items: wicolleItems.slice(0, 20).map(item => ({
+        idx: item.idx || '',
+        date: item.date || '',
+        title: clipWicolleText(item.title || '', 120),
+        content: clipWicolleText(item.content || '', 400),
+        category: isWicolleGachaItem(item) ? 'gacha' : (isWicolleEventItem(item) ? 'event' : 'other'),
+        keywords: Array.isArray(item.keywords) ? item.keywords.slice(0, 8) : [],
+      })),
+      savedAt: Date.now(),
+    });
+  }
+
   // 全文アーカイブ（Bot の長期知識）
   await db.ref(`diary/${date}`).set({
     text:      diaryText,
