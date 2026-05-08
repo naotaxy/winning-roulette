@@ -96,6 +96,33 @@ function formatBeginnerTips() {
   return `ウイコレの基本的なコツ、私なりにまとめてみたよ。\n\n${BEGINNER_TIPS.join('\n\n')}`;
 }
 
+function formatDynamicUicolleNewsReply(news, kind = 'news') {
+  if (!news) {
+    return 'ごめん、今のところ最新情報が登録されてないみたい。\n管理者が Firebase の config/uicolleNews に書き込んでくれれば、すぐ伝えられるよ。';
+  }
+
+  const updated = news.updatedAt ? `\n\n（更新: ${news.updatedAt}）` : '';
+  if (kind === 'gacha') {
+    return news.gacha
+      ? `今開催中のガチャ・スカウト情報だよ。\n\n【ガチャ・スカウト】\n${news.gacha}${updated}`
+      : `ガチャ・スカウト情報は、今の登録データだとまだ空みたい。\n\n${news.event ? `【登録済みイベント】\n${news.event}` : 'イベント側の最新情報もまだ薄めだよ。'}${updated}`;
+  }
+
+  if (kind === 'event') {
+    return news.event
+      ? `今開催中のイベント情報だよ。\n\n【イベント】\n${news.event}${updated}`
+      : `イベント情報は、今の登録データだとまだ空みたい。\n\n${news.gacha ? `【登録済みガチャ・スカウト】\n${news.gacha}` : 'ガチャ側の最新情報もまだ薄めだよ。'}${updated}`;
+  }
+
+  const blocks = [];
+  if (news.event) blocks.push(`【イベント】\n${news.event}`);
+  if (news.gacha) blocks.push(`【ガチャ・スカウト】\n${news.gacha}`);
+  if (news.blogUrl) blocks.push(`【日記】\n${news.blogUrl}`);
+  return blocks.length
+    ? `最新情報、登録されてたよ。\n\n${blocks.join('\n\n')}${updated}`
+    : `最新情報は登録されてるけど、中身はまだ薄めみたい。${updated}`;
+}
+
 /* 属性キーワードの検出 */
 function detectAttributeKeyword(text) {
   for (const attr of Object.keys(ATTRIBUTE_GUIDE)) {
@@ -117,12 +144,26 @@ function detectSenseKeyword(text) {
 
 /* ウイコレ質問の種別検出 */
 function detectUicolleIntent(text) {
+  const dynamicKind = detectDynamicUicolleInfoIntent(text);
+  if (dynamicKind) return dynamicKind;
   if (/(センス|アドセンス|カスタムセンス|セレクトスキル|フュージョン|センスゲー)/.test(text)) return 'sense';
-  if (/(強[いキャ]|tier|ティア|最強|おすすめ|使えるカード|ガチャ|スカウト|引く|引いた方|プロメテウス|ピックアップ)/.test(text)) return 'meta';
   if (/(属性|速さ|スピード|スタミナ|パワー|テクニック|バランス)/.test(text)) return 'attribute';
-  if (/(レアリティ|レア|星5|星4|カードの種類|★5|★4)/.test(text)) return 'rarity';
+  if (/(強キャラ|強カード|tier|ティア|最強|今のメタ|メタ|おすすめ|使えるカード|ガチャ|スカウト|引く|引いた方|プロメテウス|ピックアップ)/.test(text)) return 'meta';
+  if (/(レアリティ|レア|星5|星4|カードの種類|★5|★4|キラ|レジェンド)/.test(text)) return 'rarity';
   if (/(フォーメーション|布陣|4-3-3|4-4-2|戦術|フォメ)/.test(text)) return 'formation';
   if (/(初心者|始めた|わからない|コツ|何から|どうすれば)/.test(text)) return 'beginner';
+  return null;
+}
+
+function detectDynamicUicolleInfoIntent(text) {
+  const t = String(text || '').normalize('NFKC');
+  const asksNow = /(今|現在|開催中|開催して|実施中|やってる|最新|最近|今日|このガチャ|このイベント|今開催中)/.test(t);
+  const asksInfo = /(情報|教えて|どう|なに|何|どれ|内容|一覧|状況|開催)/.test(t);
+
+  if (/(最新情報|ウイコレ.*情報|最近のウイコレ|ウイコレ.*どう)/.test(t)) return 'news';
+  if (/(使用感|考察|評価).*(教えて|どう|知りたい)?/.test(t) && /(ウイコレ|ガチャ|スカウト|選手|カード)/.test(t)) return 'news';
+  if (/(イベント|event)/i.test(t) && (asksNow || asksInfo)) return 'event';
+  if (/(ガチャ|スカウト|scout)/i.test(t) && (asksNow || /開催/.test(t))) return 'gacha';
   return null;
 }
 
@@ -133,7 +174,9 @@ module.exports = {
   formatFormationTips,
   formatMetaKnowledge,
   formatBeginnerTips,
+  formatDynamicUicolleNewsReply,
   detectAttributeKeyword,
   detectSenseKeyword,
   detectUicolleIntent,
+  detectDynamicUicolleInfoIntent,
 };

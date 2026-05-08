@@ -7,7 +7,8 @@
   },
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "verify:help": "node scripts/verify-help-intents.js"
   },
   "dependencies": {
     "@line/bot-sdk": "^9.4.0",

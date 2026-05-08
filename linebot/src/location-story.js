@@ -97,6 +97,9 @@ function detectLocationStoryIntent(text) {
   if (/(歴史案内|面影案内|地形案内|ノブレス案内)/.test(compact)) {
     return { type: 'locationStory' };
   }
+  if ((/(秘書っぽく|秘書のように).*(案内|歩き|巡り|連れて|見て)/.test(compact) || /^(案内して|案内お願い)$/.test(compact)) && !/(予約|購入|送信|メール|見積|ホテル|飲み|店|宿)/.test(compact)) {
+    return { type: 'locationStory' };
+  }
   return null;
 }
 

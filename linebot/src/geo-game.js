@@ -122,7 +122,7 @@ function detectGeoGameIntent(text) {
   if (/^(中止|キャンセル|やめ|終了して)$/.test(body)) {
     return { type: 'geoGame', action: 'cancel' };
   }
-  if (/^(状況|状態|ステータス|残り時間)$/.test(body)) {
+  if (gamePrefix.test(t) && /^(状況|状態|ステータス|残り時間)$/.test(body)) {
     return { type: 'geoGame', action: 'status' };
   }
 

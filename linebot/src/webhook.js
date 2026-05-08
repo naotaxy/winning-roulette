@@ -104,6 +104,7 @@ const {
   formatFormationTips,
   formatMetaKnowledge,
   formatBeginnerTips,
+  formatDynamicUicolleNewsReply,
   detectAttributeKeyword,
   detectSenseKeyword,
   detectUicolleIntent,
@@ -1793,11 +1794,9 @@ async function handleText(event, client) {
   if (intent?.startsWith('uicolle:')) {
     const kind = intent.replace('uicolle:', '');
     let text;
-    if (kind === 'news') {
+    if (kind === 'news' || kind === 'event' || kind === 'gacha') {
       const news = await getUicolleNews();
-      text = news
-        ? `最新情報、登録されてたよ。\n\n${news.event ? `【イベント】\n${news.event}` : ''}${news.gacha ? `\n\n【ガチャ・スカウト】\n${news.gacha}` : ''}${news.updatedAt ? `\n\n（更新: ${news.updatedAt}）` : ''}`
-        : 'ごめん、今のところ最新情報が登録されてないみたい。\n管理者が Firebase の config/uicolleNews に書き込んでくれれば、すぐ伝えられるよ。';
+      text = formatDynamicUicolleNewsReply(news, kind);
     } else if (kind === 'sense') {
       const senseKind = detectSenseKeyword(event.message.text || '');
       text = formatSenseGuide(senseKind);
@@ -2358,7 +2357,6 @@ function detectTextIntent(text, options = {}) {
 
   const uicolleKind = detectUicolleIntent(targetText);
   if (uicolleKind) return `uicolle:${uicolleKind}`;
-  if (/(今のイベント|開催中のイベント|今のガチャ|開催中.*ガチャ|ガチャ.*今|最新情報|ウイコレ.*情報)/.test(targetText)) return 'uicolle:news';
   if (/(名場面|名シーン|ハイライト|月間まとめ|今月まとめ|日記連動|日記.*名場面|日記.*ハイライト)/.test(targetText)) return 'monthlyHighlights';
   if (/(口癖|因縁|相性|ライバル|メンバー.*煽|みんな.*煽|各メンバー|人物メモ|メンバー分析|キャラ分析)/.test(targetText)) return 'memberFlavor';
   if (/(未対戦|未消化ペア|あと誰.*誰|誰と誰|対戦.*残|残り.*対戦|対戦残り|やってない.*ペア)/.test(targetText)) return 'missingMatchups';
@@ -4591,4 +4589,4 @@ function buildNoblesseReminderPrompt(proposal, options = {}) {
   };
 }
 
-module.exports = { handle };
+module.exports = { handle, _test: { detectTextIntent } };
