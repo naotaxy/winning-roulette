@@ -7,6 +7,9 @@ const webhook = require('./src/webhook');
 const { runEventReminderSweep, hasReminderWorkerSecrets } = require('./src/event-reminder-worker');
 const { runWakeAlarmSweep, hasWakeWorkerSecrets } = require('./src/wake-alarm-worker');
 const { runDiaryCron, getDiaryCronStatus } = require('./src/diary-cron');
+const { getUicolleNews, saveUicolleNews } = require('./src/firebase-admin');
+const { getTokyoDateParts } = require('./src/date-utils');
+const { fetchWicolleOfficialNews, buildWicolleNewsSnapshot, parseDetailIdxSeeds } = require('./src/wicolle-official-news');
 const { redactSensitiveText } = require('./src/security-utils');
 const {
   hasGithubActionsDispatchToken,
@@ -63,6 +66,9 @@ app.get('/health', (_req, res) => {
       reminderCronProtected: !!REMINDER_CRON_SECRET,
       diaryCron: '/cron/diary',
       diaryCronProtected: !!DIARY_CRON_SECRET,
+      wicolleNewsCron: '/cron/wicolle-news',
+      wicolleNewsCronProtected: !!DIARY_CRON_SECRET,
+      wicolleNewsConfigured: !!process.env.WICOLLE_SSID,
       diary: getDiaryCronStatus(),
     },
   });
@@ -143,6 +149,53 @@ app.get('/cron/diary/status', (req, res) => {
     diary: {
       protected: !!DIARY_CRON_SECRET,
       status: getDiaryCronStatus(),
+    },
+  });
+});
+
+app.get('/cron/wicolle-news', async (req, res) => {
+  if (!isCronAuthorized(req, DIARY_CRON_SECRET)) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+
+  const idxSeeds = parseDetailIdxSeeds(String(req.query?.idx || req.query?.idxs || ''));
+  const startedAt = Date.now();
+  const existing = await getUicolleNews().catch(() => null);
+  const result = await fetchWicolleOfficialNews({
+    detailIdxs: idxSeeds,
+    maxItems: readPositiveIntQuery(req.query?.limit, 12),
+    timeoutMs: 8000,
+  });
+  const snapshot = buildWicolleNewsSnapshot(result, {
+    date: getTokyoDateParts().date,
+    existing,
+  });
+  if (snapshot.items.length) {
+    await saveUicolleNews(snapshot);
+  }
+
+  return res.json({
+    ok: result.ok !== false && snapshot.items.length > 0,
+    ts: new Date().toISOString(),
+    commit: process.env.RENDER_GIT_COMMIT ? process.env.RENDER_GIT_COMMIT.slice(0, 7) : null,
+    wicolleNews: {
+      protected: !!DIARY_CRON_SECRET,
+      saved: snapshot.items.length > 0,
+      items: snapshot.items.length,
+      eventLength: snapshot.event.length,
+      gachaLength: snapshot.gacha.length,
+      updatedAt: snapshot.updatedAt,
+      source: snapshot.source,
+      note: snapshot.note,
+      idxSeeds,
+      titles: snapshot.items.slice(0, 8).map(item => ({
+        idx: item.idx,
+        date: item.date,
+        category: item.category,
+        title: item.title,
+        keywords: item.keywords || [],
+      })),
+      latencyMs: Date.now() - startedAt,
     },
   });
 });
@@ -255,6 +308,11 @@ function readNonNegativeIntEnv(name, fallback) {
   if (value == null || value === '') return fallback;
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback;
+}
+
+function readPositiveIntQuery(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : fallback;
 }
 
 function getPublicFirebaseConfig() {

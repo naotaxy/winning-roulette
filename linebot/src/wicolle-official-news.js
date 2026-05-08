@@ -4,6 +4,7 @@ const WICOLLE_NEWS_URL = 'https://wecc.mo.konami.net/aut/main/html/news/index.ph
 const WICOLLE_DETAIL_URL = 'https://wecc.mo.konami.net/aut/main/html/news/detail.php';
 const WICOLLE_LOOKBACK_DAYS = 14;
 const WICOLLE_MAX_ITEMS = 8;
+const DEFAULT_DETAIL_ID_SEEDS = ['2026050810', '2026050707', '2026050703'];
 
 async function fetchWicolleOfficialNews(options = {}) {
   const ssid = String(options.ssid || process.env.WICOLLE_SSID || '').trim();
@@ -28,13 +29,33 @@ async function fetchWicolleOfficialNews(options = {}) {
     }
 
     const now = options.now || new Date();
-    const listItems = parseWicolleNewsList(html)
+    const detailIdxSeeds = parseDetailIdxSeeds([
+      ...DEFAULT_DETAIL_ID_SEEDS,
+      ...(Array.isArray(options.detailIdxs) ? options.detailIdxs : parseDetailIdxSeeds(options.detailIdxs || '')),
+      ...parseDetailIdxSeeds(process.env.WICOLLE_DETAIL_ID_SEEDS || process.env.WICOLLE_DETAIL_IDS || ''),
+    ]);
+    const listItems = mergeWicolleItems(
+      parseWicolleNewsList(html),
+      detailIdxSeeds.map(idx => ({
+        idx,
+        date: formatWicolleIdxDate(idx),
+        title: '',
+        content: '',
+        source: 'proxyman-seed',
+      }))
+    )
       .filter(item => isRecentWicolleIdx(item.idx, now, options.lookbackDays || WICOLLE_LOOKBACK_DAYS));
     const limited = listItems.slice(0, options.maxItems || WICOLLE_MAX_ITEMS);
-    const detailed = await Promise.all(limited.map(async item => ({
-      ...item,
-      content: await fetchWicolleDetailContent(item.idx, cookie, fetchImpl, options.timeoutMs || 7000).catch(() => ''),
-    })));
+    const detailed = await Promise.all(limited.map(async item => {
+      const detail = await fetchWicolleDetailItem(item.idx, cookie, fetchImpl, options.timeoutMs || 7000).catch(() => null);
+      return {
+        ...item,
+        title: normalizeWicolleText(item.title || detail?.title || '').slice(0, 120),
+        content: detail?.content || '',
+        detailUrl: buildWicolleDetailUrl(item.idx),
+        source: item.source || 'wicolle-list',
+      };
+    }));
 
     const allItems = detailed
       .filter(item => item.title)
@@ -53,19 +74,32 @@ async function fetchWicolleOfficialNews(options = {}) {
 }
 
 async function fetchWicolleDetailContent(idx, cookie, fetchImpl = fetch, timeoutMs = 7000) {
-  if (!idx) return '';
-  const url = `${WICOLLE_DETAIL_URL}?idx=${encodeURIComponent(idx)}`;
+  const item = await fetchWicolleDetailItem(idx, cookie, fetchImpl, timeoutMs);
+  return item.content;
+}
+
+async function fetchWicolleDetailItem(idx, cookie, fetchImpl = fetch, timeoutMs = 7000) {
+  if (!idx) return { idx: '', title: '', content: '' };
+  const url = buildWicolleDetailUrl(idx);
   const res = await fetchImpl(url, {
     headers: buildWicolleHeaders(cookie),
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!res.ok) return '';
+  if (!res.ok) return { idx, title: '', content: '' };
   const html = await res.text();
   const bodyHtml = html.split(/<\/style>/i).pop() || html;
   const detail = bodyHtml.match(/<div[^>]+class=["'][^"']*detail_body[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]
     || bodyHtml.match(/<article[^>]*>([\s\S]*?)<\/article>/i)?.[1]
     || '';
-  return normalizeWicolleText(detail).slice(0, 1000);
+  const content = normalizeWicolleText(detail || bodyHtml).slice(0, 1000);
+  const extractedTitle = extractWicolleDetailTitle(html, detail);
+  return {
+    idx,
+    date: formatWicolleIdxDate(idx),
+    title: isGenericWicolleTitle(extractedTitle) ? inferWicolleTitleFromContent(content) : extractedTitle,
+    content,
+    detailUrl: url,
+  };
 }
 
 function buildWicolleNewsSnapshot(result, options = {}) {
@@ -78,6 +112,9 @@ function buildWicolleNewsSnapshot(result, options = {}) {
     title: item.title || '',
     content: clipWicolleText(item.content || '', 700),
     category: item.category || classifyWicolleItem(item),
+    source: item.source || '',
+    detailUrl: item.detailUrl || buildWicolleDetailUrl(item.idx),
+    keywords: extractWicolleKeywords(item),
   }));
 
   return {
@@ -129,6 +166,61 @@ function parseWicolleNewsList(html) {
   return items;
 }
 
+function mergeWicolleItems(primary, seeded) {
+  const result = [];
+  const seen = new Set();
+  for (const item of [...(primary || []), ...(seeded || [])]) {
+    if (!item?.idx || seen.has(item.idx)) continue;
+    seen.add(item.idx);
+    result.push(item);
+  }
+  return result;
+}
+
+function parseDetailIdxSeeds(value) {
+  const values = Array.isArray(value) ? value : String(value || '').split(/[,\s]+/);
+  return values
+    .map(v => String(v || '').trim())
+    .map(v => v.match(/idx=(\d+)/)?.[1] || v.match(/^(\d{8,})$/)?.[1] || '')
+    .filter(Boolean);
+}
+
+function extractWicolleDetailTitle(html, detailHtml = '') {
+  const title = String(html || '').match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]
+    || String(html || '').match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1]
+    || String(html || '').match(/<div[^>]+class=["'][^"']*(?:detail_title|news_title|title)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]
+    || String(html || '').match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]
+    || String(detailHtml || '').match(/<img[^>]+alt=["']([^"']+)["']/i)?.[1]
+    || '';
+  return normalizeWicolleText(title)
+    .replace(/^ウイニングイレブンカードコレクション\s*/i, '')
+    .replace(/^ウイコレ\s*/i, '')
+    .slice(0, 120);
+}
+
+function isGenericWicolleTitle(title) {
+  return /^(インフォメーション|お知らせ|news)?$/i.test(normalizeWicolleText(title));
+}
+
+function inferWicolleTitleFromContent(content) {
+  const text = normalizeWicolleText(content);
+  const patterns = [
+    /(スペシャルチャレンジデイズ)/,
+    /(ネクサスオークション)/,
+    /(ロード・?トゥ・?グローリー)/,
+    /([『"]?NARUTO[^」』]*[」』]?\s*コラボ記念(?:ピックアップ)?(?:11連)?ガチャ)/,
+    /(コラボ記念(?:ピックアップ)?(?:11連)?ガチャ)/,
+    /((?:ピックアップ|毎週1回無料|11連|コラボ記念)[^。]{0,50}ガチャ)/,
+    /(エターナル\s*2026[^。]{0,30})/,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return normalizeWicolleText(match[1]).slice(0, 80);
+  }
+  const firstSentence = text.split(/。|！|!|\n/).map(s => s.trim()).find(Boolean);
+  return firstSentence ? firstSentence.slice(0, 80) : 'ウイコレ公式インフォ';
+}
+
 function buildUicolleFieldSummary(items, kind) {
   return (Array.isArray(items) ? items : [])
     .filter(item => item.category === kind || classifyWicolleItem(item) === kind)
@@ -148,11 +240,32 @@ function classifyWicolleItem(item) {
   return 'other';
 }
 
+function extractWicolleKeywords(item) {
+  const text = normalizeWicolleText(`${item?.title || ''} ${item?.content || ''}`);
+  const keywords = [
+    'スペシャルチャレンジデイズ',
+    'ロード・トゥ・グローリー',
+    'ボーナスタイム',
+    'ログインボーナス',
+    'ミッション',
+    'ゲストチーム',
+    'ネクサスオークション',
+    'NARUTO',
+    'スカウト',
+    'ガチャ',
+    'ピックアップ',
+    'レジェンド',
+    'エピック',
+    'ショータイム',
+  ].filter(keyword => text.includes(keyword));
+  return [...new Set(keywords)];
+}
+
 function isWicolleEventItem(item) {
   const text = normalizeWicolleText(`${item?.title || ''} ${item?.content || ''}`);
   if (!text || isNonWicolleDiaryTopic(text)) return false;
   if (isWicolleGachaItem(item)) return false;
-  return /(イベント|チャレンジ|デイズ|キャンペーン|ロード・?トゥ・?グローリー|ボーナスタイム|ログインボーナス|ミッション|カップ|ツアー|フェス|リーグ|マッチ|ゲストチーム|開催|ランキング|スタジアム|キャンプ|グローリー)/i.test(text);
+  return /(イベント|チャレンジ|デイズ|キャンペーン|ロード・?トゥ・?グローリー|ボーナスタイム|ログインボーナス|ミッション|カップ|ツアー|フェス|リーグ|マッチ|ゲストチーム|開催|ランキング|スタジアム|キャンプ|グローリー|ネクサスオークション|オークション|入札期間)/i.test(text);
 }
 
 function isWicolleGachaItem(item) {
@@ -200,17 +313,21 @@ function clipWicolleText(text, maxLength) {
 }
 
 function buildWicolleCookie(ssid) {
-  const webview = encodeURIComponent(`lang=1&tz_offset=9&_ssid=${ssid}`);
+  const webview = encodeURIComponent(`lang=1&tz_offset=9&_ssid=${ssid}&ssid=&legal_country=164`);
   return `_ssid=${ssid}; WEBVIEW=${webview}`;
 }
 
 function buildWicolleHeaders(cookie) {
   return {
     Cookie: cookie,
-    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
     Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'ja,en-US;q=0.8,en;q=0.6',
+    'Accept-Language': 'ja',
   };
+}
+
+function buildWicolleDetailUrl(idx) {
+  return `${WICOLLE_DETAIL_URL}?idx=${encodeURIComponent(idx)}&ssid=1&lang=1&tz_offset=9&display_type=0`;
 }
 
 function isRecentWicolleIdx(idx, now = new Date(), lookbackDays = WICOLLE_LOOKBACK_DAYS) {
@@ -237,4 +354,5 @@ module.exports = {
   shouldRefreshUicolleNews,
   parseWicolleNewsList,
   classifyWicolleItem,
+  parseDetailIdxSeeds,
 };

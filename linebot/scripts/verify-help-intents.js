@@ -24,6 +24,7 @@ const {
   buildWicolleNewsSnapshot,
   parseWicolleNewsList,
   classifyWicolleItem,
+  parseDetailIdxSeeds,
 } = require('../src/wicolle-official-news');
 
 const PREFIX = '@秘書トラペル子 ';
@@ -190,6 +191,17 @@ const parsedOfficialList = parseWicolleNewsList(`
 if (parsedOfficialList.length !== 2) {
   console.error(`NG official list parser: expected 2 items, got ${parsedOfficialList.length}`);
   process.exit(1);
+}
+const parsedDetailSeeds = parseDetailIdxSeeds([
+  'https://wecc.mo.konami.net/aut/main/html/news/detail.php?idx=2026050810&ssid=1&lang=1',
+  '2026050707',
+  'Referer: https://wecc.mo.konami.net/aut/main/html/news/detail.php?idx=2026050703&ssid=0',
+]);
+for (const expectedIdx of ['2026050810', '2026050707', '2026050703']) {
+  if (!parsedDetailSeeds.includes(expectedIdx)) {
+    console.error(`NG detail seed parser: missing ${expectedIdx} from ${JSON.stringify(parsedDetailSeeds)}`);
+    process.exit(1);
+  }
 }
 
 const officialSnapshot = buildWicolleNewsSnapshot({
