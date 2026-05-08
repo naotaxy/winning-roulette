@@ -4,6 +4,7 @@ const WICOLLE_NEWS_URL = 'https://wecc.mo.konami.net/aut/main/html/news/index.ph
 const WICOLLE_DETAIL_URL = 'https://wecc.mo.konami.net/aut/main/html/news/detail.php';
 const WICOLLE_LOOKBACK_DAYS = 14;
 const WICOLLE_MAX_ITEMS = 8;
+const WICOLLE_DEFAULT_MAX_PROBE_REQUESTS = 48;
 const DEFAULT_DETAIL_ID_SEEDS = ['2026050810', '2026050707', '2026050703'];
 
 async function fetchWicolleOfficialNews(options = {}) {
@@ -15,16 +16,23 @@ async function fetchWicolleOfficialNews(options = {}) {
   const fetchImpl = options.fetchImpl || fetch;
   const cookie = buildWicolleCookie(ssid);
   try {
-    const res = await fetchImpl(WICOLLE_NEWS_URL, {
-      headers: buildWicolleHeaders(cookie),
-      signal: AbortSignal.timeout(options.timeoutMs || 7000),
-    });
-    if (!res.ok) {
-      return { allItems: [], ok: false, note: `list status ${res.status}` };
+    let html = '';
+    let listNote = '';
+    try {
+      const res = await fetchImpl(WICOLLE_NEWS_URL, {
+        headers: buildWicolleHeaders(cookie),
+        signal: AbortSignal.timeout(options.timeoutMs || 7000),
+      });
+      if (res.ok) {
+        html = await res.text();
+      } else {
+        listNote = `list status ${res.status}`;
+      }
+    } catch (err) {
+      listNote = `list fetch ${err?.message || err}`;
     }
 
-    const html = await res.text();
-    if (/login|session|expired|error/i.test(stripTags(html).slice(0, 500)) && !/detail\.php\?idx=/.test(html)) {
+    if (html && /login|session|expired|error/i.test(stripTags(html).slice(0, 500)) && !/detail\.php\?idx=/.test(html)) {
       return { allItems: [], ok: false, note: 'session expired' };
     }
 
@@ -34,31 +42,28 @@ async function fetchWicolleOfficialNews(options = {}) {
       ...(Array.isArray(options.detailIdxs) ? options.detailIdxs : parseDetailIdxSeeds(options.detailIdxs || '')),
       ...parseDetailIdxSeeds(process.env.WICOLLE_DETAIL_ID_SEEDS || process.env.WICOLLE_DETAIL_IDS || ''),
     ]);
+    const discoveredIdxs = generateRecentDetailIdxCandidates(now, options.lookbackDays || WICOLLE_LOOKBACK_DAYS);
     const listItems = mergeWicolleItems(
       parseWicolleNewsList(html),
-      detailIdxSeeds.map(idx => ({
+      [...discoveredIdxs, ...detailIdxSeeds].map(idx => ({
         idx,
         date: formatWicolleIdxDate(idx),
         title: '',
         content: '',
-        source: 'proxyman-seed',
+        source: detailIdxSeeds.includes(idx) ? 'detail-seed' : 'auto-probe',
       }))
     )
       .filter(item => isRecentWicolleIdx(item.idx, now, options.lookbackDays || WICOLLE_LOOKBACK_DAYS));
-    const limited = listItems.slice(0, options.maxItems || WICOLLE_MAX_ITEMS);
-    const detailed = await Promise.all(limited.map(async item => {
-      const detail = await fetchWicolleDetailItem(item.idx, cookie, fetchImpl, options.timeoutMs || 7000).catch(() => null);
-      return {
-        ...item,
-        title: normalizeWicolleText(item.title || detail?.title || '').slice(0, 120),
-        content: detail?.content || '',
-        detailUrl: buildWicolleDetailUrl(item.idx),
-        source: item.source || 'wicolle-list',
-      };
-    }));
+    const detailed = await fetchWicolleDetailItems(listItems, {
+      cookie,
+      fetchImpl,
+      maxItems: options.maxItems || WICOLLE_MAX_ITEMS,
+      maxProbeRequests: options.maxProbeRequests || WICOLLE_DEFAULT_MAX_PROBE_REQUESTS,
+      timeoutMs: options.timeoutMs || 7000,
+    });
 
     const allItems = detailed
-      .filter(item => item.title)
+      .filter(isUsableWicolleItem)
       .map(item => ({
         ...item,
         category: classifyWicolleItem(item),
@@ -66,7 +71,7 @@ async function fetchWicolleOfficialNews(options = {}) {
     return {
       allItems,
       ok: allItems.length > 0,
-      note: allItems.length ? '' : 'no current items',
+      note: allItems.length ? '' : (listNote || 'no current items'),
     };
   } catch (err) {
     return { allItems: [], ok: false, note: err?.message || String(err) };
@@ -100,6 +105,34 @@ async function fetchWicolleDetailItem(idx, cookie, fetchImpl = fetch, timeoutMs 
     content,
     detailUrl: url,
   };
+}
+
+async function fetchWicolleDetailItems(items, options) {
+  const maxItems = Number(options.maxItems || WICOLLE_MAX_ITEMS);
+  const maxProbeRequests = Number(options.maxProbeRequests || WICOLLE_DEFAULT_MAX_PROBE_REQUESTS);
+  const candidates = (Array.isArray(items) ? items : []).slice(0, maxProbeRequests);
+  const results = [];
+  const batchSize = 8;
+
+  for (let i = 0; i < candidates.length && results.length < maxItems; i += batchSize) {
+    const batch = candidates.slice(i, i + batchSize);
+    const detailed = await Promise.all(batch.map(async item => {
+      const detail = await fetchWicolleDetailItem(item.idx, options.cookie, options.fetchImpl, options.timeoutMs).catch(() => null);
+      return {
+        ...item,
+        title: normalizeWicolleText(item.title || detail?.title || '').slice(0, 120),
+        content: detail?.content || '',
+        detailUrl: buildWicolleDetailUrl(item.idx),
+        source: item.source || 'wicolle-list',
+      };
+    }));
+    for (const item of detailed) {
+      if (isUsableWicolleItem(item)) results.push(item);
+      if (results.length >= maxItems) break;
+    }
+  }
+
+  return results;
 }
 
 function buildWicolleNewsSnapshot(result, options = {}) {
@@ -146,7 +179,7 @@ function parseWicolleNewsList(html) {
   const items = [];
   const seen = new Set();
   const source = String(html || '');
-  for (const match of source.matchAll(/<a[^>]+href=["']\.\/detail\.php\?idx=(\d+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+  for (const match of source.matchAll(/<a[^>]+href=["'][^"']*detail\.php\?idx=(\d+)[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi)) {
     const idx = match[1];
     if (!idx || seen.has(idx)) continue;
     seen.add(idx);
@@ -161,6 +194,18 @@ function parseWicolleNewsList(html) {
       date: formatWicolleIdxDate(idx),
       title: normalizeWicolleText(title).slice(0, 120),
       content: '',
+    });
+  }
+  for (const match of source.matchAll(/detail\.php\?idx=(\d{8,})/gi)) {
+    const idx = match[1];
+    if (!idx || seen.has(idx)) continue;
+    seen.add(idx);
+    items.push({
+      idx,
+      date: formatWicolleIdxDate(idx),
+      title: '',
+      content: '',
+      source: 'wicolle-list-loose',
     });
   }
   return items;
@@ -183,6 +228,40 @@ function parseDetailIdxSeeds(value) {
     .map(v => String(v || '').trim())
     .map(v => v.match(/idx=(\d+)/)?.[1] || v.match(/^(\d{8,})$/)?.[1] || '')
     .filter(Boolean);
+}
+
+function generateRecentDetailIdxCandidates(now = new Date(), lookbackDays = WICOLLE_LOOKBACK_DAYS) {
+  const candidates = [];
+  const base = new Date(now.getTime());
+  for (let offset = 0; offset < lookbackDays; offset++) {
+    const date = new Date(base.getTime() - offset * 24 * 60 * 60 * 1000);
+    const ymd = formatDateForIdx(date);
+    for (let suffix = 20; suffix >= 1; suffix--) {
+      candidates.push(`${ymd}${String(suffix).padStart(2, '0')}`);
+    }
+  }
+  return candidates;
+}
+
+function formatDateForIdx(date) {
+  const parts = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}${parts.month}${parts.day}`;
+}
+
+function isUsableWicolleItem(item) {
+  const title = normalizeWicolleText(item?.title || '');
+  const content = normalizeWicolleText(item?.content || '');
+  if (!item?.idx || content.length < 8) return false;
+  if (/ページが見つかりません|not found|error|session expired|login/i.test(content)) return false;
+  return !!(title || content);
 }
 
 function extractWicolleDetailTitle(html, detailHtml = '') {
@@ -355,4 +434,5 @@ module.exports = {
   parseWicolleNewsList,
   classifyWicolleItem,
   parseDetailIdxSeeds,
+  generateRecentDetailIdxCandidates,
 };

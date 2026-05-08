@@ -23,6 +23,7 @@
 const fs   = require('fs');
 const path = require('path');
 const admin = require('firebase-admin');
+const { fetchWicolleOfficialNews } = require('../linebot/src/wicolle-official-news');
 
 // ── 環境変数 ──────────────────────────────────────────────
 const {
@@ -40,7 +41,6 @@ const {
   DIARY_GROUP_SOURCE_ID, // LINEグループのsourceId（会話ハイライト取得用・任意）
   DIARY_DATE,
   DIARY_OWNER_NAME,
-  WICOLLE_SSID,
 } = process.env;
 
 const BLOG_DIR = path.join(__dirname, '..', 'blog');
@@ -54,9 +54,6 @@ const DIARY_DRY_RUN = isTruthy(process.env.DIARY_DRY_RUN);
 const DIARY_FORCE = isTruthy(process.env.DIARY_FORCE);
 const DIARY_REQUIRE_HATENA = isTruthy(process.env.DIARY_REQUIRE_HATENA);
 const DIARY_GEMINI_DISABLED = isTruthy(process.env.DIARY_GEMINI_DISABLED);
-const WICOLLE_NEWS_URL = 'https://wecc.mo.konami.net/aut/main/html/news/index.php?ssid=1&lang=1&tz_offset=9&display_type=0';
-const WICOLLE_DETAIL_URL = 'https://wecc.mo.konami.net/aut/main/html/news/detail.php';
-
 const WORLD_CUP_2026 = {
   startsAt: '2026-06-11',
   endsAt: '2026-07-19',
@@ -843,117 +840,19 @@ async function fetchEfootballNews() {
   return [];
 }
 
-// ── ウイコレ公式インフォ（Proxymanで確認したゲーム内ニュースHTML） ────────
+// ── ウイコレ公式インフォ（LINE Bot と同じ自動探索器を使用） ────────
 async function fetchWicolleNews() {
-  const ssid = String(WICOLLE_SSID || '').trim();
-  if (!ssid) {
-    console.warn('[wicolle] WICOLLE_SSID not set');
-    return { allItems: [], note: 'WICOLLE_SSID not set' };
-  }
-
-  const cookie = buildWicolleCookie(ssid);
-  try {
-    const res = await fetch(WICOLLE_NEWS_URL, {
-      headers: buildWicolleHeaders(cookie),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) {
-      console.warn(`[wicolle] list fetch failed status=${res.status}`);
-      return { allItems: [], note: `list status ${res.status}` };
-    }
-    const html = await res.text();
-    if (/login|session|expired|error/i.test(stripTags(html).slice(0, 500)) && !/detail\.php\?idx=/.test(html)) {
-      console.warn('[wicolle] session expired — update WICOLLE_SSID on Render');
-      return { allItems: [], note: 'session expired' };
-    }
-
-    const listItems = parseWicolleNewsList(html).filter(item => isRecentWicolleIdx(item.idx));
-    const limited = listItems.slice(0, 8);
-    const detailed = await Promise.all(limited.map(async item => ({
-      ...item,
-      content: await fetchWicolleDetailContent(item.idx, cookie).catch(() => ''),
-    })));
-    console.log(`[wicolle] got ${detailed.length} items from game news`);
-    return {
-      allItems: detailed.filter(item => item.title),
-      note: detailed.length ? '' : 'no current items',
-    };
-  } catch (err) {
-    console.warn('[wicolle] failed', err?.message || err);
-    return { allItems: [], note: err?.message || String(err) };
-  }
-}
-
-async function fetchWicolleDetailContent(idx, cookie) {
-  if (!idx) return '';
-  const url = `${WICOLLE_DETAIL_URL}?idx=${encodeURIComponent(idx)}`;
-  const res = await fetch(url, {
-    headers: buildWicolleHeaders(cookie),
-    signal: AbortSignal.timeout(8000),
+  const result = await fetchWicolleOfficialNews({
+    maxItems: 12,
+    maxProbeRequests: 72,
+    timeoutMs: 8000,
   });
-  if (!res.ok) return '';
-  const html = await res.text();
-  const bodyHtml = html.split(/<\/style>/i).pop() || html;
-  const detail = bodyHtml.match(/<div[^>]+class=["'][^"']*detail_body[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]
-    || bodyHtml.match(/<article[^>]*>([\s\S]*?)<\/article>/i)?.[1]
-    || '';
-  return normalizeWicolleText(detail).slice(0, 1000);
-}
-
-function parseWicolleNewsList(html) {
-  const items = [];
-  const seen = new Set();
-  const source = String(html || '');
-  for (const match of source.matchAll(/<a[^>]+href=["']\.\/detail\.php\?idx=(\d+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-    const idx = match[1];
-    if (!idx || seen.has(idx)) continue;
-    seen.add(idx);
-    const block = match[2] || '';
-    const title = decodeHtml(
-      block.match(/<img[^>]+alt=["']([^"']+)["']/i)?.[1]
-      || block.match(/<div[^>]+class=["'][^"']*infolist_title[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1]
-      || stripTags(block)
-    ).trim();
-    items.push({
-      idx,
-      date: formatWicolleIdxDate(idx),
-      title: normalizeWicolleText(title).slice(0, 120),
-      content: '',
-    });
+  if (result?.allItems?.length) {
+    console.log(`[wicolle] got ${result.allItems.length} items from official news`);
+  } else {
+    console.warn(`[wicolle] no official news: ${result?.note || 'empty'}`);
   }
-  return items;
-}
-
-function buildWicolleCookie(ssid) {
-  const webview = encodeURIComponent(`lang=1&tz_offset=9&_ssid=${ssid}`);
-  return `_ssid=${ssid}; WEBVIEW=${webview}`;
-}
-
-function buildWicolleHeaders(cookie) {
-  return {
-    Cookie: cookie,
-    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'ja,en-US;q=0.8,en;q=0.6',
-  };
-}
-
-function isRecentWicolleIdx(idx) {
-  const date = parseWicolleIdxDate(idx);
-  if (!date) return true;
-  const ageMs = Date.now() - date.getTime();
-  return ageMs <= 14 * 24 * 60 * 60 * 1000 && ageMs >= -2 * 24 * 60 * 60 * 1000;
-}
-
-function parseWicolleIdxDate(idx) {
-  const m = String(idx || '').match(/^(\d{4})(\d{2})(\d{2})/);
-  if (!m) return null;
-  return new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00+09:00`);
-}
-
-function formatWicolleIdxDate(idx) {
-  const m = String(idx || '').match(/^(\d{4})(\d{2})(\d{2})/);
-  return m ? `${m[1]}/${m[2]}/${m[3]}` : '';
+  return result;
 }
 
 // ── Gemini 日記生成 ──────────────────────────────────────
@@ -1593,6 +1492,9 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
       title:    item.title || '',
       content:  clipWicolleText(item.content || '', 700),
       category: isWicolleGachaItem(item) ? 'gacha' : (isWicolleEventItem(item) ? 'event' : 'other'),
+      source:   item.source || '',
+      detailUrl: item.detailUrl || '',
+      keywords: Array.isArray(item.keywords) ? item.keywords.slice(0, 12) : [],
     })),
   });
 

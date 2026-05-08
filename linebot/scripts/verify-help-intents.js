@@ -25,6 +25,7 @@ const {
   parseWicolleNewsList,
   classifyWicolleItem,
   parseDetailIdxSeeds,
+  generateRecentDetailIdxCandidates,
 } = require('../src/wicolle-official-news');
 
 const PREFIX = '@秘書トラペル子 ';
@@ -200,6 +201,13 @@ const parsedDetailSeeds = parseDetailIdxSeeds([
 for (const expectedIdx of ['2026050810', '2026050707', '2026050703']) {
   if (!parsedDetailSeeds.includes(expectedIdx)) {
     console.error(`NG detail seed parser: missing ${expectedIdx} from ${JSON.stringify(parsedDetailSeeds)}`);
+    process.exit(1);
+  }
+}
+const generatedIdxs = generateRecentDetailIdxCandidates(new Date('2026-05-08T12:00:00+09:00'), 2);
+for (const expectedIdx of ['2026050820', '2026050801', '2026050720', '2026050701']) {
+  if (!generatedIdxs.includes(expectedIdx)) {
+    console.error(`NG auto detail idx generator: missing ${expectedIdx}`);
     process.exit(1);
   }
 }
