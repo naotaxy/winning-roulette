@@ -112,6 +112,11 @@ async function getWicolleKnowledge() {
   return snap.val() || null;
 }
 
+async function getXTrends() {
+  const snap = await getDb().ref('config/xTrends').once('value');
+  return snap.val() || null;
+}
+
 /* ウイコレ履歴 — 日付キー(YYYYMMDD)で蓄積 */
 function clipForHistory(text, max) {
   const t = String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -1247,6 +1252,7 @@ module.exports = {
   getUicolleNews,
   saveUicolleNews,
   getWicolleKnowledge,
+  getXTrends,
   saveWicolleHistory,
   getWicolleHistory,
   getRecentDiaries,

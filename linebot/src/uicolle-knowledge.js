@@ -92,7 +92,7 @@ function formatMetaKnowledge() {
   return `強カード・ガチャについて、私が知ってることを話すね。\n\n${META_KNOWLEDGE.join('\n\n')}\n\n次のガチャや最新イベントの予想は「最近のウイコレどう？」って聞いてくれれば、私が日々追ってる情報をもとに話すよ。`;
 }
 
-function formatDynamicMetaKnowledge(knowledge) {
+function formatDynamicMetaKnowledge(knowledge, xTrends) {
   const dynamicLines = [];
   if (knowledge?.recentGacha?.length) {
     knowledge.recentGacha.slice(0, 2).forEach(g => {
@@ -110,7 +110,11 @@ function formatDynamicMetaKnowledge(knowledge) {
     ? [...dynamicLines, '', ...META_KNOWLEDGE]
     : META_KNOWLEDGE;
 
-  return `強カード・ガチャについて、私が知ってることを話すね。${freshNote}\n\n${bodyLines.join('\n\n')}\n\n次のガチャや最新イベントの予想は「最近のウイコレどう？」って聞いてくれれば、私が日々追ってる情報をもとに話すよ。`;
+  const xNote = xTrends?.summary
+    ? `\n\n【Xのコミュニティの声】\n${xTrends.summary}`
+    : '';
+
+  return `強カード・ガチャについて、私が知ってることを話すね。${freshNote}\n\n${bodyLines.join('\n\n')}${xNote}\n\n次のガチャや最新イベントの予想は「最近のウイコレどう？」って聞いてくれれば、私が日々追ってる情報をもとに話すよ。`;
 }
 
 function formatBeginnerTips() {

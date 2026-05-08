@@ -860,6 +860,92 @@ async function fetchYouTubeVideos() {
   }));
 }
 
+// ── Yahoo リアルタイム検索（X スクレイピング） ─────────────
+
+async function fetchYahooRealtimeSearch(query, { count = 20, popular = true } = {}) {
+  const params = new URLSearchParams({ p: query, results: String(Math.min(count, 40)) });
+  if (popular) params.set('md', 'h');
+  const res = await fetch(
+    `https://search.yahoo.co.jp/realtime/api/v1/pagination?${params}`,
+    {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'application/json, text/plain, */*',
+        Referer: 'https://search.yahoo.co.jp/realtime/search',
+      },
+      signal: AbortSignal.timeout(8000),
+    }
+  );
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => ({}));
+  return Array.isArray(data?.timeline?.entry) ? data.timeline.entry : [];
+}
+
+function extractXPostText(entry) {
+  const raw =
+    entry?.tweet?.text || entry?.text || entry?.body || entry?.content || '';
+  return String(raw)
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/@\w+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function fetchWicolleXTrends() {
+  const queries = ['ウイコレ スカウト 使用感', 'ウイコレ イベント', 'ウイコレ ガチャ'];
+  const results = await Promise.all(
+    queries.map(q => fetchYahooRealtimeSearch(q, { count: 20, popular: true }).catch(() => []))
+  );
+  const seenIds = new Set();
+  return results
+    .flat()
+    .filter(entry => {
+      if (seenIds.has(entry.id)) return false;
+      seenIds.add(entry.id);
+      const text = extractXPostText(entry);
+      return text.length >= 20 && !isNonWicolleDiaryTopic(text);
+    })
+    .map(entry => {
+      const text = extractXPostText(entry).slice(0, 280);
+      return {
+        text,
+        likes: entry.favoriteCount || entry.likeCount || 0,
+        retweets: entry.retweetCount || 0,
+        category: isWicolleGachaItem({ title: text, content: '' })
+          ? 'gacha'
+          : isWicolleEventItem({ title: text, content: '' })
+          ? 'event'
+          : 'general',
+      };
+    })
+    .sort((a, b) => (b.likes + b.retweets * 2) - (a.likes + a.retweets * 2))
+    .slice(0, 30);
+}
+
+async function summarizeXTrendsForDiary(posts) {
+  if (!GEMINI_API_KEY || !posts?.length) return '';
+  const lines = posts.slice(0, 10).map(p => `・${p.text}`).join('\n');
+  const prompt = [
+    'ウイコレ（eFootball）についてのXの投稿です。',
+    'スカウト使用感・イベント感触・コミュニティの盛り上がりを150文字以内で要約してください。',
+    '誹謗中傷・個人情報・URLは含めないでください。投稿がゲームと無関係なら「情報なし」とだけ答えてください。',
+    '',
+    lines,
+  ].join('\n');
+  try {
+    const model = DIARY_GEMINI_MODEL || DEFAULT_DIARY_GEMINI_MODEL;
+    const data = await requestGeminiGenerateContent(model, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 250, temperature: 0.3, thinkingConfig: { thinkingBudget: 0 } },
+    });
+    const text = ((data.candidates?.[0]?.content?.parts?.[0]?.text) || '').trim();
+    return text === '情報なし' ? '' : text.slice(0, 250);
+  } catch {
+    return '';
+  }
+}
+
 // ── RSS 収集 ─────────────────────────────────────────────
 async function fetchRSS(url) {
   try {
@@ -928,6 +1014,8 @@ async function generateDiary(dateLabel, inputs) {
     groupHighlights,
     shopItem,
     recentDiaries,
+    xPosts,
+    xTrendsSummary,
   } = inputs;
 
   const newsBlock = news.length
@@ -983,6 +1071,12 @@ async function generateDiary(dateLabel, inputs) {
       .join('\n')
     : '（直近の日記サンプルはなし）';
 
+  const xTrendsBlock = xTrendsSummary
+    ? xTrendsSummary
+    : (Array.isArray(xPosts) && xPosts.length
+      ? xPosts.slice(0, 3).map(p => `・${p.text.slice(0, 100)}`).join('\n')
+      : '（Xのウイコレ情報は取得できなかった）');
+
   const prompt = `あなたは秘書トラペル子です。
 以下のプロフィールを守ってください。
 
@@ -1003,6 +1097,9 @@ ${newsBlock}
 
 ▼YouTube 最新動画（過去と同じ・似た話題なら無理に書かない）
 ${videoBlock}
+
+▼Xでのウイコレコミュニティの声（スカウト使用感・イベント感触など）
+${xTrendsBlock}
 
 ▼ゲームではないFIFAワールドカップ情報
 ${worldCupBlock}
@@ -1036,6 +1133,7 @@ ${recentDiaryBlock}
 - 1段落1〜3文。句点・感嘆符・疑問符の後で改行。短い感情文は単独段落でよい。
 - 段落の長さにメリハリをつける。単なる要約でなく解釈・感想で膨らませる。同じ日常描写を毎回繰り返さない。
 - YouTube話題が前回と似ている場合は無理に書かず、他の話題を広げる。
+- Xのコミュニティの声は1〜2文で「〜という声が多い」「ユーザーの間では〜と評判」のように第三者感を持って紹介する。@mention・URLは絶対に書かない。
 - ワールドカップは開催中かつ新情報がある場合だけ触れる。
 - 90年代カルチャーを「知らない時代の空気を想像する」距離感で自然に紹介する。
 - 音楽、曲名、アーティスト名、通勤中に何を聴いたか、チャートの話は絶対に書かない。
@@ -1564,7 +1662,7 @@ function clipWicolleText(text, maxLength) {
 
 async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
   const db = initFirebase();
-  const { videos, news, worldCup, nineties, interestTopic, shopItem, wicolleNews } = sources;
+  const { videos, news, worldCup, nineties, interestTopic, shopItem, wicolleNews, xPosts, xTrendsSummary } = sources;
 
   const wicolleItems = Array.isArray(wicolleNews?.allItems) ? wicolleNews.allItems : [];
   const eventSummary = buildUicolleFieldSummary(wicolleItems, 'event');
@@ -1610,6 +1708,20 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
         keywords: Array.isArray(item.keywords) ? item.keywords.slice(0, 8) : [],
       })),
       savedAt: Date.now(),
+    });
+  }
+
+  // X コミュニティトレンド（LINE Bot の知識補強用）
+  if (Array.isArray(xPosts) && xPosts.length) {
+    await db.ref('config/xTrends').set({
+      updatedAt: date,
+      summary: xTrendsSummary || '',
+      posts: xPosts.slice(0, 15).map(p => ({
+        text: String(p.text || '').slice(0, 280),
+        likes: p.likes || 0,
+        retweets: p.retweets || 0,
+        category: p.category || 'general',
+      })),
     });
   }
 
@@ -1683,19 +1795,21 @@ async function main() {
     process.exit(0);
   }
 
-  const [videos, rssNews, wicolleNews] = await Promise.all([
+  const [videos, rssNews, wicolleNews, xPosts] = await Promise.all([
     fetchYouTubeVideos().catch(e => { console.error('[youtube]', e.message); return []; }),
     fetchEfootballNews().catch(e => { console.error('[rss]',     e.message); return []; }),
     fetchWicolleNews().catch(e => {
       console.error('[wicolle]', e.message);
       return { allItems: [], note: e.message || 'failed' };
     }),
+    fetchWicolleXTrends().catch(e => { console.error('[xtrends]', e.message); return []; }),
   ]);
   const wicolleItems = Array.isArray(wicolleNews?.allItems) ? wicolleNews.allItems : [];
   const news = wicolleItems.length
     ? wicolleItems.map(item => ({ title: item.title, desc: item.content || '' }))
     : rssNews;
-  console.log(`[diary] youtube=${videos.length} news=${news.length} wicolle=${wicolleItems.length}`);
+  const xTrendsSummary = await summarizeXTrendsForDiary(xPosts).catch(() => '');
+  console.log(`[diary] youtube=${videos.length} news=${news.length} wicolle=${wicolleItems.length} xposts=${xPosts.length} xsummary=${xTrendsSummary.length}chars`);
 
   const youtube = analyzeYouTubeFreshness(videos, state);
   if (youtube.repeated) console.log('[youtube] same as previous diary, skipping video focus');
@@ -1736,6 +1850,8 @@ async function main() {
     shopItem,
     recentDiaries,
     wicolleNews,
+    xPosts,
+    xTrendsSummary,
   };
 
   const photo = getDiaryPhoto();
@@ -1770,6 +1886,8 @@ async function main() {
       interestTopic,
       shopItem,
       wicolleNews,
+      xPosts,
+      xTrendsSummary,
     }, photo)
       .catch(e => console.error('[firebase]', e.message));
   }

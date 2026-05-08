@@ -15,6 +15,7 @@ const {
   getUicolleNews,
   saveUicolleNews,
   getWicolleKnowledge,
+  getXTrends,
   saveWicolleHistory,
   getWicolleHistory,
   getRecentDiaries,
@@ -1860,8 +1861,8 @@ async function handleText(event, client) {
       const history = await getWicolleHistory(30);
       text = formatWicolleHistoryReply(history, event.message.text || '');
     } else {
-      const knowledge = await getWicolleKnowledge();
-      text = formatDynamicMetaKnowledge(knowledge);
+      const [knowledge, xTrends] = await Promise.all([getWicolleKnowledge(), getXTrends()]);
+      text = formatDynamicMetaKnowledge(knowledge, xTrends);
     }
     return client.replyMessage(event.replyToken, { type: 'text', text });
   }
