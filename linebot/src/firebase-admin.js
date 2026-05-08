@@ -99,6 +99,13 @@ async function getUicolleNews() {
   return snap.val() || null;
 }
 
+async function saveUicolleNews(news) {
+  await getDb().ref('config/uicolleNews').set({
+    ...(news || {}),
+    savedAt: Date.now(),
+  });
+}
+
 /* 日記アーカイブ — 直近N件 */
 async function getRecentDiaries(limit = 7) {
   const snap = await getDb().ref('diary').orderByChild('createdAt').limitToLast(limit).once('value');
@@ -1201,6 +1208,7 @@ module.exports = {
   getRestrictMonths,
   getMatchSchedule,
   getUicolleNews,
+  saveUicolleNews,
   getRecentDiaries,
   saveConversationMessage,
   saveSecurityEvent,

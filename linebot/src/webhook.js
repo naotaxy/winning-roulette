@@ -13,6 +13,7 @@ const {
   getRestrictMonths,
   getMatchSchedule,
   getUicolleNews,
+  saveUicolleNews,
   getRecentDiaries,
   saveConversationMessage,
   saveSecurityEvent,
@@ -109,6 +110,11 @@ const {
   detectSenseKeyword,
   detectUicolleIntent,
 } = require('./uicolle-knowledge');
+const {
+  fetchWicolleOfficialNews,
+  buildWicolleNewsSnapshot,
+  shouldRefreshUicolleNews,
+} = require('./wicolle-official-news');
 const { shouldUseAiChat, formatAiChatReply } = require('./ai-chat');
 const { detectNoblesseIntent, formatNoblesseReply } = require('./noblesse-agent');
 const {
@@ -865,6 +871,30 @@ function withProfileSetupQuickReplies(message, profile = null, context = '') {
     ].join('\n'),
     quickReply: { items },
   };
+}
+
+async function getUicolleNewsForReply(kind) {
+  const existing = await getUicolleNews();
+  const today = getTokyoDateParts().date;
+  if (!shouldRefreshUicolleNews(existing, kind, today)) return existing;
+
+  const result = await fetchWicolleOfficialNews({ maxItems: 8, timeoutMs: 6500 });
+  if (Array.isArray(result.allItems) && result.allItems.length) {
+    const snapshot = buildWicolleNewsSnapshot(result, { date: today, existing });
+    await saveUicolleNews(snapshot);
+    console.log(`[uicolle] refreshed official news for ${kind}: items=${snapshot.items.length}`);
+    return snapshot;
+  }
+
+  console.warn(`[uicolle] official news refresh skipped for ${kind}: ${result.note || 'no items'}`);
+  if (existing) {
+    return {
+      ...existing,
+      refreshNote: result.note || existing.refreshNote || '',
+      refreshAttemptedAt: Date.now(),
+    };
+  }
+  return buildWicolleNewsSnapshot(result, { date: today, existing: {} });
 }
 
 async function handleText(event, client) {
@@ -1795,7 +1825,7 @@ async function handleText(event, client) {
     const kind = intent.replace('uicolle:', '');
     let text;
     if (kind === 'news' || kind === 'event' || kind === 'gacha') {
-      const news = await getUicolleNews();
+      const news = await getUicolleNewsForReply(kind);
       text = formatDynamicUicolleNewsReply(news, kind);
     } else if (kind === 'sense') {
       const senseKind = detectSenseKeyword(event.message.text || '');

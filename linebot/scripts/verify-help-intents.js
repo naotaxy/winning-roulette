@@ -20,6 +20,11 @@ Module._load = function patchedLoad(request, parent, isMain) {
 
 const { _test } = require('../src/webhook');
 const { formatDynamicUicolleNewsReply } = require('../src/uicolle-knowledge');
+const {
+  buildWicolleNewsSnapshot,
+  parseWicolleNewsList,
+  classifyWicolleItem,
+} = require('../src/wicolle-official-news');
 
 const PREFIX = '@秘書トラペル子 ';
 
@@ -173,6 +178,38 @@ const itemGachaReply = formatDynamicUicolleNewsReply({
 assertIncludes(itemGachaReply, /ピックアップスカウト|スペシャル選手/, 'gacha items should be returned from config/uicolleNews.items');
 
 console.log('OK dynamic Uicolle content guard passed.');
+
+const parsedOfficialList = parseWicolleNewsList(`
+  <a href="./detail.php?idx=2026050507">
+    <img alt="スペシャルチャレンジデイズ開催" />
+  </a>
+  <a href="./detail.php?idx=2026050508">
+    <div class="infolist_title no_img">ピックアップスカウト開催</div>
+  </a>
+`);
+if (parsedOfficialList.length !== 2) {
+  console.error(`NG official list parser: expected 2 items, got ${parsedOfficialList.length}`);
+  process.exit(1);
+}
+
+const officialSnapshot = buildWicolleNewsSnapshot({
+  allItems: [
+    {
+      idx: '2026050507',
+      date: '2026/05/05',
+      title: 'スペシャルチャレンジデイズ開催',
+      content: 'ロード・トゥ・グローリー チャレンジとボーナスタイムスケジュールのお知らせです。',
+      category: classifyWicolleItem({
+        title: 'スペシャルチャレンジデイズ開催',
+        content: 'ロード・トゥ・グローリー チャレンジとボーナスタイムスケジュールのお知らせです。',
+      }),
+    },
+  ],
+}, { date: '2026-05-08' });
+assertIncludes(officialSnapshot.event, /スペシャルチャレンジデイズ|ロード・トゥ・グローリー/, 'official game news should populate event field');
+assertNotIncludes(officialSnapshot.event, /(IKEA|ダイソー|100均|ポケベル)/, 'official game news snapshot must not contain diary lifestyle topics');
+
+console.log('OK official Wicolle parser and snapshot checks passed.');
 
 function matches(actual, expected) {
   if (typeof expected === 'string') return actual === expected;

@@ -103,16 +103,17 @@ function formatDynamicUicolleNewsReply(news, kind = 'news') {
 
   const safeNews = normalizeDynamicUicolleNews(news);
   const updated = safeNews.updatedAt ? `\n\n（更新: ${safeNews.updatedAt}）` : '';
+  const fetchNote = formatDynamicUicolleFetchNote(safeNews);
   if (kind === 'gacha') {
     return safeNews.gacha
       ? `今開催中のガチャ・スカウト情報だよ。\n\n【ガチャ・スカウト】\n${safeNews.gacha}${updated}`
-      : `ガチャ・スカウト情報は、今の登録データだとまだ空みたい。\n\n${safeNews.event ? `【登録済みイベント】\n${safeNews.event}` : 'イベント側の最新情報もまだ薄めだよ。'}${updated}`;
+      : `ガチャ・スカウト情報は、今の登録データだとまだ空みたい。\n\n${safeNews.event ? `【登録済みイベント】\n${safeNews.event}` : 'イベント側の最新情報もまだ薄めだよ。'}${fetchNote}${updated}`;
   }
 
   if (kind === 'event') {
     return safeNews.event
       ? `今開催中のイベント情報だよ。\n\n【イベント】\n${safeNews.event}${updated}`
-      : `イベント情報は、今の登録データだとまだ空みたい。\n\n${safeNews.gacha ? `【登録済みガチャ・スカウト】\n${safeNews.gacha}` : 'ガチャ側の最新情報もまだ薄めだよ。'}${updated}`;
+      : `イベント情報は、今の登録データだとまだ空みたい。\n\n${safeNews.gacha ? `【登録済みガチャ・スカウト】\n${safeNews.gacha}` : 'ガチャ側の最新情報もまだ薄めだよ。'}${fetchNote}${updated}`;
   }
 
   const blocks = [];
@@ -121,7 +122,7 @@ function formatDynamicUicolleNewsReply(news, kind = 'news') {
   if (safeNews.blogUrl) blocks.push(`【日記】\n${safeNews.blogUrl}`);
   return blocks.length
     ? `最新情報、登録されてたよ。\n\n${blocks.join('\n\n')}${updated}`
-    : `最新情報は登録されてるけど、中身はまだ薄めみたい。${updated}`;
+    : `最新情報は登録されてるけど、中身はまだ薄めみたい。${fetchNote}${updated}`;
 }
 
 function normalizeDynamicUicolleNews(news) {
@@ -131,6 +132,8 @@ function normalizeDynamicUicolleNews(news) {
     gacha: sanitizeDynamicUicolleText(news?.gacha, 'gacha') || buildDynamicSummaryFromItems(items, 'gacha'),
     blogUrl: news?.blogUrl || '',
     updatedAt: news?.updatedAt || '',
+    source: news?.source || '',
+    note: news?.refreshNote || news?.note || '',
   };
 }
 
@@ -187,6 +190,21 @@ function clipDynamicUicolleText(text, maxLength) {
   const normalized = normalizeDynamicText(text);
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+function formatDynamicUicolleFetchNote(news) {
+  const note = String(news?.note || '');
+  if (!note) return '';
+  if (/WICOLLE_SSID not set/i.test(note)) {
+    return '\n\n公式インフォを取りに行くための `WICOLLE_SSID` が未設定みたい。Renderの環境変数を確認してね。';
+  }
+  if (/session expired/i.test(note)) {
+    return '\n\n公式インフォのセッションが切れてるみたい。Proxymanで新しい `_ssid` を取り直して `WICOLLE_SSID` を更新してね。';
+  }
+  if (/status|fetch|timeout|aborted|network|no current items/i.test(note)) {
+    return `\n\n公式インフォの再取得メモ: ${note}`;
+  }
+  return '';
 }
 
 /* 属性キーワードの検出 */
