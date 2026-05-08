@@ -779,6 +779,64 @@ function updateDiaryStateAfterSuccess(state, date, inputs) {
   advanceStoryState(state, storyPlan, date);
 }
 
+// ── YouTube 字幕取得・要約 ────────────────────────────────
+
+async function fetchVideoTranscriptText(videoId) {
+  try {
+    const { YoutubeTranscript } = require('youtube-transcript');
+    let items;
+    try {
+      items = await YoutubeTranscript.fetchTranscript(videoId, { lang: 'ja' });
+    } catch {
+      items = await YoutubeTranscript.fetchTranscript(videoId);
+    }
+    // 先頭5分（offset は ms 単位）
+    return items
+      .filter(item => item.offset < 300000)
+      .map(item => item.text.replace(/\n/g, ' '))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 4000);
+  } catch {
+    return '';
+  }
+}
+
+async function summarizeTranscriptForDiary(title, transcriptText) {
+  if (!GEMINI_API_KEY || transcriptText.length < 50) return '';
+  const prompt = [
+    `ウイコレ（eFootball）動画「${title}」の字幕の一部です。`,
+    'ウイコレのゲーム情報（スカウト・イベント・選手評価・メタ等）だけを100〜150文字で要約してください。',
+    'ゲームと無関係な内容・挨拶・概要は除外。関係情報がなければ「ゲーム情報なし」とだけ答えてください。',
+    '',
+    '字幕:',
+    transcriptText.slice(0, 3000),
+  ].join('\n');
+  try {
+    const model = DIARY_GEMINI_MODEL || DEFAULT_DIARY_GEMINI_MODEL;
+    const data = await requestGeminiGenerateContent(model, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 200, temperature: 0.2, thinkingConfig: { thinkingBudget: 0 } },
+    });
+    const text = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    return text === 'ゲーム情報なし' || !text ? '' : text.slice(0, 200);
+  } catch {
+    return '';
+  }
+}
+
+async function enrichVideosWithTranscripts(videos) {
+  return Promise.all(videos.map(async (video, i) => {
+    // 上位3本のみ字幕を試みる（4本目以降は description のまま）
+    if (i >= 3 || !video.videoId) return video;
+    const raw = await fetchVideoTranscriptText(video.videoId);
+    if (!raw) return video;
+    const summary = await summarizeTranscriptForDiary(video.title, raw);
+    return summary ? { ...video, transcriptSummary: summary } : video;
+  }));
+}
+
 // ── YouTube 動画収集 ──────────────────────────────────────
 async function fetchYouTubeVideos() {
   if (!YOUTUBE_API_KEY) { console.warn('[youtube] no API key'); return []; }
@@ -794,6 +852,7 @@ async function fetchYouTubeVideos() {
   if (!data.items) { console.warn('[youtube] empty response', data.error?.message); return []; }
 
   return data.items.map(item => ({
+    videoId:     item.id?.videoId || '',
     title:       item.snippet.title,
     channel:     item.snippet.channelTitle,
     description: item.snippet.description?.replace(/\n+/g, ' ').slice(0, 150) || '',
@@ -876,7 +935,10 @@ async function generateDiary(dateLabel, inputs) {
     : '（公式ニュースは取得できなかった）';
 
   const videoBlock = youtube.videosForDiary.length
-    ? youtube.videosForDiary.map(v => `・「${v.title}」（${v.channel}）${v.description ? '　' + v.description : ''}`).join('\n')
+    ? youtube.videosForDiary.map(v => {
+        const info = v.transcriptSummary || v.description || '';
+        return `・「${v.title}」（${v.channel}）${info ? '　' + info : ''}`;
+      }).join('\n')
     : `（新しく書くべき動画情報は少なめ。${youtube.note || '動画情報は取得できなかった'}）`;
 
   const worldCupBlock = worldCup.active
@@ -1637,6 +1699,12 @@ async function main() {
 
   const youtube = analyzeYouTubeFreshness(videos, state);
   if (youtube.repeated) console.log('[youtube] same as previous diary, skipping video focus');
+  if (youtube.videosForDiary.length && YOUTUBE_API_KEY) {
+    youtube.videosForDiary = await enrichVideosWithTranscripts(youtube.videosForDiary)
+      .catch(e => { console.warn('[transcript]', e.message); return youtube.videosForDiary; });
+    const withSummary = youtube.videosForDiary.filter(v => v.transcriptSummary).length;
+    console.log(`[transcript] enriched ${withSummary}/${Math.min(youtube.videosForDiary.length, 3)} videos`);
+  }
 
   const [worldCup, groupHighlights, recentDiaries] = await Promise.all([
     fetchWorldCupUpdates(date, state).catch(e => {
