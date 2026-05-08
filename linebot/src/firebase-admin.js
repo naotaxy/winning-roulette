@@ -107,6 +107,11 @@ async function saveUicolleNews(news) {
 }
 
 /* 日記アーカイブ — 直近N件 */
+async function getWicolleKnowledge() {
+  const snap = await getDb().ref('config/wicolleKnowledge').once('value');
+  return snap.val() || null;
+}
+
 async function getRecentDiaries(limit = 7) {
   const snap = await getDb().ref('diary').orderByChild('createdAt').limitToLast(limit).once('value');
   const raw = snap.val();
@@ -1209,6 +1214,7 @@ module.exports = {
   getMatchSchedule,
   getUicolleNews,
   saveUicolleNews,
+  getWicolleKnowledge,
   getRecentDiaries,
   saveConversationMessage,
   saveSecurityEvent,

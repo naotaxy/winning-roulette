@@ -1404,6 +1404,39 @@ function initFirebase() {
   return admin.database();
 }
 
+function buildWicolleKnowledge(items, date) {
+  const validItems = Array.isArray(items) ? items : [];
+  const gachaItems = validItems.filter(isWicolleGachaItem).slice(0, 4);
+  const eventItems = validItems.filter(i => isWicolleEventItem(i) && !isWicolleGachaItem(i)).slice(0, 4);
+
+  const metaLines = [];
+  gachaItems.forEach(item => {
+    const title = normalizeWicolleText(item.title || '');
+    if (title) metaLines.push(`直近スカウト: ${title}（${item.date || '日付不明'}）`);
+  });
+  eventItems.forEach(item => {
+    const title = normalizeWicolleText(item.title || '');
+    if (title) metaLines.push(`直近イベント: ${title}（${item.date || '日付不明'}）`);
+  });
+
+  return {
+    updatedAt: date,
+    metaLines,
+    recentGacha: gachaItems.map(item => ({
+      date: item.date || '',
+      title: normalizeWicolleText(item.title || ''),
+      content: clipWicolleText(item.content || '', 300),
+      keywords: Array.isArray(item.keywords) ? item.keywords.slice(0, 8) : [],
+    })),
+    recentEvents: eventItems.map(item => ({
+      date: item.date || '',
+      title: normalizeWicolleText(item.title || ''),
+      content: clipWicolleText(item.content || '', 300),
+      keywords: Array.isArray(item.keywords) ? item.keywords.slice(0, 8) : [],
+    })),
+  };
+}
+
 function buildUicolleFieldSummary(items, kind) {
   const filtered = (Array.isArray(items) ? items : [])
     .filter(item => kind === 'gacha' ? isWicolleGachaItem(item) : isWicolleEventItem(item));
@@ -1497,6 +1530,10 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
       keywords: Array.isArray(item.keywords) ? item.keywords.slice(0, 12) : [],
     })),
   });
+
+  // Bot のメタ知識（「今のメタは？」「強カードは？」への動的回答用）
+  const wicolleKnowledge = buildWicolleKnowledge(wicolleItems, date);
+  await db.ref('config/wicolleKnowledge').set(wicolleKnowledge);
 
   // 全文アーカイブ（Bot の長期知識）
   await db.ref(`diary/${date}`).set({

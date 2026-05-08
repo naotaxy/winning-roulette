@@ -14,6 +14,7 @@ const {
   getMatchSchedule,
   getUicolleNews,
   saveUicolleNews,
+  getWicolleKnowledge,
   getRecentDiaries,
   saveConversationMessage,
   saveSecurityEvent,
@@ -104,6 +105,7 @@ const {
   formatSenseGuide,
   formatFormationTips,
   formatMetaKnowledge,
+  formatDynamicMetaKnowledge,
   formatBeginnerTips,
   formatDynamicUicolleNewsReply,
   detectAttributeKeyword,
@@ -1851,7 +1853,8 @@ async function handleText(event, client) {
     } else if (kind === 'beginner') {
       text = formatBeginnerTips();
     } else {
-      text = formatMetaKnowledge();
+      const knowledge = await getWicolleKnowledge();
+      text = formatDynamicMetaKnowledge(knowledge);
     }
     return client.replyMessage(event.replyToken, { type: 'text', text });
   }
