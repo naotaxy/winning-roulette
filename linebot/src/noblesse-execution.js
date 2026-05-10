@@ -367,10 +367,13 @@ function buildResearchReportFlex(caseId, reportText, sources = {}) {
   // ソース集計ラベル
   const youtubeVideos = Array.isArray(sources?.youtube) ? sources.youtube : [];
   const xPostCount = Number(sources?.xPostCount || 0);
+  const hasXTrends = Boolean(sources?.hasXTrends);
+  const hasOfficialNews = sources?.hasOfficialNews !== false;
   const sourceLabel = [
     youtubeVideos.length ? `YouTube ${youtubeVideos.length}件` : '',
-    xPostCount ? `X投稿 ${xPostCount}件` : '',
-    'Konami公式ニュース',
+    xPostCount ? `X投稿 ${xPostCount}件` : (hasXTrends ? 'Xトレンド（定期収集）' : ''),
+    hasOfficialNews ? 'Konami公式ニュース' : '',
+    !youtubeVideos.length && !xPostCount && !hasXTrends && !hasOfficialNews ? '知識ベース（内部）' : '',
   ].filter(Boolean).join(' / ');
 
   const footerButtons = [];

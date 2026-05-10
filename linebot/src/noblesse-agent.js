@@ -505,8 +505,11 @@ const RESEARCH_SYSTEM_PROMPT = [
   '空行',
   '▶ 秘書所感',
   '（依頼者への所感・励まし・次のアクション提案を1〜2文。絵文字なし。人物名を書かない）',
+  '空行',
+  '▶ 参考ソース',
+  '（参照したソースを箇条書きで列挙すること。省略不可。例: 「・Konami公式ニュース」「・YouTube: 動画タイトル / チャンネル名（YYYY-MM-DD）」「・X投稿 N件（検索キーワード）」「・ウイコレ知識ベース（内部データ）」。外部ソースがない場合も「・ウイコレ知識ベース（内部データ）」「・Konami公式ニュース（取得済み）」を必ず書くこと）',
   '',
-  '全体800文字以内。絵文字なし。番号付き見出しと箇条書き。人物名は書かない。',
+  '全体900文字以内。絵文字なし。番号付き見出しと箇条書き。人物名は書かない。',
 ].join('\n');
 
 async function buildWicolleKnowledgeContext() {
@@ -546,12 +549,19 @@ async function buildWicolleKnowledgeContext() {
   let xTrendsSection = '';
   const xData = xTrends.status === 'fulfilled' ? xTrends.value : null;
   const xSummary = String(xData?.summary || '').trim();
-  if (xSummary && xSummary !== '情報なし') {
+  const hasXTrends = xSummary !== '' && xSummary !== '情報なし';
+  if (hasXTrends) {
     const updatedAt = xData?.updatedAt ? `（取得: ${xData.updatedAt}）` : '';
     xTrendsSection = `\n\n=== Xコミュニティの現在の声${updatedAt} ===\n${xSummary}\n（Yahoo Realtime SearchによるXリアルタイム投稿から取得・要約）`;
   }
 
-  return staticParts + dynamicNews + xTrendsSection;
+  const hasOfficialNews = !!(newsResult?.ok && newsResult.allItems?.length);
+
+  return {
+    text: staticParts + dynamicNews + xTrendsSection,
+    hasXTrends,
+    hasOfficialNews,
+  };
 }
 
 function extractResearchKeywords(text) {
@@ -579,10 +589,19 @@ async function fetchResearchXPosts(researchQuery) {
           },
           signal: AbortSignal.timeout(6000),
         }
-      ).then(r => r.ok ? r.json() : {}).catch(() => ({}))
+      ).then(r => {
+        if (!r.ok) {
+          console.error('[research:xposts] http', r.status, 'query:', q);
+          return {};
+        }
+        return r.json();
+      }).catch(err => {
+        console.error('[research:xposts] fetch failed for:', q, err?.message || err);
+        return {};
+      })
     ));
     const seen = new Set();
-    return results.flatMap(data => {
+    const posts = results.flatMap(data => {
       const entries = Array.isArray(data?.timeline?.entry) ? data.timeline.entry : [];
       return entries.map(e => {
         const text = String(e?.tweet?.text || e?.text || '')
@@ -593,12 +612,20 @@ async function fetchResearchXPosts(researchQuery) {
         return { text: text.slice(0, 200), likes: e?.favoriteCount || 0, retweets: e?.retweetCount || 0 };
       }).filter(Boolean);
     }).sort((a, b) => (b.likes + b.retweets * 2) - (a.likes + a.retweets * 2)).slice(0, 12);
-  } catch (_) { return []; }
+    console.log('[research:xposts] got', posts.length, 'posts for:', keyword);
+    return posts;
+  } catch (err) {
+    console.error('[research:xposts] outer error:', err?.message || err);
+    return [];
+  }
 }
 
 async function fetchResearchYouTubeVideos(researchQuery) {
   const apiKey = process.env.YOUTUBE_API_KEY;
-  if (!apiKey) return [];
+  if (!apiKey) {
+    console.warn('[research:youtube] YOUTUBE_API_KEY not set');
+    return [];
+  }
   const keyword = extractResearchKeywords(researchQuery);
   const q = encodeURIComponent(`ウイコレ ${keyword}`);
   const since = new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString();
@@ -608,8 +635,15 @@ async function fetchResearchYouTubeVideos(researchQuery) {
       { signal: AbortSignal.timeout(6000) }
     );
     const data = await res.json();
-    if (!Array.isArray(data?.items)) return [];
-    return data.items
+    if (!res.ok) {
+      console.error('[research:youtube] http', res.status, data?.error?.message || '');
+      return [];
+    }
+    if (!Array.isArray(data?.items)) {
+      console.error('[research:youtube] unexpected response shape', JSON.stringify(data).slice(0, 200));
+      return [];
+    }
+    const videos = data.items
       .filter(item => item.id?.videoId)
       .map(item => ({
         videoId: item.id.videoId,
@@ -618,7 +652,12 @@ async function fetchResearchYouTubeVideos(researchQuery) {
         publishedAt: String(item.snippet?.publishedAt || '').slice(0, 10),
         url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
       }));
-  } catch (_) { return []; }
+    console.log('[research:youtube] got', videos.length, 'videos for:', keyword);
+    return videos;
+  } catch (err) {
+    console.error('[research:youtube] fetch failed:', err?.message || err);
+    return [];
+  }
 }
 
 async function callGeminiResearchSummary({ caseId, request, chosenTask, gameContext }) {
@@ -630,13 +669,18 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   const topic = chosenTask || request;
+  const nowJST = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false });
 
   // 全ソースを並列取得
-  const [knowledgeBase, xPosts, youtubeVideos] = await Promise.all([
+  const [knowledgeResult, xPosts, youtubeVideos] = await Promise.all([
     buildWicolleKnowledgeContext(),
     fetchResearchXPosts(topic),
     fetchResearchYouTubeVideos(topic),
   ]);
+
+  const knowledgeBase = knowledgeResult.text;
+  console.log('[research] sources — youtube:', youtubeVideos.length, 'xPosts:', xPosts.length,
+    'hasXTrends:', knowledgeResult.hasXTrends, 'hasOfficialNews:', knowledgeResult.hasOfficialNews);
 
   // ソースを引用コンテキストとして整形
   const sourceLines = [];
@@ -654,6 +698,7 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   }
 
   const inputLines = [
+    `調査実行日時: ${nowJST}（この実行に固有の調査として、毎回新鮮な視点で生成すること）`,
     caseId ? `案件ID: ${caseId}` : '',
     gameContext ? `背景情報: ${gameContext}` : '',
     '',
@@ -661,8 +706,8 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
     ...sourceLines,
     '',
     '【引用元を明示する指示】',
-    '・レポート内で情報の出どころを「（YouTube攻略動画より）」「（Xの声より）」「（公式ニュースより）」などの形で明示すること。',
-    '・レポート末尾に「▶ 参考ソース」セクションを設け、YouTube動画タイトルとX投稿数を記載すること。',
+    '・レポート内で情報の出どころを「（YouTube攻略動画より）」「（Xの声より）」「（Konami公式より）」などの形で明示すること。',
+    '・レポート末尾の「▶ 参考ソース」セクションは必ず出力すること（フォーマット指示通り）。外部ソースがない場合も「・ウイコレ知識ベース（内部データ）」は必ず記載する。',
     '',
     '実行するタスク（承認済み）:',
     buildUntrustedTextBlock('research_task', topic, 600, { redactPersonal: false }),
@@ -698,7 +743,15 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
     }
     const text = chunks.join('\n').trim();
     if (!text) return null;
-    return { text, sources: { youtube: youtubeVideos, xPostCount: xPosts.length } };
+    return {
+      text,
+      sources: {
+        youtube: youtubeVideos,
+        xPostCount: xPosts.length,
+        hasXTrends: knowledgeResult.hasXTrends,
+        hasOfficialNews: knowledgeResult.hasOfficialNews,
+      },
+    };
   } catch (err) {
     console.error('[research] gemini error', err?.message || err);
     return null;
