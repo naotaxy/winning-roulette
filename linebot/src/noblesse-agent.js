@@ -681,9 +681,12 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
-  const rawModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
+  // 調査専用モデル: GEMINI_RESEARCH_MODEL → GEMINI_MODEL → デフォルト flash
+  // flash はグラウンディング対応保証済み。チャット用の flash-lite とは別管理。
+  const rawModel = process.env.GEMINI_RESEARCH_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
   const model = rawModel.replace(/^models\//, '');
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  console.log('[research] model:', model);
 
   const topic = chosenTask || request;
   const nowJST = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false });
@@ -736,21 +739,38 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   }
   const input = inputLines.filter(Boolean).join('\n');
 
+  const baseBody = {
+    systemInstruction: { parts: [{ text: RESEARCH_SYSTEM_PROMPT }] },
+    contents: [{ role: 'user', parts: [{ text: input }] }],
+    generationConfig: { maxOutputTokens: 1600, temperature: 0.4, topP: 0.85 },
+  };
+
   const controller = new AbortController();
   // グラウンディング付きは検索に時間がかかるため 35 秒に延長
   const timer = setTimeout(() => controller.abort(), 35000);
   try {
-    const res = await fetch(url, {
+    // まずグラウンディング有りで試みる
+    let useGrounding = true;
+    let res = await fetch(url, {
       method: 'POST',
       signal: controller.signal,
       headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: RESEARCH_SYSTEM_PROMPT }] },
-        contents: [{ role: 'user', parts: [{ text: input }] }],
-        tools: [{ googleSearch: {} }],
-        generationConfig: { maxOutputTokens: 1600, temperature: 0.4, topP: 0.85 },
-      }),
+      body: JSON.stringify({ ...baseBody, tools: [{ googleSearch: {} }] }),
     });
+
+    // 400/422 = モデルがグラウンディング非対応 → ツールなしで自動リトライ
+    if (!res.ok && (res.status === 400 || res.status === 422)) {
+      const errText = await res.text().catch(() => '');
+      console.warn('[research] grounding rejected (', res.status, '), retrying without tool:', errText.slice(0, 150));
+      useGrounding = false;
+      res = await fetch(url, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+        body: JSON.stringify(baseBody),
+      });
+    }
+
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
       console.error('[research] gemini http error', res.status, errBody.slice(0, 300));
@@ -768,13 +788,15 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
     if (!text) return null;
 
     // グラウンディングで実際に参照されたWebソースを抽出
-    const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
+    const groundingChunks = useGrounding
+      ? (candidate?.groundingMetadata?.groundingChunks || [])
+      : [];
     const webSources = groundingChunks
       .map(c => c?.web)
       .filter(w => w?.uri && w?.title)
       .map(w => ({ title: String(w.title).slice(0, 80), uri: w.uri }))
       .slice(0, 5);
-    console.log('[research] grounding webSources:', webSources.length);
+    console.log('[research] grounding:', useGrounding, 'webSources:', webSources.length);
 
     return {
       text,
