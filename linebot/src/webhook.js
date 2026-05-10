@@ -1779,7 +1779,14 @@ async function handleText(event, client) {
         caseId: rerunCaseId,
         request: rerunCaseData.request || '',
         chosenTask: rerunChosenText,
-        gameContext: 'eFootball（ウイコレ）のモバイルゲーム。タイタンリーグは最上位のリーグ区分。無課金プレイヤー向けの攻略情報が重要。グループ内で月次縛りルールのあるリーグを運営している。',
+        gameContext: [
+          'ゲーム名: eFootball ウイニングイレブンコレクション（通称ウイコレ）。KONAMIのカードコレクション型モバイルゲーム。',
+          'リーグ区分（下から）: ビギナー→ブロンズ→シルバー→ゴールド→プラチナ→ダイヤモンド→タイタン（最上位）。',
+          '試合はカード戦力で自動計算。リアルタイム操作はない。',
+          '強化手段: カードレベル上げ・スキル強化・スキルコンボ・フォーメーション・スカウト（ガチャ）。',
+          'グループの状況: 無課金プレイヤー6人。月次縛りルールのリーグ戦を運営。メンバーの1人が4〜5年かけて初めてタイタンリーグに出場した。',
+          '【存在しない要素 — 絶対に言及しない】: ドリームボール・監督・コーチ・スタジアム建設・FIFA系要素・リアルタイム試合操作。',
+        ].join(' '),
       });
       const resultText = researchResult || buildExecutionReport(rerunCaseId, rerunOption, rerunCaseData);
       await rememberPreparedSend(rerunCaseId, { kind: 'note', title: '攻略調査レポート', text: resultText, allowImmediateSend: true });
