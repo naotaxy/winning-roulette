@@ -5,6 +5,15 @@ const {
   buildUntrustedTextBlock,
 } = require('./security-utils');
 
+const {
+  formatMetaKnowledge,
+  formatSenseGuide,
+  formatFormationTips,
+  formatRarityGuide,
+} = require('./uicolle-knowledge');
+
+const { fetchWicolleOfficialNews } = require('./wicolle-official-news');
+
 const NOBLESSE_TRIGGER = /(したい|してほしい|決めたい|計画(して|したい)|手配(して|してほしい|しといて)|方法(は|を教えて)|どうすれば|どうしたら|アドバイス(ください|して|くれ|ほしい)|提案して|どうやって|相談したい|考えてほしい|考えて|段取り(して|頼む|お願い)|どこがいい|どこがおすすめ|どうしよう|下書き(作って|書いて|ほしい)|文面(作って|書いて|ほしい|お願い)|メール(作って|書いて|ほしい)|草稿(作って|書いて))/;
 
 function detectNoblesseIntent(withoutMention) {
@@ -499,6 +508,39 @@ const RESEARCH_SYSTEM_PROMPT = [
   '全体800文字以内。絵文字なし。番号付き見出しと箇条書き。人物名は書かない。',
 ].join('\n');
 
+async function buildWicolleKnowledgeContext() {
+  const staticParts = [
+    '=== ウイコレ静的知識ベース（正確な情報。必ずこの内容を優先すること） ===',
+    '',
+    '--- センス・アドセンス・カスタムセンス ---',
+    formatSenseGuide(),
+    '',
+    '--- 現在のメタ・強カード・スカウト ---',
+    formatMetaKnowledge(),
+    '',
+    '--- フォーメーション ---',
+    formatFormationTips(),
+    '',
+    '--- レアリティ・スカウト種別 ---',
+    formatRarityGuide(),
+  ].join('\n');
+
+  let dynamicNews = '';
+  if (process.env.WICOLLE_SSID) {
+    try {
+      const result = await fetchWicolleOfficialNews({ timeoutMs: 6000, maxItems: 6 });
+      if (result.ok && result.allItems.length) {
+        const lines = result.allItems.slice(0, 6).map(item =>
+          `【${item.date || item.idx}】${item.title}${item.content ? ': ' + item.content.slice(0, 250) : ''}`
+        );
+        dynamicNews = `\n\n=== 最新公式ニュース（Konami公式サイトより取得） ===\n${lines.join('\n\n')}`;
+      }
+    } catch (_) { /* SSID期限切れ等は無視 */ }
+  }
+
+  return staticParts + dynamicNews;
+}
+
 async function callGeminiResearchSummary({ caseId, request, chosenTask, gameContext }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
@@ -507,9 +549,13 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   const model = rawModel.replace(/^models\//, '');
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
+  const knowledgeBase = await buildWicolleKnowledgeContext();
+
   const inputLines = [
     caseId ? `案件ID: ${caseId}` : '',
     gameContext ? `背景情報: ${gameContext}` : '',
+    '',
+    knowledgeBase,
     '',
     '実行するタスク（承認済み）:',
     buildUntrustedTextBlock('research_task', chosenTask || request, 600, { redactPersonal: false }),
@@ -520,7 +566,7 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   const input = inputLines.filter(Boolean).join('\n');
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
+  const timer = setTimeout(() => controller.abort(), 20000);
   try {
     const res = await fetch(url, {
       method: 'POST',
