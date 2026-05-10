@@ -13,6 +13,7 @@ const {
 } = require('./uicolle-knowledge');
 
 const { fetchWicolleOfficialNews } = require('./wicolle-official-news');
+const { getXTrends } = require('./firebase-admin');
 
 const NOBLESSE_TRIGGER = /(したい|してほしい|決めたい|計画(して|したい)|手配(して|してほしい|しといて)|方法(は|を教えて)|どうすれば|どうしたら|アドバイス(ください|して|くれ|ほしい)|提案して|どうやって|相談したい|考えてほしい|考えて|段取り(して|頼む|お願い)|どこがいい|どこがおすすめ|どうしよう|下書き(作って|書いて|ほしい)|文面(作って|書いて|ほしい|お願い)|メール(作って|書いて|ほしい)|草稿(作って|書いて))/;
 
@@ -525,20 +526,32 @@ async function buildWicolleKnowledgeContext() {
     formatRarityGuide(),
   ].join('\n');
 
+  // 動的データを並列取得（どちらが失敗しても無視）
+  const [officialNewsResult, xTrends] = await Promise.allSettled([
+    process.env.WICOLLE_SSID
+      ? fetchWicolleOfficialNews({ timeoutMs: 6000, maxItems: 6 })
+      : Promise.resolve(null),
+    getXTrends().catch(() => null),
+  ]);
+
   let dynamicNews = '';
-  if (process.env.WICOLLE_SSID) {
-    try {
-      const result = await fetchWicolleOfficialNews({ timeoutMs: 6000, maxItems: 6 });
-      if (result.ok && result.allItems.length) {
-        const lines = result.allItems.slice(0, 6).map(item =>
-          `【${item.date || item.idx}】${item.title}${item.content ? ': ' + item.content.slice(0, 250) : ''}`
-        );
-        dynamicNews = `\n\n=== 最新公式ニュース（Konami公式サイトより取得） ===\n${lines.join('\n\n')}`;
-      }
-    } catch (_) { /* SSID期限切れ等は無視 */ }
+  const newsResult = officialNewsResult.status === 'fulfilled' ? officialNewsResult.value : null;
+  if (newsResult?.ok && newsResult.allItems?.length) {
+    const lines = newsResult.allItems.slice(0, 6).map(item =>
+      `【${item.date || item.idx}】${item.title}${item.content ? ': ' + item.content.slice(0, 250) : ''}`
+    );
+    dynamicNews = `\n\n=== 最新公式ニュース（Konami公式サイトより取得） ===\n${lines.join('\n\n')}`;
   }
 
-  return staticParts + dynamicNews;
+  let xTrendsSection = '';
+  const xData = xTrends.status === 'fulfilled' ? xTrends.value : null;
+  const xSummary = String(xData?.summary || '').trim();
+  if (xSummary && xSummary !== '情報なし') {
+    const updatedAt = xData?.updatedAt ? `（取得: ${xData.updatedAt}）` : '';
+    xTrendsSection = `\n\n=== Xコミュニティの現在の声${updatedAt} ===\n${xSummary}\n（Yahoo Realtime SearchによるXリアルタイム投稿から取得・要約）`;
+  }
+
+  return staticParts + dynamicNews + xTrendsSection;
 }
 
 async function callGeminiResearchSummary({ caseId, request, chosenTask, gameContext }) {
