@@ -162,6 +162,7 @@ const {
   buildDecisionShareText,
   buildSendTargetFlex,
   buildBookingReadyFlex,
+  buildResearchReportFlex,
 } = require('./noblesse-execution');
 const {
   planNoblesseExecution,
@@ -1684,13 +1685,6 @@ async function handleText(event, client) {
   }
 
   if (intent === 'noblesse:rerun') {
-    const beastMode = await getBeastModeState(sourceId);
-    if (!beastMode.enabled) {
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: formatBeastModeLockedReply(),
-      });
-    }
     const caseIdMatch = mentionInfo.withoutMention.match(/NB-\d{8}-\d+/);
     if (!caseIdMatch) {
       return client.replyMessage(event.replyToken, {
@@ -1774,8 +1768,7 @@ async function handleText(event, client) {
         if (sourceId) client.pushMessage(sourceId, buildRouteFlex(routeParams.from, routeParams.to)).catch(() => {});
       }
     }
-    if (isResearchSummaryRequest(rerunCaseData.request || '')) {
-      const pushTarget = rerunCaseData.sourceId || sourceId;
+    if (isResearchSummaryRequest(rerunCaseData.request || '') || isResearchSummaryRequest(rerunChosenText || '')) {
       const taskPreview = rerunChosenText.slice(0, 36) + (rerunChosenText.length > 36 ? '...' : '');
       await client.replyMessage(event.replyToken, {
         type: 'text',
@@ -1788,9 +1781,10 @@ async function handleText(event, client) {
         gameContext: 'eFootball（ウイコレ）のモバイルゲーム。タイタンリーグは最上位のリーグ区分。無課金プレイヤー向けの攻略情報が重要。グループ内で月次縛りルールのあるリーグを運営している。',
       });
       const resultText = researchResult || buildExecutionReport(rerunCaseId, rerunOption, rerunCaseData);
+      await rememberPreparedSend(rerunCaseId, { kind: 'note', title: '攻略調査レポート', text: resultText, allowImmediateSend: true });
       await logCaseEvent(rerunCaseId, 'report_sent', { actorName: senderName || '', note: '調査実行完了' });
-      if (pushTarget && pushTarget !== 'unknown') {
-        client.pushMessage(pushTarget, { type: 'text', text: resultText }).catch(err => {
+      if (sourceId) {
+        client.pushMessage(sourceId, buildResearchReportFlex(rerunCaseId, resultText)).catch(err => {
           console.error('[noblesse:rerun] push failed', err?.message || err);
         });
       }
@@ -2480,6 +2474,11 @@ function detectTextIntent(text, options = {}) {
   const directSystemStatusKind = detectSystemStatusKind(withoutMention);
   if (directSystemStatusKind) return `system:${directSystemStatusKind}`;
 
+  // 案件IDが含まれる場合は最優先でルーティング（他のインテントに先取りされないよう早期に判定）
+  if (/NB-\d{8}-\d+/.test(withoutMention)) {
+    return /実行/.test(withoutMention) ? 'noblesse:rerun' : 'noblesse:status';
+  }
+
   const targetText = withoutMention;
 
   const privateProfileIntent = detectPrivateProfileIntent(targetText);
@@ -2545,10 +2544,6 @@ function detectTextIntent(text, options = {}) {
 
   if (/(進捗|しんちょく|やってない|まだ.*試合|試合.*まだ|残り.*試合|試合.*残り|誰がまだ|だれがまだ|やった.*誰|誰.*やった|片方|1試合|未消化)/.test(targetText)) return 'progress';
 
-  if (/NB-\d{8}-\d+/.test(targetText)) {
-    if (/実行/.test(targetText)) return 'noblesse:rerun';
-    return 'noblesse:status';
-  }
   if (/(案件|ノブレス|システム).*(確認|状況|どうなった|一覧|見せて|教えて|リスト|まとめ)/.test(targetText)) return 'noblesse:status';
 
   if (/(状況|戦況|成績|調子|まとめ|誰が強い|だれが強い|勝ってる)/.test(targetText)) return 'status';

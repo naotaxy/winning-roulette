@@ -358,10 +358,70 @@ function buildBookingReadyFlex(caseId, form) {
   };
 }
 
+function buildResearchReportFlex(caseId, reportText) {
+  const lines = String(reportText || '').split('\n');
+  const firstLine = lines[0] || '';
+  const cleanTitle = firstLine.replace(/【[^】]*】/g, '').trim() || '調査完了レポート';
+  const bodyText = lines.slice(1).join('\n').trim() || reportText;
+
+  return {
+    type: 'flex',
+    altText: `${caseId} 調査完了レポート`,
+    contents: {
+      type: 'bubble',
+      size: 'giga',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#0d1b2a',
+        paddingAll: 'lg',
+        contents: [
+          { type: 'text', text: '調査完了レポート', color: '#c8a96e', size: 'xs', weight: 'bold' },
+          { type: 'text', text: caseId, color: '#a0b0c0', size: 'xs', margin: 'xs' },
+          { type: 'text', text: cleanTitle, color: '#ffffff', size: 'sm', weight: 'bold', wrap: true, margin: 'sm' },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: 'lg',
+        contents: [
+          {
+            type: 'text',
+            text: bodyText.slice(0, 1800),
+            size: 'sm',
+            wrap: true,
+            color: '#222222',
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: 'sm',
+        contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: {
+              type: 'postback',
+              label: 'このレポートを転送する',
+              data: `noblesse:select_send_target:${caseId}`,
+              displayText: `${caseId} のレポートを転送したい`,
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
 module.exports = {
   buildPreparedSendFlex,
   buildDecisionActionFlex,
   buildDecisionShareText,
   buildSendTargetFlex,
   buildBookingReadyFlex,
+  buildResearchReportFlex,
 };
