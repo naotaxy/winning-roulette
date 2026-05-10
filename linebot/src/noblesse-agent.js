@@ -698,38 +698,40 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
     fetchResearchYouTubeVideos(topic),
   ]);
 
-  const knowledgeBase = knowledgeResult.text;
   console.log('[research] sources — youtube:', youtubeVideos.length, 'xPosts:', xPosts.length,
     'hasXTrends:', knowledgeResult.hasXTrends, 'hasOfficialNews:', knowledgeResult.hasOfficialNews);
 
-  // ソースを引用コンテキストとして整形
-  const sourceLines = [];
+  // グラウンディング時はユーザー入力を最小化（静的知識ベースは除く）
+  // → 知識ベースを大量注入するとGeminiが「既に情報がある」と判断しWeb検索しなくなる
+  // → システムプロンプト（RESEARCH_SYSTEM_PROMPT）のゲーム知識で代替
+  const contextLines = [];
+  if (knowledgeResult.hasXTrends) {
+    // xTrends要約のみ抽出して渡す（"=== Xコミュニティの現在の声 ==="ブロック）
+    const xBlock = knowledgeResult.text.match(/=== Xコミュニティの現在の声[\s\S]*?(?===|$)/);
+    if (xBlock) contextLines.push(xBlock[0].trim());
+  }
   if (youtubeVideos.length) {
-    sourceLines.push('\n=== 参照した動画（YouTube検索結果） ===');
+    contextLines.push('\n=== 事前に確認した関連動画（タイトル参考） ===');
     youtubeVideos.forEach((v, i) =>
-      sourceLines.push(`[動画${i + 1}]「${v.title}」/ ${v.channel}（${v.publishedAt}）`)
+      contextLines.push(`[動画${i + 1}]「${v.title}」/ ${v.channel}（${v.publishedAt}）`)
     );
-    sourceLines.push('→ これらの動画で共通して言及されている攻略ポイントをレポートに反映すること。');
   }
   if (xPosts.length) {
-    sourceLines.push('\n=== 参照したXの投稿（Yahoo Realtime Search） ===');
-    xPosts.slice(0, 8).forEach((p, i) => sourceLines.push(`[X${i + 1}] ${p.text}`));
-    sourceLines.push('→ 複数の投稿に共通するトレンド・使用感をレポートに反映すること。');
+    contextLines.push('\n=== Xユーザーの最新投稿（Yahoo Realtime Search） ===');
+    xPosts.slice(0, 6).forEach((p, i) => contextLines.push(`[X${i + 1}] ${p.text}`));
   }
 
   const inputLines = [
-    `調査実行日時: ${nowJST}（この実行に固有の調査として、毎回新鮮な視点で生成すること）`,
+    `調査実行日時: ${nowJST}`,
     caseId ? `案件ID: ${caseId}` : '',
     gameContext ? `背景情報: ${gameContext}` : '',
+    contextLines.length ? '' : '',
+    ...contextLines,
     '',
-    knowledgeBase,
-    ...sourceLines,
-    '',
-    '【引用元を明示する指示】',
-    '・Web検索で実際に調べた記事・動画を積極的に引用し「（Web調査より）」と明示すること。',
-    '・Xトレンド情報を参照した場合は「（Xの声より）」と明示すること。',
-    '・「（ウイコレ知識ベース）」という表記は使わないこと。',
-    '・「▶ 参考ソース」セクションはWeb検索で見つけた実際のページ・動画のみ列挙すること。',
+    '【指示】Web検索で2026年時点の最新情報を必ず調べてからレポートを生成すること。',
+    '・調べた記事・動画を「（Web調査より）」と引用明示すること。',
+    '・Xの投稿を参照した場合は「（Xの声より）」と明示すること。',
+    '・「▶ 参考ソース」には実際に参照したURLのタイトルのみ列挙すること。',
     '',
     '実行するタスク（承認済み）:',
     buildUntrustedTextBlock('research_task', topic, 600, { redactPersonal: false }),
@@ -788,15 +790,16 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
     if (!text) return null;
 
     // グラウンディングで実際に参照されたWebソースを抽出
-    const groundingChunks = useGrounding
-      ? (candidate?.groundingMetadata?.groundingChunks || [])
-      : [];
+    const groundingMeta = candidate?.groundingMetadata;
+    const webSearchQueries = groundingMeta?.webSearchQueries || [];
+    const groundingChunks = useGrounding ? (groundingMeta?.groundingChunks || []) : [];
     const webSources = groundingChunks
       .map(c => c?.web)
       .filter(w => w?.uri && w?.title)
       .map(w => ({ title: String(w.title).slice(0, 80), uri: w.uri }))
       .slice(0, 5);
-    console.log('[research] grounding:', useGrounding, 'webSources:', webSources.length);
+    console.log('[research] grounding:', useGrounding,
+      'queries:', webSearchQueries, 'chunks:', groundingChunks.length, 'webSources:', webSources.length);
 
     return {
       text,
