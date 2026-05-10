@@ -614,12 +614,15 @@ async function fetchResearchXPosts(researchQuery) {
     const posts = results.flatMap(data => {
       const entries = Array.isArray(data?.timeline?.entry) ? data.timeline.entry : [];
       return entries.map(e => {
-        const text = String(e?.tweet?.text || e?.text || '')
-          .replace(/https?:\/\/\S+/g, '').replace(/@\w+/g, '').replace(/\s+/g, ' ').trim();
+        // displayText/displayTextBody が新形式。\tSTART\t と \tEND\t は強調タグで除去する
+        const raw = String(e?.displayText || e?.displayTextBody || e?.tweet?.text || e?.text || '');
+        const text = raw
+          .replace(/\tSTART\t|\tEND\t/g, '')
+          .replace(/https?:\/\/\S+/g, '').replace(/@\w+/g, '').replace(/#\S+/g, '').replace(/\s+/g, ' ').trim();
         const id = e?.id || text.slice(0, 30);
         if (!text || text.length < 20 || seen.has(id)) return null;
         seen.add(id);
-        return { text: text.slice(0, 200), likes: e?.favoriteCount || 0, retweets: e?.retweetCount || 0 };
+        return { text: text.slice(0, 200), likes: e?.likesCount || e?.favoriteCount || 0, retweets: e?.rtCount || e?.retweetCount || 0 };
       }).filter(Boolean);
     }).sort((a, b) => (b.likes + b.retweets * 2) - (a.likes + a.retweets * 2)).slice(0, 12);
     console.log('[research:xposts] got', posts.length, 'posts for:', keyword);

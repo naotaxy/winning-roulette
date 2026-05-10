@@ -886,9 +886,10 @@ async function fetchYahooRealtimeSearch(query, { count = 20, popular = true } = 
 }
 
 function extractXPostText(entry) {
-  const raw =
-    entry?.tweet?.text || entry?.text || entry?.body || entry?.content || '';
+  // 新API形式: displayText / displayTextBody に変更。\tSTART\t と \tEND\t は強調タグ
+  const raw = entry?.displayText || entry?.displayTextBody || entry?.tweet?.text || entry?.text || entry?.body || entry?.content || '';
   return String(raw)
+    .replace(/\tSTART\t|\tEND\t/g, '')
     .replace(/https?:\/\/\S+/g, '')
     .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
     .replace(/@\w+/g, '')
@@ -914,8 +915,8 @@ async function fetchWicolleXTrends() {
       const text = extractXPostText(entry).slice(0, 280);
       return {
         text,
-        likes: entry.favoriteCount || entry.likeCount || 0,
-        retweets: entry.retweetCount || 0,
+        likes: entry.likesCount || entry.favoriteCount || entry.likeCount || 0,
+        retweets: entry.rtCount || entry.retweetCount || 0,
         category: isWicolleGachaItem({ title: text, content: '' })
           ? 'gacha'
           : isWicolleEventItem({ title: text, content: '' })
