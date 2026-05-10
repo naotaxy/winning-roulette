@@ -45,7 +45,7 @@ function extractRestaurantParams(text) {
 }
 
 // ── レストラン検索要求の判定 ──────────────────────────────────────────────────
-const RESTAURANT_PATTERN = /(予約|お店|店|レストラン|居酒屋|飲み会|ディナー|ランチ|食事|会食|宴会|食べ|ご飯|飯|飲み|場所)/;
+const RESTAURANT_PATTERN = /(お店|レストラン|居酒屋|飲み会|ディナー|ランチ|食事|会食|宴会|食べ|ご飯|飯|飲み|打ち上げ)/;
 
 function isRestaurantRequest(text) {
   return RESTAURANT_PATTERN.test(String(text || ''));

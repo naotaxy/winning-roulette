@@ -1683,6 +1683,102 @@ async function handleText(event, client) {
     });
   }
 
+  if (intent === 'noblesse:rerun') {
+    const beastMode = await getBeastModeState(sourceId);
+    if (!beastMode.enabled) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatBeastModeLockedReply(),
+      });
+    }
+    const caseIdMatch = mentionInfo.withoutMention.match(/NB-\d{8}-\d+/);
+    if (!caseIdMatch) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '案件IDが見つからなかった。「NB-XXXXXXXX-XXX 実行」の形で送ってみて。',
+      });
+    }
+    const rerunCaseId = caseIdMatch[0];
+    const rerunCaseData = await getNoblesseCase(rerunCaseId);
+    if (!rerunCaseData) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `案件 ${rerunCaseId} の記録が見つからなかった。IDを確認してみて。`,
+      });
+    }
+    if (rerunCaseData.status !== 'approved') {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `案件 ${rerunCaseId} はまだ承認されていないか取消済みだよ（状態: ${rerunCaseData.status || '不明'}）。承認後に実行できるよ。`,
+      });
+    }
+    const rerunOption = rerunCaseData.approvedOption || 'C';
+    const rerunOpts = parseCaseOptions(rerunCaseData.analysis || '');
+    const rerunChosenText = rerunOpts[rerunOption] || '';
+    const rerunSearchKeyword = pickSearchKeyword(rerunCaseData.request || '', rerunChosenText);
+    const rerunCombinedText = `${rerunCaseData.request || ''} ${rerunCaseData.analysis || ''}`;
+
+    if (isMessageDraftRequest(rerunCombinedText)) {
+      const draft = buildMessageDraft(rerunCaseId, rerunCaseData, rerunOption);
+      const sendable = canSendDraftImmediately(draft);
+      await rememberPreparedSend(rerunCaseId, { kind: 'message', title: '文面草案', text: draft, allowImmediateSend: sendable });
+      return client.replyMessage(event.replyToken, [
+        { type: 'text', text: draft },
+        buildPreparedSendFlex(rerunCaseId, 'この文面草案', sendable),
+      ]);
+    }
+    if (isScheduleDraftRequest(rerunCombinedText)) {
+      const draft = buildScheduleDraft(rerunCaseId, rerunCaseData, rerunOption);
+      const sendable = canSendDraftImmediately(draft);
+      await rememberPreparedSend(rerunCaseId, { kind: 'schedule', title: '日程募集たたき台', text: draft, allowImmediateSend: sendable });
+      return client.replyMessage(event.replyToken, [
+        { type: 'text', text: draft },
+        buildPreparedSendFlex(rerunCaseId, 'この日程文面', sendable),
+      ]);
+    }
+    if (detectOutingRequest(rerunCombinedText)) {
+      return handleCuratedApprovalFlow({
+        client, event, sourceId, actorName: senderName,
+        userId: event.source?.userId || '',
+        caseId: rerunCaseId, caseData: rerunCaseData, option: rerunOption, kind: 'outing',
+      });
+    }
+    if (detectShoppingRequest(rerunCombinedText)) {
+      return handleCuratedApprovalFlow({
+        client, event, sourceId, actorName: senderName,
+        userId: event.source?.userId || '',
+        caseId: rerunCaseId, caseData: rerunCaseData, option: rerunOption, kind: 'shopping',
+      });
+    }
+    if (isRestaurantRequest(rerunCombinedText)) {
+      return handleRestaurantApprovalFlow({
+        client, event, sourceId, actorName: senderName,
+        userId: event.source?.userId || '',
+        caseId: rerunCaseId, caseData: rerunCaseData, option: rerunOption, searchKeyword: rerunSearchKeyword,
+      });
+    }
+    if (isHotelRequest(rerunCombinedText)) {
+      return handleHotelApprovalFlow({
+        client, event, sourceId, actorName: senderName,
+        userId: event.source?.userId || '',
+        caseId: rerunCaseId, caseData: rerunCaseData, option: rerunOption, searchKeyword: rerunSearchKeyword,
+      });
+    }
+    if (isTransportRequest(rerunCombinedText)) {
+      const routeParams = extractRouteParams(rerunChosenText || rerunCaseData.request || '');
+      if (isTaxiRequest(rerunCombinedText)) {
+        if (sourceId) client.pushMessage(sourceId, buildTaxiFlex(routeParams.from, routeParams.to)).catch(() => {});
+      } else if (isFlightRequest(rerunCombinedText)) {
+        if (sourceId) client.pushMessage(sourceId, buildFlightFlex(routeParams.from, routeParams.to)).catch(() => {});
+      } else {
+        if (sourceId) client.pushMessage(sourceId, buildRouteFlex(routeParams.from, routeParams.to)).catch(() => {});
+      }
+    }
+    const rerunReport = buildExecutionReport(rerunCaseId, rerunOption, rerunCaseData);
+    await logCaseEvent(rerunCaseId, 'report_sent', { actorName: senderName || '', note: '再実行' });
+    return client.replyMessage(event.replyToken, { type: 'text', text: rerunReport });
+  }
+
   if (intent === 'noblesse') {
     const beastMode = await getBeastModeState(sourceId);
     if (!beastMode.enabled) {
@@ -2427,7 +2523,10 @@ function detectTextIntent(text, options = {}) {
 
   if (/(進捗|しんちょく|やってない|まだ.*試合|試合.*まだ|残り.*試合|試合.*残り|誰がまだ|だれがまだ|やった.*誰|誰.*やった|片方|1試合|未消化)/.test(targetText)) return 'progress';
 
-  if (/NB-\d{8}-\d+/.test(targetText)) return 'noblesse:status';
+  if (/NB-\d{8}-\d+/.test(targetText)) {
+    if (/実行/.test(targetText)) return 'noblesse:rerun';
+    return 'noblesse:status';
+  }
   if (/(案件|ノブレス|システム).*(確認|状況|どうなった|一覧|見せて|教えて|リスト|まとめ)/.test(targetText)) return 'noblesse:status';
 
   if (/(状況|戦況|成績|調子|まとめ|誰が強い|だれが強い|勝ってる)/.test(targetText)) return 'status';

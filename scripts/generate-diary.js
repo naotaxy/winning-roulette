@@ -316,13 +316,17 @@ function getJSTDate() {
   return `${y}-${m}-${d}`;
 }
 
+const WEEK_JA = ['日', '月', '火', '水', '木', '金', '土'];
+
 function getJSTDateLabel() {
   if (DIARY_DATE_OVERRIDE) {
     const [y, m, d] = DIARY_DATE_OVERRIDE.split('-').map(Number);
-    return `${y}年${m}月${d}日`;
+    const w = WEEK_JA[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+    return `${y}年${m}月${d}日（${w}）`;
   }
   const now = new Date(Date.now() + 9 * 3600 * 1000);
-  return `${now.getUTCFullYear()}年${now.getUTCMonth() + 1}月${now.getUTCDate()}日`;
+  const w = WEEK_JA[now.getUTCDay()];
+  return `${now.getUTCFullYear()}年${now.getUTCMonth() + 1}月${now.getUTCDate()}日（${w}）`;
 }
 
 function normalizeDiaryDate(value) {
