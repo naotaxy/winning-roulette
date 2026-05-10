@@ -369,26 +369,39 @@ function buildResearchReportFlex(caseId, reportText, sources = {}) {
   const xPostCount = Number(sources?.xPostCount || 0);
   const hasXTrends = Boolean(sources?.hasXTrends);
   const hasOfficialNews = sources?.hasOfficialNews !== false;
+  const webSources = Array.isArray(sources?.webSources) ? sources.webSources : [];
   const sourceLabel = [
+    webSources.length ? `Web検索 ${webSources.length}件` : '',
     youtubeVideos.length ? `YouTube ${youtubeVideos.length}件` : '',
     xPostCount ? `X投稿 ${xPostCount}件` : (hasXTrends ? 'Xトレンド（定期収集）' : ''),
-    hasOfficialNews ? 'Konami公式ニュース' : '',
-    !youtubeVideos.length && !xPostCount && !hasXTrends && !hasOfficialNews ? '知識ベース（内部）' : '',
-  ].filter(Boolean).join(' / ');
+    hasOfficialNews ? 'Konami公式' : '',
+  ].filter(Boolean).join(' / ') || '内部データ';
 
   const footerButtons = [];
 
-  // YouTube動画を最大2件ボタン化
-  youtubeVideos.slice(0, 2).forEach((v, i) => {
+  // Webグラウンディングソースを最大2件ボタン化（優先）
+  webSources.slice(0, 2).forEach((s, i) => {
+    const label = s.title.length > 20 ? s.title.slice(0, 19) + '…' : s.title;
+    footerButtons.push({
+      type: 'button',
+      style: 'secondary',
+      height: 'sm',
+      margin: i > 0 ? 'sm' : undefined,
+      action: { type: 'uri', label, uri: s.uri },
+    });
+  });
+
+  // YouTube動画（Webソースで枠が余っている場合のみ）
+  youtubeVideos.slice(0, Math.max(0, 2 - webSources.length)).forEach((v, i) => {
     if (v.url) {
       footerButtons.push({
         type: 'button',
         style: 'secondary',
         height: 'sm',
-        margin: i > 0 ? 'sm' : undefined,
+        margin: footerButtons.length ? 'sm' : undefined,
         action: {
           type: 'uri',
-          label: `動画${i + 1}: ${v.title.slice(0, 18)}…`,
+          label: `動画: ${v.title.slice(0, 16)}…`,
           uri: v.url,
         },
       });

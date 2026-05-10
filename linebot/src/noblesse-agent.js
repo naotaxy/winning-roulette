@@ -492,6 +492,8 @@ const RESEARCH_SYSTEM_PROMPT = [
   '・一般論・当たり前の内容は書かない。ウイコレ固有の具体的な要素・スキル名・戦略を出すこと。',
   '・確信が持てない要素は書かない。他サッカーゲーム（PES・ウイイレ・FIFA・サカつく）の要素を混入しないこと。',
   '・内容が薄い・一般的すぎると感じたら削除して具体的な情報に差し替えること。',
+  '・Web検索で得た情報は積極的に使い「（Web調査より）」と明示すること。Xトレンド情報は「（Xの声より）」と明示すること。',
+  '・「（ウイコレ知識ベース）」という引用は絶対に使わないこと。内部データを引用する場合は具体的な内容名（「（センスガイドより）」「（メタ情報より）」等）を使うこと。',
   '',
   SECURITY_INSTRUCTIONS,
   '依頼された調査・まとめタスクを実行し、以下のフォーマットで結果を返すこと。',
@@ -509,7 +511,7 @@ const RESEARCH_SYSTEM_PROMPT = [
   '（依頼者への所感・励まし・次のアクション提案を1〜2文。絵文字なし。人物名を書かない）',
   '空行',
   '▶ 参考ソース',
-  '（参照したソースを箇条書きで列挙すること。省略不可。例: 「・Konami公式ニュース」「・YouTube: 動画タイトル / チャンネル名（YYYY-MM-DD）」「・X投稿 N件（検索キーワード）」「・ウイコレ知識ベース（内部データ）」。外部ソースがない場合も「・ウイコレ知識ベース（内部データ）」「・Konami公式ニュース（取得済み）」を必ず書くこと）',
+  '（参照したソースを箇条書きで列挙すること。省略不可。Web検索結果があれば「・Web: タイトル（URL）」を優先して記載する。Xトレンドがあれば「・Xトレンド（定期収集）」。YouTubeがあれば「・YouTube: タイトル / チャンネル」。「・ウイコレ知識ベース（内部データ）」は絶対に書かないこと。Web検索結果のみを列挙すること）',
   '',
   '全体900文字以内。絵文字なし。番号付き見出しと箇条書き。人物名は書かない。',
 ].join('\n');
@@ -721,8 +723,10 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
     ...sourceLines,
     '',
     '【引用元を明示する指示】',
-    '・レポート内で情報の出どころを「（YouTube攻略動画より）」「（Xの声より）」「（Konami公式より）」などの形で明示すること。',
-    '・レポート末尾の「▶ 参考ソース」セクションは必ず出力すること（フォーマット指示通り）。外部ソースがない場合も「・ウイコレ知識ベース（内部データ）」は必ず記載する。',
+    '・Web検索で実際に調べた記事・動画を積極的に引用し「（Web調査より）」と明示すること。',
+    '・Xトレンド情報を参照した場合は「（Xの声より）」と明示すること。',
+    '・「（ウイコレ知識ベース）」という表記は使わないこと。',
+    '・「▶ 参考ソース」セクションはWeb検索で見つけた実際のページ・動画のみ列挙すること。',
     '',
     '実行するタスク（承認済み）:',
     buildUntrustedTextBlock('research_task', topic, 600, { redactPersonal: false }),
@@ -733,7 +737,8 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   const input = inputLines.filter(Boolean).join('\n');
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000);
+  // グラウンディング付きは検索に時間がかかるため 35 秒に延長
+  const timer = setTimeout(() => controller.abort(), 35000);
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -742,22 +747,35 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: RESEARCH_SYSTEM_PROMPT }] },
         contents: [{ role: 'user', parts: [{ text: input }] }],
+        tools: [{ googleSearch: {} }],
         generationConfig: { maxOutputTokens: 1600, temperature: 0.4, topP: 0.85 },
       }),
     });
     if (!res.ok) {
-      console.error('[research] gemini http error', res.status);
+      const errBody = await res.text().catch(() => '');
+      console.error('[research] gemini http error', res.status, errBody.slice(0, 300));
       return null;
     }
     const data = await res.json();
+    const candidate = data?.candidates?.[0];
+
+    // テキスト抽出（グラウンディング時の引用マーカー [1][2] を除去）
     const chunks = [];
-    for (const candidate of data?.candidates || []) {
-      for (const part of candidate?.content?.parts || []) {
-        if (part?.text) chunks.push(part.text);
-      }
+    for (const part of candidate?.content?.parts || []) {
+      if (part?.text) chunks.push(part.text);
     }
-    const text = chunks.join('\n').trim();
+    const text = chunks.join('\n').replace(/\[\d+\]/g, '').trim();
     if (!text) return null;
+
+    // グラウンディングで実際に参照されたWebソースを抽出
+    const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
+    const webSources = groundingChunks
+      .map(c => c?.web)
+      .filter(w => w?.uri && w?.title)
+      .map(w => ({ title: String(w.title).slice(0, 80), uri: w.uri }))
+      .slice(0, 5);
+    console.log('[research] grounding webSources:', webSources.length);
+
     return {
       text,
       sources: {
@@ -765,6 +783,7 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
         xPostCount: xPosts.length,
         hasXTrends: knowledgeResult.hasXTrends,
         hasOfficialNews: knowledgeResult.hasOfficialNews,
+        webSources,
       },
     };
   } catch (err) {
