@@ -589,12 +589,20 @@ async function fetchResearchXPosts(researchQuery) {
           },
           signal: AbortSignal.timeout(6000),
         }
-      ).then(r => {
+      ).then(async r => {
         if (!r.ok) {
-          console.error('[research:xposts] http', r.status, 'query:', q);
+          const body = await r.text().catch(() => '');
+          console.error('[research:xposts] http', r.status, 'query:', q, 'body:', body.slice(0, 200));
           return {};
         }
-        return r.json();
+        const json = await r.json().catch(err => {
+          console.error('[research:xposts] json parse failed for:', q, err?.message);
+          return {};
+        });
+        if (!json?.timeline?.entry?.length) {
+          console.warn('[research:xposts] empty timeline for:', q, 'keys:', Object.keys(json || {}).join(','));
+        }
+        return json;
       }).catch(err => {
         console.error('[research:xposts] fetch failed for:', q, err?.message || err);
         return {};
@@ -628,20 +636,22 @@ async function fetchResearchYouTubeVideos(researchQuery) {
   }
   const keyword = extractResearchKeywords(researchQuery);
   const q = encodeURIComponent(`ウイコレ ${keyword}`);
-  const since = new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString();
+  // 180日以内（60日だと結果が少なすぎるケースがある）
+  const since = new Date(Date.now() - 180 * 24 * 3600 * 1000).toISOString();
   try {
-    const res = await fetch(
-      `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${q}&type=video&order=relevance&publishedAfter=${since}&maxResults=5&key=${apiKey}`,
-      { signal: AbortSignal.timeout(6000) }
-    );
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${q}&type=video&order=relevance&publishedAfter=${since}&maxResults=5&key=${apiKey}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     const data = await res.json();
     if (!res.ok) {
-      console.error('[research:youtube] http', res.status, data?.error?.message || '');
+      console.error('[research:youtube] http', res.status, data?.error?.message || JSON.stringify(data).slice(0, 300));
       return [];
     }
     if (!Array.isArray(data?.items)) {
-      console.error('[research:youtube] unexpected response shape', JSON.stringify(data).slice(0, 200));
+      console.error('[research:youtube] unexpected shape:', JSON.stringify(data).slice(0, 300));
       return [];
+    }
+    if (data.items.length === 0) {
+      console.warn('[research:youtube] 0 items returned. pageInfo:', JSON.stringify(data.pageInfo), 'regionCode:', data.regionCode);
     }
     const videos = data.items
       .filter(item => item.id?.videoId)
