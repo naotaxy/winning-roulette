@@ -358,11 +358,52 @@ function buildBookingReadyFlex(caseId, form) {
   };
 }
 
-function buildResearchReportFlex(caseId, reportText) {
+function buildResearchReportFlex(caseId, reportText, sources = {}) {
   const lines = String(reportText || '').split('\n');
   const firstLine = lines[0] || '';
   const cleanTitle = firstLine.replace(/【[^】]*】/g, '').trim() || '調査完了レポート';
   const bodyText = lines.slice(1).join('\n').trim() || reportText;
+
+  // ソース集計ラベル
+  const youtubeVideos = Array.isArray(sources?.youtube) ? sources.youtube : [];
+  const xPostCount = Number(sources?.xPostCount || 0);
+  const sourceLabel = [
+    youtubeVideos.length ? `YouTube ${youtubeVideos.length}件` : '',
+    xPostCount ? `X投稿 ${xPostCount}件` : '',
+    'Konami公式ニュース',
+  ].filter(Boolean).join(' / ');
+
+  const footerButtons = [];
+
+  // YouTube動画を最大2件ボタン化
+  youtubeVideos.slice(0, 2).forEach((v, i) => {
+    if (v.url) {
+      footerButtons.push({
+        type: 'button',
+        style: 'secondary',
+        height: 'sm',
+        margin: i > 0 ? 'sm' : undefined,
+        action: {
+          type: 'uri',
+          label: `動画${i + 1}: ${v.title.slice(0, 18)}…`,
+          uri: v.url,
+        },
+      });
+    }
+  });
+
+  footerButtons.push({
+    type: 'button',
+    style: 'link',
+    height: 'sm',
+    margin: footerButtons.length ? 'sm' : undefined,
+    action: {
+      type: 'postback',
+      label: 'このレポートを転送する',
+      data: `noblesse:select_send_target:${caseId}`,
+      displayText: `${caseId} のレポートを転送したい`,
+    },
+  });
 
   return {
     type: 'flex',
@@ -379,6 +420,7 @@ function buildResearchReportFlex(caseId, reportText) {
           { type: 'text', text: '調査完了レポート', color: '#c8a96e', size: 'xs', weight: 'bold' },
           { type: 'text', text: caseId, color: '#a0b0c0', size: 'xs', margin: 'xs' },
           { type: 'text', text: cleanTitle, color: '#ffffff', size: 'sm', weight: 'bold', wrap: true, margin: 'sm' },
+          ...(sourceLabel ? [{ type: 'text', text: `参考: ${sourceLabel}`, color: '#6a8090', size: 'xxs', margin: 'sm', wrap: true }] : []),
         ],
       },
       body: {
@@ -399,19 +441,7 @@ function buildResearchReportFlex(caseId, reportText) {
         type: 'box',
         layout: 'vertical',
         paddingAll: 'sm',
-        contents: [
-          {
-            type: 'button',
-            style: 'secondary',
-            height: 'sm',
-            action: {
-              type: 'postback',
-              label: 'このレポートを転送する',
-              data: `noblesse:select_send_target:${caseId}`,
-              displayText: `${caseId} のレポートを転送したい`,
-            },
-          },
-        ],
+        contents: footerButtons,
       },
     },
   };

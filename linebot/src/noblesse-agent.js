@@ -554,6 +554,73 @@ async function buildWicolleKnowledgeContext() {
   return staticParts + dynamicNews + xTrendsSection;
 }
 
+function extractResearchKeywords(text) {
+  const t = String(text || '').normalize('NFKC');
+  if (/タイタン/.test(t)) return 'タイタン 攻略';
+  if (/division\s*1|div\s*1|ディビジョン\s*1/i.test(t)) return 'Division1 攻略';
+  if (/無課金/.test(t)) return '無課金 攻略';
+  if (/センス|アドセンス/.test(t)) return 'センス アドセンス 攻略';
+  const stripped = t.replace(/[調査|共通|推奨|まとめ|動画|記事|複数|してほしい|してください]/g, '').trim();
+  return stripped.slice(0, 20) + ' 攻略';
+}
+
+async function fetchResearchXPosts(researchQuery) {
+  const keyword = extractResearchKeywords(researchQuery);
+  const queries = [`ウイコレ ${keyword}`, 'ウイコレ タイタン 無課金'];
+  try {
+    const results = await Promise.all(queries.map(q =>
+      fetch(
+        `https://search.yahoo.co.jp/realtime/api/v1/pagination?${new URLSearchParams({ p: q, results: '15', md: 'h' })}`,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+            Accept: 'application/json',
+            Referer: 'https://search.yahoo.co.jp/realtime/search',
+          },
+          signal: AbortSignal.timeout(6000),
+        }
+      ).then(r => r.ok ? r.json() : {}).catch(() => ({}))
+    ));
+    const seen = new Set();
+    return results.flatMap(data => {
+      const entries = Array.isArray(data?.timeline?.entry) ? data.timeline.entry : [];
+      return entries.map(e => {
+        const text = String(e?.tweet?.text || e?.text || '')
+          .replace(/https?:\/\/\S+/g, '').replace(/@\w+/g, '').replace(/\s+/g, ' ').trim();
+        const id = e?.id || text.slice(0, 30);
+        if (!text || text.length < 20 || seen.has(id)) return null;
+        seen.add(id);
+        return { text: text.slice(0, 200), likes: e?.favoriteCount || 0, retweets: e?.retweetCount || 0 };
+      }).filter(Boolean);
+    }).sort((a, b) => (b.likes + b.retweets * 2) - (a.likes + a.retweets * 2)).slice(0, 12);
+  } catch (_) { return []; }
+}
+
+async function fetchResearchYouTubeVideos(researchQuery) {
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  if (!apiKey) return [];
+  const keyword = extractResearchKeywords(researchQuery);
+  const q = encodeURIComponent(`ウイコレ ${keyword}`);
+  const since = new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString();
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${q}&type=video&order=relevance&publishedAfter=${since}&maxResults=5&key=${apiKey}`,
+      { signal: AbortSignal.timeout(6000) }
+    );
+    const data = await res.json();
+    if (!Array.isArray(data?.items)) return [];
+    return data.items
+      .filter(item => item.id?.videoId)
+      .map(item => ({
+        videoId: item.id.videoId,
+        title: String(item.snippet?.title || '').slice(0, 80),
+        channel: String(item.snippet?.channelTitle || '').slice(0, 40),
+        publishedAt: String(item.snippet?.publishedAt || '').slice(0, 10),
+        url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
+      }));
+  } catch (_) { return []; }
+}
+
 async function callGeminiResearchSummary({ caseId, request, chosenTask, gameContext }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
@@ -562,16 +629,43 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   const model = rawModel.replace(/^models\//, '');
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
-  const knowledgeBase = await buildWicolleKnowledgeContext();
+  const topic = chosenTask || request;
+
+  // 全ソースを並列取得
+  const [knowledgeBase, xPosts, youtubeVideos] = await Promise.all([
+    buildWicolleKnowledgeContext(),
+    fetchResearchXPosts(topic),
+    fetchResearchYouTubeVideos(topic),
+  ]);
+
+  // ソースを引用コンテキストとして整形
+  const sourceLines = [];
+  if (youtubeVideos.length) {
+    sourceLines.push('\n=== 参照した動画（YouTube検索結果） ===');
+    youtubeVideos.forEach((v, i) =>
+      sourceLines.push(`[動画${i + 1}]「${v.title}」/ ${v.channel}（${v.publishedAt}）`)
+    );
+    sourceLines.push('→ これらの動画で共通して言及されている攻略ポイントをレポートに反映すること。');
+  }
+  if (xPosts.length) {
+    sourceLines.push('\n=== 参照したXの投稿（Yahoo Realtime Search） ===');
+    xPosts.slice(0, 8).forEach((p, i) => sourceLines.push(`[X${i + 1}] ${p.text}`));
+    sourceLines.push('→ 複数の投稿に共通するトレンド・使用感をレポートに反映すること。');
+  }
 
   const inputLines = [
     caseId ? `案件ID: ${caseId}` : '',
     gameContext ? `背景情報: ${gameContext}` : '',
     '',
     knowledgeBase,
+    ...sourceLines,
+    '',
+    '【引用元を明示する指示】',
+    '・レポート内で情報の出どころを「（YouTube攻略動画より）」「（Xの声より）」「（公式ニュースより）」などの形で明示すること。',
+    '・レポート末尾に「▶ 参考ソース」セクションを設け、YouTube動画タイトルとX投稿数を記載すること。',
     '',
     '実行するタスク（承認済み）:',
-    buildUntrustedTextBlock('research_task', chosenTask || request, 600, { redactPersonal: false }),
+    buildUntrustedTextBlock('research_task', topic, 600, { redactPersonal: false }),
   ];
   if (request && request !== chosenTask) {
     inputLines.push('', '元々の依頼:', buildUntrustedTextBlock('original_request', request, 400, { redactPersonal: false }));
@@ -579,7 +673,7 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   const input = inputLines.filter(Boolean).join('\n');
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
+  const timer = setTimeout(() => controller.abort(), 25000);
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -588,7 +682,7 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: RESEARCH_SYSTEM_PROMPT }] },
         contents: [{ role: 'user', parts: [{ text: input }] }],
-        generationConfig: { maxOutputTokens: 1400, temperature: 0.4, topP: 0.85 },
+        generationConfig: { maxOutputTokens: 1600, temperature: 0.4, topP: 0.85 },
       }),
     });
     if (!res.ok) {
@@ -602,7 +696,9 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
         if (part?.text) chunks.push(part.text);
       }
     }
-    return chunks.join('\n').trim() || null;
+    const text = chunks.join('\n').trim();
+    if (!text) return null;
+    return { text, sources: { youtube: youtubeVideos, xPostCount: xPosts.length } };
   } catch (err) {
     console.error('[research] gemini error', err?.message || err);
     return null;

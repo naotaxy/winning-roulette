@@ -1787,11 +1787,12 @@ async function handleText(event, client) {
           '【存在しない要素 — 絶対に言及しない】: スキルコンボ・ドリームボール・監督・コーチ・スタジアム建設・FIFA系要素・リアルタイム試合操作。',
         ].join(' '),
       });
-      const resultText = researchResult || buildExecutionReport(rerunCaseId, rerunOption, rerunCaseData);
+      const resultText = researchResult?.text || buildExecutionReport(rerunCaseId, rerunOption, rerunCaseData);
+      const resultSources = researchResult?.sources || {};
       await rememberPreparedSend(rerunCaseId, { kind: 'note', title: '攻略調査レポート', text: resultText, allowImmediateSend: true });
       await logCaseEvent(rerunCaseId, 'report_sent', { actorName: senderName || '', note: '調査実行完了' });
       if (sourceId) {
-        client.pushMessage(sourceId, buildResearchReportFlex(rerunCaseId, resultText)).catch(err => {
+        client.pushMessage(sourceId, buildResearchReportFlex(rerunCaseId, resultText, resultSources)).catch(err => {
           console.error('[noblesse:rerun] push failed', err?.message || err);
         });
       }
