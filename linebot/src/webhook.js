@@ -1665,16 +1665,17 @@ async function handleText(event, client) {
         text: formatBeastModeLockedReply(),
       });
     }
-    const caseIdMatch = mentionInfo.withoutMention.match(/NB-\d{8}-\d+/);
+    const caseIdMatch = mentionInfo.withoutMention.match(/NB-\d{8}-\d+/i);
     if (caseIdMatch) {
+      const caseId = caseIdMatch[0].toUpperCase();
       const [caseData, caseEvents, caseExecutions] = await Promise.all([
-        getNoblesseCase(caseIdMatch[0]),
-        getNoblesseCaseEvents(caseIdMatch[0], 8),
-        getNoblesseExecutions(caseIdMatch[0], 6),
+        getNoblesseCase(caseId),
+        getNoblesseCaseEvents(caseId, 8),
+        getNoblesseExecutions(caseId, 6),
       ]);
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: buildSingleCaseText(caseIdMatch[0], caseData, caseEvents, caseExecutions),
+        text: buildSingleCaseText(caseId, caseData, caseEvents, caseExecutions),
       });
     }
     const cases = await getNoblesseCases(sourceId, 5);
@@ -1685,14 +1686,14 @@ async function handleText(event, client) {
   }
 
   if (intent === 'noblesse:rerun') {
-    const caseIdMatch = mentionInfo.withoutMention.match(/NB-\d{8}-\d+/);
+    const caseIdMatch = mentionInfo.withoutMention.match(/NB-\d{8}-\d+/i);
     if (!caseIdMatch) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: '案件IDが見つからなかった。「NB-XXXXXXXX-XXX 実行」の形で送ってみて。',
       });
     }
-    const rerunCaseId = caseIdMatch[0];
+    const rerunCaseId = caseIdMatch[0].toUpperCase();
     const rerunCaseData = await getNoblesseCase(rerunCaseId);
     if (!rerunCaseData) {
       return client.replyMessage(event.replyToken, {
@@ -2474,8 +2475,8 @@ function detectTextIntent(text, options = {}) {
   const directSystemStatusKind = detectSystemStatusKind(withoutMention);
   if (directSystemStatusKind) return `system:${directSystemStatusKind}`;
 
-  // 案件IDが含まれる場合は最優先でルーティング（他のインテントに先取りされないよう早期に判定）
-  if (/NB-\d{8}-\d+/.test(withoutMention)) {
+  // 案件IDが含まれる場合は最優先でルーティング（normalizeForChatで小文字化されるためiフラグ必須）
+  if (/NB-\d{8}-\d+/i.test(withoutMention)) {
     return /実行/.test(withoutMention) ? 'noblesse:rerun' : 'noblesse:status';
   }
 
