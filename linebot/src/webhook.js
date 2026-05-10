@@ -122,7 +122,7 @@ const {
   shouldRefreshUicolleNews,
 } = require('./wicolle-official-news');
 const { shouldUseAiChat, formatAiChatReply } = require('./ai-chat');
-const { detectNoblesseIntent, formatNoblesseReply } = require('./noblesse-agent');
+const { detectNoblesseIntent, formatNoblesseReply, isResearchSummaryRequest, callGeminiResearchSummary } = require('./noblesse-agent');
 const {
   generateCaseId,
   createCase,
@@ -1773,6 +1773,28 @@ async function handleText(event, client) {
       } else {
         if (sourceId) client.pushMessage(sourceId, buildRouteFlex(routeParams.from, routeParams.to)).catch(() => {});
       }
+    }
+    if (isResearchSummaryRequest(rerunCaseData.request || '')) {
+      const pushTarget = rerunCaseData.sourceId || sourceId;
+      const taskPreview = rerunChosenText.slice(0, 36) + (rerunChosenText.length > 36 ? '...' : '');
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `「${taskPreview}」を今すぐ実行するね。少し待ってて。`,
+      });
+      const researchResult = await callGeminiResearchSummary({
+        caseId: rerunCaseId,
+        request: rerunCaseData.request || '',
+        chosenTask: rerunChosenText,
+        gameContext: 'eFootball（ウイコレ）のモバイルゲーム。タイタンリーグは最上位のリーグ区分。無課金プレイヤー向けの攻略情報が重要。グループ内で月次縛りルールのあるリーグを運営している。',
+      });
+      const resultText = researchResult || buildExecutionReport(rerunCaseId, rerunOption, rerunCaseData);
+      await logCaseEvent(rerunCaseId, 'report_sent', { actorName: senderName || '', note: '調査実行完了' });
+      if (pushTarget && pushTarget !== 'unknown') {
+        client.pushMessage(pushTarget, { type: 'text', text: resultText }).catch(err => {
+          console.error('[noblesse:rerun] push failed', err?.message || err);
+        });
+      }
+      return;
     }
     const rerunReport = buildExecutionReport(rerunCaseId, rerunOption, rerunCaseData);
     await logCaseEvent(rerunCaseId, 'report_sent', { actorName: senderName || '', note: '再実行' });

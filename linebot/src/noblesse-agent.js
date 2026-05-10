@@ -437,4 +437,84 @@ function isValidNoblesseReply(text) {
     && /(推奨[:：]\s*案[ABC]|推奨案[:：]\s*案[ABC]|私なら案[ABC])/.test(compact);
 }
 
-module.exports = { detectNoblesseIntent, formatNoblesseReply, isDraftRequest, generateNoblesseDraft };
+function isResearchSummaryRequest(text) {
+  const t = String(text || '');
+  return /(調査し[て、]|調べて|調べてほしい|調べ[てる]|リサーチ)/.test(t)
+    && /(まとめ|整理|レポート|ポイント|紹介|共有)/.test(t);
+}
+
+const RESEARCH_SYSTEM_PROMPT = [
+  'あなたは「秘書トラペル子」。eFootball（ウイコレ）のモバイルゲームに詳しい25歳の女性秘書。',
+  'ゲームの最新トレンド・攻略・縛りルール・選手強さを日々研究している。',
+  SECURITY_INSTRUCTIONS,
+  '依頼された調査・まとめタスクを実行し、以下のフォーマットで結果を返すこと。',
+  '',
+  '１行目: 「【（案件ID）調査完了レポート】」',
+  '２行目: 実行した調査内容を一言で',
+  '空行',
+  '▶ 調査サマリー',
+  '（全体の要約を2文で）',
+  '空行',
+  '①〜⑤の番号付き見出しで、共通推奨ポイントを整理する。',
+  '各見出しの下に「・」箇条書き2〜3項目。',
+  '空行',
+  '▶ 秘書所感',
+  '（依頼者への所感・励まし・次のアクション提案を1〜2文。絵文字なし。人物名を書かない）',
+  '',
+  '全体800文字以内。絵文字なし。番号付き見出しと箇条書き。人物名は書かない。',
+].join('\n');
+
+async function callGeminiResearchSummary({ caseId, request, chosenTask, gameContext }) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
+  const rawModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
+  const model = rawModel.replace(/^models\//, '');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+
+  const inputLines = [
+    caseId ? `案件ID: ${caseId}` : '',
+    gameContext ? `背景情報: ${gameContext}` : '',
+    '',
+    '実行するタスク（承認済み）:',
+    buildUntrustedTextBlock('research_task', chosenTask || request, 600, { redactPersonal: false }),
+  ];
+  if (request && request !== chosenTask) {
+    inputLines.push('', '元々の依頼:', buildUntrustedTextBlock('original_request', request, 400, { redactPersonal: false }));
+  }
+  const input = inputLines.filter(Boolean).join('\n');
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: RESEARCH_SYSTEM_PROMPT }] },
+        contents: [{ role: 'user', parts: [{ text: input }] }],
+        generationConfig: { maxOutputTokens: 1200, temperature: 0.65, topP: 0.9 },
+      }),
+    });
+    if (!res.ok) {
+      console.error('[research] gemini http error', res.status);
+      return null;
+    }
+    const data = await res.json();
+    const chunks = [];
+    for (const candidate of data?.candidates || []) {
+      for (const part of candidate?.content?.parts || []) {
+        if (part?.text) chunks.push(part.text);
+      }
+    }
+    return chunks.join('\n').trim() || null;
+  } catch (err) {
+    console.error('[research] gemini error', err?.message || err);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = { detectNoblesseIntent, formatNoblesseReply, isDraftRequest, generateNoblesseDraft, isResearchSummaryRequest, callGeminiResearchSummary };
