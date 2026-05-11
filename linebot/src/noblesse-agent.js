@@ -759,6 +759,17 @@ function buildFallbackResearchReport({ caseId, topic, knowledgeResult = {}, xPos
   ].filter(Boolean).join('\n');
 }
 
+function isUsableResearchReport(text) {
+  const value = String(text || '').trim();
+  if (value.length < 520) return false;
+  const requiredSections = [
+    /調査完了レポート/,
+    /▶\s*調査サマリー/,
+    /▶\s*参考ソース/,
+  ];
+  return requiredSections.every(pattern => pattern.test(value));
+}
+
 async function callGeminiResearchSummary({ caseId, request, chosenTask, gameContext }) {
   // 調査専用モデル: GEMINI_RESEARCH_MODEL → GEMINI_MODEL → デフォルト flash
   // flash はグラウンディング対応保証済み。チャット用の flash-lite とは別管理。
@@ -886,6 +897,10 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
     }
     const text = chunks.join('\n').replace(/\[\d+\]/g, '').trim();
     if (!text) return fallback('Gemini empty text');
+    if (!isUsableResearchReport(text)) {
+      console.warn('[research] unusable gemini report length:', text.length, 'head:', text.slice(0, 160));
+      return fallback(`Gemini short report length ${text.length}`);
+    }
 
     // グラウンディングで実際に参照されたWebソースを抽出
     const groundingMeta = candidate?.groundingMetadata;

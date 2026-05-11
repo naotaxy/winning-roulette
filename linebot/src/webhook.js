@@ -1805,8 +1805,10 @@ async function handleText(event, client) {
       await rememberPreparedSend(rerunCaseId, { kind: 'note', title: '攻略調査レポート', text: resultText, allowImmediateSend: true });
       await logCaseEvent(rerunCaseId, 'report_sent', { actorName: senderName || '', note: '調査実行完了' });
       if (sourceId) {
+        const reportTextMessages = buildLongTextMessages(resultText);
+        const reportFlex = buildResearchReportFlex(rerunCaseId, resultText, resultSources);
         try {
-          await client.pushMessage(sourceId, buildResearchReportFlex(rerunCaseId, resultText, resultSources));
+          await client.pushMessage(sourceId, [...reportTextMessages, reportFlex].slice(0, 5));
           console.log('[noblesse:rerun] research report pushed:', rerunCaseId);
         } catch (err) {
           console.error('[noblesse:rerun] push failed', err?.message || err);
@@ -2110,6 +2112,25 @@ async function handleText(event, client) {
     type: 'text',
     text: formatSecretaryStatus(year, month, monthlyRows, annualRows),
   });
+}
+
+function buildLongTextMessages(text, maxLength = 4500) {
+  const value = String(text || '').trim();
+  if (!value) return [];
+  const chunks = [];
+  let rest = value;
+  while (rest.length > maxLength && chunks.length < 4) {
+    let cut = rest.lastIndexOf('\n\n', maxLength);
+    if (cut < Math.floor(maxLength * 0.6)) cut = rest.lastIndexOf('\n', maxLength);
+    if (cut < Math.floor(maxLength * 0.6)) cut = maxLength;
+    chunks.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest && chunks.length < 4) chunks.push(rest);
+  return chunks.filter(Boolean).map((chunk, i) => ({
+    type: 'text',
+    text: chunks.length > 1 ? `【調査レポート ${i + 1}/${chunks.length}】\n${chunk}` : chunk,
+  }));
 }
 
 async function handleOcrControlIntent({ event, client, sourceId, senderName, intent }) {
