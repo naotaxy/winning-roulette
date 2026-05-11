@@ -344,7 +344,7 @@
       ".write": false,
       "$sourceId": {
         "messages": {
-          ".indexOn": ["createdAt"]
+          ".indexOn": ["createdAt", "timestamp"]
         }
       }
     },

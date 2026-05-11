@@ -691,10 +691,75 @@ async function fetchResearchYouTubeVideos(researchQuery) {
   }
 }
 
-async function callGeminiResearchSummary({ caseId, request, chosenTask, gameContext }) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
+function buildResearchSources({ knowledgeResult = {}, xPosts = [], youtubeVideos = [], webSources = [] } = {}) {
+  return {
+    youtube: Array.isArray(youtubeVideos) ? youtubeVideos : [],
+    xPostCount: Array.isArray(xPosts) ? xPosts.length : 0,
+    hasXTrends: Boolean(knowledgeResult?.hasXTrends),
+    hasOfficialNews: Boolean(knowledgeResult?.hasOfficialNews),
+    webSources: Array.isArray(webSources) ? webSources : [],
+  };
+}
 
+function buildFallbackResearchReport({ caseId, topic, knowledgeResult = {}, xPosts = [], youtubeVideos = [], reason = '' } = {}) {
+  const safeCaseId = caseId || 'NB-UNKNOWN';
+  const safeTopic = String(topic || 'ウイコレ攻略調査').replace(/\s+/g, ' ').slice(0, 80);
+  const yt = Array.isArray(youtubeVideos) ? youtubeVideos.slice(0, 3) : [];
+  const xp = Array.isArray(xPosts) ? xPosts.slice(0, 3) : [];
+  const sourceLines = [];
+  if (yt.length) {
+    yt.forEach(v => sourceLines.push(`・YouTube: ${v.title} / ${v.channel}`));
+  }
+  if (xp.length || knowledgeResult?.hasXTrends) {
+    sourceLines.push(`・Xトレンド（定期収集）${xp.length ? ` / Yahoo投稿 ${xp.length}件` : ''}`);
+  }
+  if (knowledgeResult?.hasOfficialNews) {
+    sourceLines.push('・Konami公式ニュース');
+  }
+  if (!sourceLines.length) sourceLines.push('・取得済み外部ソースなし');
+
+  const hintLines = [];
+  if (yt.length) {
+    hintLines.push(`・動画側では「${yt[0].title}」など、タイタン/上位攻略系の話題を確認。`);
+  }
+  if (xp.length) {
+    hintLines.push(`・X側では「${xp[0].text.slice(0, 80)}」という声を確認。`);
+  }
+  if (!hintLines.length) {
+    hintLines.push('・外部取得が薄いため、既存のウイコレ知識と直近トレンドを軸に暫定整理。');
+  }
+
+  const reasonLine = reason ? `生成補足: ${String(reason).replace(/\s+/g, ' ').slice(0, 80)}` : '';
+
+  return [
+    `【${safeCaseId} 調査完了レポート】`,
+    `${safeTopic} の暫定調査`,
+    '',
+    '▶ 調査サマリー',
+    'AI本文生成が混み合ったため、取得できた外部材料と既存のウイコレ知識から暫定版として整理するね。',
+    'タイタン級では、★5前提でセンス/アドセンス、発動が重くない強スキル、現メタへの対策を優先して見るのが安全。',
+    '',
+    '① まず見るポイント',
+    '・カットビジョンや中距離対策など、今の環境で勝敗に触るスキルを優先。',
+    '・新カードは強くても発動が重い場合があるので、無課金運用では再現性を重視。',
+    '',
+    '② 取得できた材料',
+    ...hintLines,
+    '',
+    '③ 次の一手',
+    '・手持ちの★5主力、センス、アドセンス、フォメを見せてもらえれば、次は編成寄りに絞れる。',
+    '・同じ案件IDで再実行すれば、追加取得できたソースも含めて更新できる。',
+    '',
+    '▶ 秘書所感',
+    '完全版まで出し切れなかった分、材料だけは逃がさず保存するね。次回の調査でちゃんと積み上げる。',
+    reasonLine,
+    '',
+    '▶ 参考ソース',
+    ...sourceLines,
+  ].filter(Boolean).join('\n');
+}
+
+async function callGeminiResearchSummary({ caseId, request, chosenTask, gameContext }) {
   // 調査専用モデル: GEMINI_RESEARCH_MODEL → GEMINI_MODEL → デフォルト flash
   // flash はグラウンディング対応保証済み。チャット用の flash-lite とは別管理。
   const rawModel = process.env.GEMINI_RESEARCH_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
@@ -705,15 +770,34 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   const topic = chosenTask || request;
   const nowJST = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false });
 
-  // 全ソースを並列取得
-  const [knowledgeResult, xPosts, youtubeVideos] = await Promise.all([
+  // 全ソースを並列取得。個別失敗で調査全体を落とさない。
+  const [knowledgeSettled, xPostsSettled, youtubeSettled] = await Promise.allSettled([
     buildWicolleKnowledgeContext(),
     fetchResearchXPosts(topic),
     fetchResearchYouTubeVideos(topic),
   ]);
+  const knowledgeResult = knowledgeSettled.status === 'fulfilled'
+    ? knowledgeSettled.value
+    : { text: '', hasXTrends: false, hasOfficialNews: false, hasResearchReports: false };
+  const xPosts = xPostsSettled.status === 'fulfilled' ? xPostsSettled.value : [];
+  const youtubeVideos = youtubeSettled.status === 'fulfilled' ? youtubeSettled.value : [];
 
   console.log('[research] sources — youtube:', youtubeVideos.length, 'xPosts:', xPosts.length,
-    'hasXTrends:', knowledgeResult.hasXTrends, 'hasOfficialNews:', knowledgeResult.hasOfficialNews);
+    'hasXTrends:', knowledgeResult.hasXTrends, 'hasOfficialNews:', knowledgeResult.hasOfficialNews,
+    'hasResearchReports:', knowledgeResult.hasResearchReports);
+
+  const fallback = reason => {
+    console.warn('[research] fallback report:', reason);
+    return {
+      text: buildFallbackResearchReport({ caseId, topic, knowledgeResult, xPosts, youtubeVideos, reason }),
+      sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos }),
+      fallback: true,
+      reason,
+    };
+  };
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return fallback('GEMINI_API_KEY not set');
 
   // グラウンディング時はユーザー入力を最小化（静的知識ベースは除く）
   // → 知識ベースを大量注入するとGeminiが「既に情報がある」と判断しWeb検索しなくなる
@@ -790,7 +874,7 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
       console.error('[research] gemini http error', res.status, errBody.slice(0, 300));
-      return null;
+      return fallback(`Gemini HTTP ${res.status}`);
     }
     const data = await res.json();
     const candidate = data?.candidates?.[0];
@@ -801,7 +885,7 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
       if (part?.text) chunks.push(part.text);
     }
     const text = chunks.join('\n').replace(/\[\d+\]/g, '').trim();
-    if (!text) return null;
+    if (!text) return fallback('Gemini empty text');
 
     // グラウンディングで実際に参照されたWebソースを抽出
     const groundingMeta = candidate?.groundingMetadata;
@@ -817,17 +901,11 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
 
     return {
       text,
-      sources: {
-        youtube: youtubeVideos,
-        xPostCount: xPosts.length,
-        hasXTrends: knowledgeResult.hasXTrends,
-        hasOfficialNews: knowledgeResult.hasOfficialNews,
-        webSources,
-      },
+      sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos, webSources }),
     };
   } catch (err) {
     console.error('[research] gemini error', err?.message || err);
-    return null;
+    return fallback(err?.name === 'AbortError' ? 'Gemini timeout' : (err?.message || 'Gemini error'));
   } finally {
     clearTimeout(timer);
   }

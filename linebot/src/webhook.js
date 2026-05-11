@@ -1791,18 +1791,28 @@ async function handleText(event, client) {
       const resultText = researchResult?.text || buildExecutionReport(rerunCaseId, rerunOption, rerunCaseData);
       const resultSources = researchResult?.sources || {};
       if (researchResult?.text) {
-        saveResearchReport(rerunCaseId, {
-          topic: rerunCaseData?.chosenTask || rerunCaseData?.request || '',
-          text: resultText,
-          webSourceCount: resultSources.webSources?.length || 0,
-        }).catch(err => console.error('[noblesse:rerun] saveResearchReport failed', err?.message));
+        try {
+          await saveResearchReport(rerunCaseId, {
+            topic: rerunChosenText || rerunCaseData?.request || '',
+            text: resultText,
+            webSourceCount: resultSources.webSources?.length || 0,
+          });
+          console.log('[noblesse:rerun] research report persisted:', rerunCaseId);
+        } catch (err) {
+          console.error('[noblesse:rerun] saveResearchReport failed', err?.message || err);
+        }
       }
       await rememberPreparedSend(rerunCaseId, { kind: 'note', title: '攻略調査レポート', text: resultText, allowImmediateSend: true });
       await logCaseEvent(rerunCaseId, 'report_sent', { actorName: senderName || '', note: '調査実行完了' });
       if (sourceId) {
-        client.pushMessage(sourceId, buildResearchReportFlex(rerunCaseId, resultText, resultSources)).catch(err => {
+        try {
+          await client.pushMessage(sourceId, buildResearchReportFlex(rerunCaseId, resultText, resultSources));
+          console.log('[noblesse:rerun] research report pushed:', rerunCaseId);
+        } catch (err) {
           console.error('[noblesse:rerun] push failed', err?.message || err);
-        });
+          await client.pushMessage(sourceId, { type: 'text', text: resultText.slice(0, 3500) })
+            .catch(pushErr => console.error('[noblesse:rerun] text fallback push failed', pushErr?.message || pushErr));
+        }
       }
       return;
     }
