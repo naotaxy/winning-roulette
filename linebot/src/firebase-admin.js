@@ -1115,14 +1115,49 @@ async function saveResult(pending) {
 // ── 調査レポート知識ベース ─────────────────────────────────────────────────────
 const RESEARCH_REPORTS_ROOT = 'research/reports';
 
-async function saveResearchReport(caseId, { topic, text, webSourceCount = 0 } = {}) {
+function normalizeResearchReportCategory(item) {
+  // カテゴリ導入前の調査レポートはウイコレ専用だったため、互換的に uicolle として扱う。
+  return String(item?.category || 'uicolle').trim();
+}
+
+function sanitizeResearchSources(sources = {}) {
+  const webSources = Array.isArray(sources?.webSources) ? sources.webSources : [];
+  const youtube = Array.isArray(sources?.youtube) ? sources.youtube : [];
+  return {
+    webSources: webSources.slice(0, 5).map(s => ({
+      title: String(s?.title || '').slice(0, 100),
+      uri: String(s?.uri || '').slice(0, 500),
+    })),
+    youtube: youtube.slice(0, 5).map(v => ({
+      title: String(v?.title || '').slice(0, 100),
+      channel: String(v?.channel || '').slice(0, 60),
+      url: String(v?.url || '').slice(0, 500),
+      publishedAt: String(v?.publishedAt || '').slice(0, 20),
+    })),
+    xPostCount: Number(sources?.xPostCount || 0),
+    hasXTrends: Boolean(sources?.hasXTrends),
+    hasOfficialNews: Boolean(sources?.hasOfficialNews),
+  };
+}
+
+async function saveResearchReport(caseId, { topic, text, category = 'general', webSourceCount = 0, sources = {} } = {}) {
   if (!caseId || !text) return;
   const now = Date.now();
+  const safeSources = sanitizeResearchSources(sources);
   const payload = {
     caseId,
+    category: String(category || 'general').slice(0, 40),
     topic: String(topic || '').slice(0, 200),
     summary: String(text).slice(0, 900),
-    webSourceCount: Number(webSourceCount) || 0,
+    webSourceCount: Number(webSourceCount) || safeSources.webSources.length || 0,
+    sourceSummary: {
+      webSourceCount: safeSources.webSources.length,
+      youtubeCount: safeSources.youtube.length,
+      xPostCount: safeSources.xPostCount,
+      hasXTrends: safeSources.hasXTrends,
+      hasOfficialNews: safeSources.hasOfficialNews,
+    },
+    sources: safeSources,
     savedAt: now,
     savedAtIso: new Date(now).toISOString(),
   };
@@ -1130,19 +1165,25 @@ async function saveResearchReport(caseId, { topic, text, webSourceCount = 0 } = 
     getDb().ref(`noblesse/cases/${caseId}/report`).update(payload),
     getDb().ref(`${RESEARCH_REPORTS_ROOT}/${caseId}`).set(payload),
   ]);
-  console.log('[firebase] research report saved:', caseId);
+  console.log('[firebase] research report saved:', caseId, payload.category);
 }
 
-async function getRecentResearchReports(limit = 3) {
+async function getRecentResearchReports(limit = 3, options = {}) {
   try {
+    const category = typeof options === 'string'
+      ? options
+      : String(options?.category || '').trim();
+    const fetchLimit = category ? Math.max(limit * 5, 15) : limit;
     const snap = await getDb().ref(RESEARCH_REPORTS_ROOT)
       .orderByChild('savedAt')
-      .limitToLast(limit)
+      .limitToLast(fetchLimit)
       .once('value');
     const raw = snap.val();
     if (!raw) return [];
     return Object.values(raw)
-      .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+      .filter(item => !category || normalizeResearchReportCategory(item) === category)
+      .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))
+      .slice(0, limit);
   } catch (err) {
     console.error('[firebase] getRecentResearchReports failed', err?.message);
     return [];

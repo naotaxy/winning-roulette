@@ -456,6 +456,31 @@ function isResearchSummaryRequest(text) {
     && /(まとめ|整理|レポート|ポイント|紹介|共有)/.test(t);
 }
 
+function detectResearchCategory(text) {
+  const t = String(text || '').normalize('NFKC').toLowerCase();
+  if (/(ウイコレ|efootball|champion squads|タイタン|division\s*1|div\s*1|ディビジョン|センス|アドセンス|スカウト|ガチャ|フォーメーション|ペレ|メニャン|カットビジョン|ballet ploof)/i.test(t)) return 'uicolle';
+  if (/(副収入|収益|収益化|マネタイズ|booth|fanbox|sponsors|支援|有料|販売|売る|月額|サブスク|vrm|vroid)/i.test(t)) return 'monetization';
+  if (/(ai|mcp|codex|claude|github|render|firebase|api|llm|gemini|openai|qwen|プログラム|コード|開発|自動化|iot|raspberry|ラズパイ|電子工作)/i.test(t)) return 'tech';
+  if (/(dtp|印刷|製版|photoshop|illustrator|indesign|色補正|スキャン|学参|教科書|図録|作品集|加藤文明社|業務|仕事)/i.test(t)) return 'work';
+  if (/(スニーカー|靴|シューズ|アパレル|服|洋服|古着|セレクトショップ|器|うつわ|食器|皿|マグ|雑貨|ikea|無印|unico|actus|買い物)/i.test(t)) return 'shopping';
+  if (/(神社|公園|自然|緑|庭園|散歩|日帰り|おでかけ|出かけ|旅行|宿|ホテル|旅館|温泉|観光|地形|旧街道|水路|橋|歴史|史跡)/i.test(t)) return 'outing';
+  if (/(生活|健康|朝|睡眠|食事|料理|レシピ|音楽|映画|本|ニュース|天気|カフェ|パン|セール|暮らし|日用品)/i.test(t)) return 'lifestyle';
+  return 'general';
+}
+
+function getResearchCategoryLabel(category) {
+  return {
+    uicolle: 'ウイコレ攻略',
+    shopping: '買い物・商品比較',
+    outing: 'おでかけ・旅行・歴史散策',
+    tech: 'AI・開発・技術',
+    work: '仕事・DTP・印刷',
+    lifestyle: '暮らし・生活情報',
+    monetization: '収益化・副収入',
+    general: '一般調査',
+  }[category] || '一般調査';
+}
+
 const RESEARCH_SYSTEM_PROMPT = [
   'あなたは「秘書トラペル子」。eFootball ウイコレ CHAMPION SQUADS（ウイコレ）専門の25歳の女性秘書。',
   'ゲームの攻略・選手評価・現在のメタを日々研究している。',
@@ -519,6 +544,38 @@ const RESEARCH_SYSTEM_PROMPT = [
   '全体900文字以内。絵文字なし。番号付き見出しと箇条書き。人物名は書かない。',
 ].join('\n');
 
+const GENERAL_RESEARCH_SYSTEM_PROMPT = [
+  'あなたは「秘書トラペル子」。調査・比較・要約が得意な25歳の女性秘書。',
+  'ユーザーの生活、仕事、買い物、技術調査、収益化、おでかけ相談を、実用的で外さない形に整理する。',
+  '',
+  '【基本姿勢】',
+  '・特定ジャンルの内部知識に引っ張られず、依頼カテゴリに合う情報だけを使う。',
+  '・過去調査レポートがある場合は同じカテゴリの蓄積知識として参考にする。',
+  '・最新性が必要な内容はWeb調査を優先し、確度が低い情報は断定しない。',
+  '・ユーザーの個人情報・住所・勤務先・LINE名などは本文に出さない。',
+  '・予約、購入、送信、外部投稿の最終確定は行わず、必要なら「最終確認が必要」と書く。',
+  '',
+  SECURITY_INSTRUCTIONS,
+  '依頼された調査・まとめタスクを実行し、以下のフォーマットで返すこと。',
+  '',
+  '１行目: 「【（案件ID）調査完了レポート】」',
+  '２行目: 調査カテゴリと実行した調査内容を一言で',
+  '空行',
+  '▶ 調査サマリー',
+  '（全体の要約を2〜3文で。結論・判断軸・注意点を含める）',
+  '空行',
+  '①〜⑤の番号付き見出しで、具体的な比較・判断・次アクションを整理する。',
+  '各見出しの下に「・」箇条書き2〜3項目。一般論だけにしない。',
+  '空行',
+  '▶ 秘書所感',
+  '（依頼者に寄り添いつつ、次に聞くべきこと/動くべきことを1〜2文。人物名は書かない）',
+  '空行',
+  '▶ 参考ソース',
+  '（参照したソースを箇条書きで列挙。Web検索結果があれば「・Web: タイトル（URL）」、YouTubeがあれば「・YouTube: タイトル / チャンネル」、Xがあれば「・Xの声」。内部知識だけの場合は「・過去調査レポート」など具体名で書く）',
+  '',
+  '全体900〜1400文字。絵文字なし。調査カテゴリに関係ないウイコレ用語は絶対に混ぜない。',
+].join('\n');
+
 async function buildWicolleKnowledgeContext() {
   const staticParts = [
     '=== ウイコレ静的知識ベース（正確な情報。必ずこの内容を優先すること） ===',
@@ -542,7 +599,7 @@ async function buildWicolleKnowledgeContext() {
       ? fetchWicolleOfficialNews({ timeoutMs: 6000, maxItems: 6 })
       : Promise.resolve(null),
     getXTrends().catch(() => null),
-    getRecentResearchReports(3).catch(() => []),
+    getRecentResearchReports(3, { category: 'uicolle' }).catch(() => []),
   ]);
 
   let dynamicNews = '';
@@ -585,19 +642,57 @@ async function buildWicolleKnowledgeContext() {
   };
 }
 
-function extractResearchKeywords(text) {
-  const t = String(text || '').normalize('NFKC');
-  if (/タイタン/.test(t)) return 'タイタン 攻略';
-  if (/division\s*1|div\s*1|ディビジョン\s*1/i.test(t)) return 'Division1 攻略';
-  if (/無課金/.test(t)) return '無課金 攻略';
-  if (/センス|アドセンス/.test(t)) return 'センス アドセンス 攻略';
-  const stripped = t.replace(/[調査|共通|推奨|まとめ|動画|記事|複数|してほしい|してください]/g, '').trim();
-  return stripped.slice(0, 20) + ' 攻略';
+async function buildGeneralResearchKnowledgeContext(category) {
+  const reports = await getRecentResearchReports(4, { category }).catch(() => []);
+  if (!reports.length) {
+    return {
+      text: '',
+      hasXTrends: false,
+      hasOfficialNews: false,
+      hasResearchReports: false,
+    };
+  }
+  const label = getResearchCategoryLabel(category);
+  const lines = reports.map(r =>
+    `【${r.caseId}】${r.savedAtIso?.slice(0, 10) || ''} カテゴリ: ${getResearchCategoryLabel(r.category || category)} テーマ: ${r.topic}\n${String(r.summary || '').slice(0, 500)}`
+  );
+  return {
+    text: `=== 秘書トラペル子の過去調査レポート（${label}の蓄積知識） ===\n` +
+      `以下は同じカテゴリの過去調査。新しい質問への回答に活用し、同じ話を繰り返さず更新点を足すこと。\n\n` +
+      lines.join('\n\n---\n\n'),
+    hasXTrends: false,
+    hasOfficialNews: false,
+    hasResearchReports: true,
+  };
 }
 
-async function fetchResearchXPosts(researchQuery) {
-  const keyword = extractResearchKeywords(researchQuery);
-  const queries = [`ウイコレ ${keyword}`, 'ウイコレ タイタン 無課金'];
+async function buildResearchKnowledgeContext(category) {
+  return category === 'uicolle'
+    ? buildWicolleKnowledgeContext()
+    : buildGeneralResearchKnowledgeContext(category);
+}
+
+function extractResearchKeywords(text, category = 'uicolle') {
+  const t = String(text || '').normalize('NFKC');
+  if (category === 'uicolle') {
+    if (/タイタン/.test(t)) return 'タイタン 攻略';
+    if (/division\s*1|div\s*1|ディビジョン\s*1/i.test(t)) return 'Division1 攻略';
+    if (/無課金/.test(t)) return '無課金 攻略';
+    if (/センス|アドセンス/.test(t)) return 'センス アドセンス 攻略';
+  }
+  const stripped = t
+    .replace(/(@?秘書トラペル子|調査して|調査し|調べて|調べてほしい|リサーチ|まとめ|整理|レポート|ポイント|紹介|共有|してほしい|してください)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const base = stripped.slice(0, 32) || getResearchCategoryLabel(category);
+  return category === 'uicolle' ? `${base} 攻略` : base;
+}
+
+async function fetchResearchXPosts(researchQuery, category = 'uicolle') {
+  const keyword = extractResearchKeywords(researchQuery, category);
+  const queries = category === 'uicolle'
+    ? [`ウイコレ ${keyword}`, 'ウイコレ タイタン 無課金']
+    : [keyword, `${keyword} 最新`, `${keyword} 評判`];
   try {
     const results = await Promise.all(queries.map(q =>
       fetch(
@@ -644,7 +739,7 @@ async function fetchResearchXPosts(researchQuery) {
         return { text: text.slice(0, 200), likes: e?.likesCount || e?.favoriteCount || 0, retweets: e?.rtCount || e?.retweetCount || 0 };
       }).filter(Boolean);
     }).sort((a, b) => (b.likes + b.retweets * 2) - (a.likes + a.retweets * 2)).slice(0, 12);
-    console.log('[research:xposts] got', posts.length, 'posts for:', keyword);
+    console.log('[research:xposts] got', posts.length, 'posts for:', keyword, 'category:', category);
     return posts;
   } catch (err) {
     console.error('[research:xposts] outer error:', err?.message || err);
@@ -652,14 +747,14 @@ async function fetchResearchXPosts(researchQuery) {
   }
 }
 
-async function fetchResearchYouTubeVideos(researchQuery) {
+async function fetchResearchYouTubeVideos(researchQuery, category = 'uicolle') {
   const apiKey = process.env.YOUTUBE_API_KEY;
   if (!apiKey) {
     console.warn('[research:youtube] YOUTUBE_API_KEY not set');
     return [];
   }
-  const keyword = extractResearchKeywords(researchQuery);
-  const q = encodeURIComponent(`ウイコレ ${keyword}`);
+  const keyword = extractResearchKeywords(researchQuery, category);
+  const q = encodeURIComponent(category === 'uicolle' ? `ウイコレ ${keyword}` : keyword);
   // 180日以内（60日だと結果が少なすぎるケースがある）
   const since = new Date(Date.now() - 180 * 24 * 3600 * 1000).toISOString();
   try {
@@ -686,7 +781,7 @@ async function fetchResearchYouTubeVideos(researchQuery) {
         publishedAt: String(item.snippet?.publishedAt || '').slice(0, 10),
         url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
       }));
-    console.log('[research:youtube] got', videos.length, 'videos for:', keyword);
+    console.log('[research:youtube] got', videos.length, 'videos for:', keyword, 'category:', category);
     return videos;
   } catch (err) {
     console.error('[research:youtube] fetch failed:', err?.message || err);
@@ -704,9 +799,10 @@ function buildResearchSources({ knowledgeResult = {}, xPosts = [], youtubeVideos
   };
 }
 
-function buildFallbackResearchReport({ caseId, topic, knowledgeResult = {}, xPosts = [], youtubeVideos = [], reason = '' } = {}) {
+function buildFallbackResearchReport({ caseId, topic, category = 'uicolle', knowledgeResult = {}, xPosts = [], youtubeVideos = [], reason = '' } = {}) {
   const safeCaseId = caseId || 'NB-UNKNOWN';
-  const safeTopic = String(topic || 'ウイコレ攻略調査').replace(/\s+/g, ' ').slice(0, 80);
+  const categoryLabel = getResearchCategoryLabel(category);
+  const safeTopic = String(topic || `${categoryLabel}調査`).replace(/\s+/g, ' ').slice(0, 80);
   const yt = Array.isArray(youtubeVideos) ? youtubeVideos.slice(0, 3) : [];
   const xp = Array.isArray(xPosts) ? xPosts.slice(0, 3) : [];
   const sourceLines = [];
@@ -723,16 +819,48 @@ function buildFallbackResearchReport({ caseId, topic, knowledgeResult = {}, xPos
 
   const hintLines = [];
   if (yt.length) {
-    hintLines.push(`・動画側では「${yt[0].title}」など、タイタン/上位攻略系の話題を確認。`);
+    hintLines.push(category === 'uicolle'
+      ? `・動画側では「${yt[0].title}」など、タイタン/上位攻略系の話題を確認。`
+      : `・動画側では「${yt[0].title}」など、${categoryLabel}に近い話題を確認。`);
   }
   if (xp.length) {
     hintLines.push(`・X側では「${xp[0].text.slice(0, 80)}」という声を確認。`);
   }
   if (!hintLines.length) {
-    hintLines.push('・外部取得が薄いため、既存のウイコレ知識と直近トレンドを軸に暫定整理。');
+    hintLines.push(category === 'uicolle'
+      ? '・外部取得が薄いため、既存のウイコレ知識と直近トレンドを軸に暫定整理。'
+      : `・外部取得が薄いため、${categoryLabel}の過去調査と一般的な判断軸から暫定整理。`);
   }
 
   const reasonLine = reason ? `生成補足: ${String(reason).replace(/\s+/g, ' ').slice(0, 80)}` : '';
+  if (category !== 'uicolle') {
+    return [
+      `【${safeCaseId} 調査完了レポート】`,
+      `${categoryLabel}: ${safeTopic} の暫定調査`,
+      '',
+      '▶ 調査サマリー',
+      'AI本文生成が混み合ったため、取得できた外部材料と過去調査から暫定版として整理するね。',
+      '現時点では、目的・予算・期限・失敗したくない条件を先に固定してから比較するのが安全。',
+      '',
+      '① 判断軸',
+      '・候補は「価格/時間/手間/失敗リスク/続けやすさ」で分けて見る。',
+      '・最新情報が必要な内容は、公式・一次情報・直近レビューを優先して確認する。',
+      '',
+      '② 取得できた材料',
+      ...hintLines,
+      '',
+      '③ 次の一手',
+      '・優先条件を1つだけ決めると、次回の調査で候補をかなり絞れる。',
+      '・同じカテゴリの調査は保存済みなので、次回は今回の内容を前提に更新できる。',
+      '',
+      '▶ 秘書所感',
+      '完全版まで出し切れなかった分、材料はちゃんと残すね。次はこの本棚から続きを引いて、もっと外さない形に寄せる。',
+      reasonLine,
+      '',
+      '▶ 参考ソース',
+      ...sourceLines,
+    ].filter(Boolean).join('\n');
+  }
 
   return [
     `【${safeCaseId} 調査完了レポート】`,
@@ -773,10 +901,12 @@ function isUsableResearchReport(text) {
   return requiredSections.every(pattern => pattern.test(value));
 }
 
-function buildStrictResearchRepairInput({ caseId, topic, sourceContext, previousText = '', reason = '', nowJST = '' } = {}) {
+function buildStrictResearchRepairInput({ caseId, topic, category = 'general', sourceContext, previousText = '', reason = '', nowJST = '' } = {}) {
+  const categoryLabel = getResearchCategoryLabel(category);
   return [
     `調査実行日時: ${nowJST}`,
     caseId ? `案件ID: ${caseId}` : '',
+    `調査カテゴリ: ${categoryLabel} (${category})`,
     '',
     '【再生成指示】',
     '前回の調査レポートは短すぎる、または必要セクションが不足していた。',
@@ -832,13 +962,16 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   console.log('[research] models:', modelCandidates.join(', '));
 
   const topic = chosenTask || request;
+  const category = detectResearchCategory(`${request || ''} ${chosenTask || ''}`);
+  const categoryLabel = getResearchCategoryLabel(category);
   const nowJST = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false });
+  console.log('[research] category:', category, categoryLabel);
 
   // 全ソースを並列取得。個別失敗で調査全体を落とさない。
   const [knowledgeSettled, xPostsSettled, youtubeSettled] = await Promise.allSettled([
-    buildWicolleKnowledgeContext(),
-    fetchResearchXPosts(topic),
-    fetchResearchYouTubeVideos(topic),
+    buildResearchKnowledgeContext(category),
+    fetchResearchXPosts(topic, category),
+    fetchResearchYouTubeVideos(topic, category),
   ]);
   const knowledgeResult = knowledgeSettled.status === 'fulfilled'
     ? knowledgeSettled.value
@@ -853,10 +986,11 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   const fallback = reason => {
     console.warn('[research] fallback report:', reason);
     return {
-      text: buildFallbackResearchReport({ caseId, topic, knowledgeResult, xPosts, youtubeVideos, reason }),
+      text: buildFallbackResearchReport({ caseId, topic, category, knowledgeResult, xPosts, youtubeVideos, reason }),
       sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos }),
       fallback: true,
       reason,
+      category,
     };
   };
 
@@ -867,11 +1001,18 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   // → 知識ベースを大量注入するとGeminiが「既に情報がある」と判断しWeb検索しなくなる
   // → システムプロンプト（RESEARCH_SYSTEM_PROMPT）のゲーム知識で代替
   const contextLines = [];
+  if (category !== 'uicolle' && knowledgeResult.text) {
+    contextLines.push(knowledgeResult.text);
+  }
   if (knowledgeResult.hasXTrends) {
     // xTrends要約のみ抽出して渡す（"=== Xコミュニティの現在の声 ==="ブロック）
     const xBlock = knowledgeResult.text.match(/=== Xコミュニティの現在の声[\s\S]*?(?===|$)/);
     if (xBlock) contextLines.push(xBlock[0].trim());
   }
+  const priorReportBlock = category === 'uicolle'
+    ? knowledgeResult.text.match(/=== 秘書トラペル子の過去調査レポート[\s\S]*$/)
+    : null;
+  if (priorReportBlock) contextLines.push(priorReportBlock[0].trim());
   if (youtubeVideos.length) {
     contextLines.push('\n=== 事前に確認した関連動画（タイトル参考） ===');
     youtubeVideos.forEach((v, i) =>
@@ -882,12 +1023,15 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
     contextLines.push('\n=== Xユーザーの最新投稿（Yahoo Realtime Search） ===');
     xPosts.slice(0, 6).forEach((p, i) => contextLines.push(`[X${i + 1}] ${p.text}`));
   }
-  const sourceContext = contextLines.join('\n').trim() || '外部取得済み材料なし。既存のウイコレ仕様・メタ知識を使うこと。';
+  const sourceContext = contextLines.join('\n').trim() || (category === 'uicolle'
+    ? '外部取得済み材料なし。既存のウイコレ仕様・メタ知識を使うこと。'
+    : `外部取得済み材料なし。${categoryLabel}の一般的な判断軸と、同カテゴリの過去調査があれば蓄積知識を使うこと。`);
 
   const inputLines = [
     `調査実行日時: ${nowJST}`,
     caseId ? `案件ID: ${caseId}` : '',
-    gameContext ? `背景情報: ${gameContext}` : '',
+    `調査カテゴリ: ${categoryLabel} (${category})`,
+    category === 'uicolle' && gameContext ? `背景情報: ${gameContext}` : '',
     contextLines.length ? '' : '',
     ...contextLines,
     '',
@@ -904,9 +1048,11 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   }
   const input = inputLines.filter(Boolean).join('\n');
 
+  const systemPrompt = category === 'uicolle' ? RESEARCH_SYSTEM_PROMPT : GENERAL_RESEARCH_SYSTEM_PROMPT;
+
   const callGeminiOnce = async ({ label, inputText, useGrounding = true, maxOutputTokens = 2400, temperature = 0.35, topP = 0.85, timeoutMs = 45000, models = modelCandidates }) => {
     const body = {
-      systemInstruction: { parts: [{ text: RESEARCH_SYSTEM_PROMPT }] },
+      systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: 'user', parts: [{ text: inputText }] }],
       generationConfig: { maxOutputTokens, temperature, topP, thinkingConfig: { thinkingBudget: 0 } },
     };
@@ -1016,6 +1162,7 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
     const inputText = attempt.inputText || buildStrictResearchRepairInput({
       caseId,
       topic,
+      category,
       sourceContext,
       previousText,
       reason: lastReason,
@@ -1025,7 +1172,7 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
     if (result.text && (!bestResult || result.text.length > bestResult.text.length)) bestResult = result;
     if (result.ok) {
       console.log('[research] usable report:', attempt.label, 'length:', result.text.length);
-      return { text: result.text, sources: result.sources };
+      return { text: result.text, sources: result.sources, category };
     }
     previousText = result.text || previousText;
     lastReason = result.reason || 'unusable report';

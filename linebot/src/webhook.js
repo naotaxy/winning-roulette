@@ -1864,7 +1864,9 @@ async function runResearchRerunTask({ client, sourceId, rerunCaseId, rerunCaseDa
       await saveResearchReport(rerunCaseId, {
         topic: rerunChosenText || rerunCaseData?.request || '',
         text: resultText,
+        category: researchResult.category || 'general',
         webSourceCount: resultSources.webSources?.length || 0,
+        sources: resultSources,
       });
       console.log('[noblesse:rerun] research report persisted:', rerunCaseId);
     } catch (err) {
