@@ -13,7 +13,7 @@ const {
 } = require('./uicolle-knowledge');
 
 const { fetchWicolleOfficialNews } = require('./wicolle-official-news');
-const { getXTrends } = require('./firebase-admin');
+const { getXTrends, getRecentResearchReports } = require('./firebase-admin');
 
 const NOBLESSE_TRIGGER = /(したい|してほしい|決めたい|計画(して|したい)|手配(して|してほしい|しといて)|方法(は|を教えて)|どうすれば|どうしたら|アドバイス(ください|して|くれ|ほしい)|提案して|どうやって|相談したい|考えてほしい|考えて|段取り(して|頼む|お願い)|どこがいい|どこがおすすめ|どうしよう|下書き(作って|書いて|ほしい)|文面(作って|書いて|ほしい|お願い)|メール(作って|書いて|ほしい)|草稿(作って|書いて))/;
 
@@ -534,11 +534,12 @@ async function buildWicolleKnowledgeContext() {
   ].join('\n');
 
   // 動的データを並列取得（どちらが失敗しても無視）
-  const [officialNewsResult, xTrends] = await Promise.allSettled([
+  const [officialNewsResult, xTrends, recentReports] = await Promise.allSettled([
     process.env.WICOLLE_SSID
       ? fetchWicolleOfficialNews({ timeoutMs: 6000, maxItems: 6 })
       : Promise.resolve(null),
     getXTrends().catch(() => null),
+    getRecentResearchReports(3).catch(() => []),
   ]);
 
   let dynamicNews = '';
@@ -561,10 +562,23 @@ async function buildWicolleKnowledgeContext() {
 
   const hasOfficialNews = !!(newsResult?.ok && newsResult.allItems?.length);
 
+  // 過去の調査レポートを知識として追加
+  const reportsData = recentReports.status === 'fulfilled' ? (recentReports.value || []) : [];
+  let researchSection = '';
+  if (reportsData.length) {
+    const lines = reportsData.map(r =>
+      `【${r.caseId}】${r.savedAtIso?.slice(0, 10) || ''} テーマ: ${r.topic}\n${r.summary.slice(0, 400)}`
+    );
+    researchSection = `\n\n=== 秘書トラペル子の過去調査レポート（蓄積知識） ===\n` +
+      `（以下は過去に実行した調査結果。Xや動画から得た生の声を含む。新しい質問への回答にも活用すること）\n\n` +
+      lines.join('\n\n---\n\n');
+  }
+
   return {
-    text: staticParts + dynamicNews + xTrendsSection,
+    text: staticParts + dynamicNews + xTrendsSection + researchSection,
     hasXTrends,
     hasOfficialNews,
+    hasResearchReports: reportsData.length > 0,
   };
 }
 

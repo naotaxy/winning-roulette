@@ -1112,6 +1112,43 @@ async function saveResult(pending) {
   await ref.push(entry);
 }
 
+// ── 調査レポート知識ベース ─────────────────────────────────────────────────────
+const RESEARCH_REPORTS_ROOT = 'research/reports';
+
+async function saveResearchReport(caseId, { topic, text, webSourceCount = 0 } = {}) {
+  if (!caseId || !text) return;
+  const now = Date.now();
+  const payload = {
+    caseId,
+    topic: String(topic || '').slice(0, 200),
+    summary: String(text).slice(0, 900),
+    webSourceCount: Number(webSourceCount) || 0,
+    savedAt: now,
+    savedAtIso: new Date(now).toISOString(),
+  };
+  await Promise.all([
+    getDb().ref(`noblesse/cases/${caseId}/report`).update(payload),
+    getDb().ref(`${RESEARCH_REPORTS_ROOT}/${caseId}`).set(payload),
+  ]);
+  console.log('[firebase] research report saved:', caseId);
+}
+
+async function getRecentResearchReports(limit = 3) {
+  try {
+    const snap = await getDb().ref(RESEARCH_REPORTS_ROOT)
+      .orderByChild('savedAt')
+      .limitToLast(limit)
+      .once('value');
+    const raw = snap.val();
+    if (!raw) return [];
+    return Object.values(raw)
+      .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+  } catch (err) {
+    console.error('[firebase] getRecentResearchReports failed', err?.message);
+    return [];
+  }
+}
+
 // ── ノブレス案件ログ ──────────────────────────────────────────────────────────
 async function incrementNoblesseCaseCounter(dateStr) {
   const ref = getDb().ref(`meta/noblesse/counter/${dateStr}`);
@@ -1302,6 +1339,8 @@ module.exports = {
   getMemberProfile,
   saveMemberProfile,
   initMemberProfileStub,
+  saveResearchReport,
+  getRecentResearchReports,
   incrementNoblesseCaseCounter,
   saveNoblesseCase,
   getNoblesseCase,

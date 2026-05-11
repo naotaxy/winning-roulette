@@ -50,6 +50,7 @@ const {
   getWakeRecipeHistory,
   saveWakeRecipeHistoryEntry,
   getFlyerFavoriteStores,
+  saveResearchReport,
 } = require('./firebase-admin');
 const { resolveRealName, updateGroupProfiles, formatProfileForContext } = require('./member-profile');
 const { searchRestaurants, extractRestaurantParams, isRestaurantRequest, buildRestaurantCarousel } = require('./hotpepper');
@@ -1789,6 +1790,13 @@ async function handleText(event, client) {
       });
       const resultText = researchResult?.text || buildExecutionReport(rerunCaseId, rerunOption, rerunCaseData);
       const resultSources = researchResult?.sources || {};
+      if (researchResult?.text) {
+        saveResearchReport(rerunCaseId, {
+          topic: rerunCaseData?.chosenTask || rerunCaseData?.request || '',
+          text: resultText,
+          webSourceCount: resultSources.webSources?.length || 0,
+        }).catch(err => console.error('[noblesse:rerun] saveResearchReport failed', err?.message));
+      }
       await rememberPreparedSend(rerunCaseId, { kind: 'note', title: '攻略調査レポート', text: resultText, allowImmediateSend: true });
       await logCaseEvent(rerunCaseId, 'report_sent', { actorName: senderName || '', note: '調査実行完了' });
       if (sourceId) {

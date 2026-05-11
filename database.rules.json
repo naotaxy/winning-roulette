@@ -304,6 +304,13 @@
       ".write": false,
       ".indexOn": ["createdAt"]
     },
+    "research": {
+      ".read": false,
+      ".write": false,
+      "reports": {
+        ".indexOn": ["savedAt"]
+      }
+    },
     "pendingOcr": {
       ".read": false,
       ".write": false
