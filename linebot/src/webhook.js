@@ -1776,46 +1776,17 @@ async function handleText(event, client) {
         type: 'text',
         text: `「${taskPreview}」を今すぐ実行するね。少し待ってて。`,
       });
-      const researchResult = await callGeminiResearchSummary({
-        caseId: rerunCaseId,
-        request: rerunCaseData.request || '',
-        chosenTask: rerunChosenText,
-        gameContext: [
-          'ゲーム名: eFootball ウイコレ CHAMPION SQUADS（ウイコレ）。KONAMIのカードコレクション型モバイルゲーム。試合はカード戦力で自動計算。リアルタイム操作なし。',
-          'リーグ戦: DIVISION 1（最高位）〜DIVISION 8（最低）の全8階層。毎週開催・昇降格あり。リーグFINALで上位成績者がタイタン（最強決定戦）への出場権を獲得。',
-          '重要メカニクス: センス/アドセンス（選手特性の核）、スキル（カットビジョンが現在流行）、メタ変遷（旧:エレガントパス→エリアスイーパー対策、現:ビューティフルゲーム等ドリブル・中距離シュート系、新カウンター:メニャンのBallet ploof）、新キャラのスキル発動の重さ（無課金では扱いにくい）。',
-          'グループ状況: 無課金プレイヤー6人。月次縛りルールのリーグ戦を運営。メンバーの1人が4〜5年かけて初めてタイタン（最強決定戦）への出場権を獲得した。',
-          '【存在しない要素 — 絶対に言及しない】: スキルコンボ・ドリームボール・監督・コーチ・スタジアム建設・FIFA系要素・リアルタイム試合操作。',
-        ].join(' '),
+      setImmediate(() => {
+        runResearchRerunTask({
+          client,
+          sourceId,
+          rerunCaseId,
+          rerunCaseData,
+          rerunChosenText,
+          rerunOption,
+          senderName,
+        }).catch(err => console.error('[noblesse:rerun] background failed', err?.message || err));
       });
-      const resultText = researchResult?.text || buildExecutionReport(rerunCaseId, rerunOption, rerunCaseData);
-      const resultSources = researchResult?.sources || {};
-      if (researchResult?.text) {
-        try {
-          await saveResearchReport(rerunCaseId, {
-            topic: rerunChosenText || rerunCaseData?.request || '',
-            text: resultText,
-            webSourceCount: resultSources.webSources?.length || 0,
-          });
-          console.log('[noblesse:rerun] research report persisted:', rerunCaseId);
-        } catch (err) {
-          console.error('[noblesse:rerun] saveResearchReport failed', err?.message || err);
-        }
-      }
-      await rememberPreparedSend(rerunCaseId, { kind: 'note', title: '攻略調査レポート', text: resultText, allowImmediateSend: true });
-      await logCaseEvent(rerunCaseId, 'report_sent', { actorName: senderName || '', note: '調査実行完了' });
-      if (sourceId) {
-        const reportTextMessages = buildLongTextMessages(resultText);
-        const reportFlex = buildResearchReportFlex(rerunCaseId, resultText, resultSources);
-        try {
-          await client.pushMessage(sourceId, [...reportTextMessages, reportFlex].slice(0, 5));
-          console.log('[noblesse:rerun] research report pushed:', rerunCaseId);
-        } catch (err) {
-          console.error('[noblesse:rerun] push failed', err?.message || err);
-          await client.pushMessage(sourceId, { type: 'text', text: resultText.slice(0, 3500) })
-            .catch(pushErr => console.error('[noblesse:rerun] text fallback push failed', pushErr?.message || pushErr));
-        }
-      }
       return;
     }
     const rerunReport = buildExecutionReport(rerunCaseId, rerunOption, rerunCaseData);
@@ -1872,6 +1843,49 @@ async function handleText(event, client) {
     }
     return handleBookingTextIntent({ event, client, sourceId, userId, senderName, intent });
   }
+
+async function runResearchRerunTask({ client, sourceId, rerunCaseId, rerunCaseData, rerunChosenText, rerunOption, senderName }) {
+  const researchResult = await callGeminiResearchSummary({
+    caseId: rerunCaseId,
+    request: rerunCaseData.request || '',
+    chosenTask: rerunChosenText,
+    gameContext: [
+      'ゲーム名: eFootball ウイコレ CHAMPION SQUADS（ウイコレ）。KONAMIのカードコレクション型モバイルゲーム。試合はカード戦力で自動計算。リアルタイム操作なし。',
+      'リーグ戦: DIVISION 1（最高位）〜DIVISION 8（最低）の全8階層。毎週開催・昇降格あり。リーグFINALで上位成績者がタイタン（最強決定戦）への出場権を獲得。',
+      '重要メカニクス: センス/アドセンス（選手特性の核）、スキル（カットビジョンが現在流行）、メタ変遷（旧:エレガントパス→エリアスイーパー対策、現:ビューティフルゲーム等ドリブル・中距離シュート系、新カウンター:メニャンのBallet ploof）、新キャラのスキル発動の重さ（無課金では扱いにくい）。',
+      'グループ状況: 無課金プレイヤー6人。月次縛りルールのリーグ戦を運営。メンバーの1人が4〜5年かけて初めてタイタン（最強決定戦）への出場権を獲得した。',
+      '【存在しない要素 — 絶対に言及しない】: スキルコンボ・ドリームボール・監督・コーチ・スタジアム建設・FIFA系要素・リアルタイム試合操作。',
+    ].join(' '),
+  });
+  const resultText = researchResult?.text || buildExecutionReport(rerunCaseId, rerunOption, rerunCaseData);
+  const resultSources = researchResult?.sources || {};
+  if (researchResult?.text) {
+    try {
+      await saveResearchReport(rerunCaseId, {
+        topic: rerunChosenText || rerunCaseData?.request || '',
+        text: resultText,
+        webSourceCount: resultSources.webSources?.length || 0,
+      });
+      console.log('[noblesse:rerun] research report persisted:', rerunCaseId);
+    } catch (err) {
+      console.error('[noblesse:rerun] saveResearchReport failed', err?.message || err);
+    }
+  }
+  await rememberPreparedSend(rerunCaseId, { kind: 'note', title: '攻略調査レポート', text: resultText, allowImmediateSend: true });
+  await logCaseEvent(rerunCaseId, 'report_sent', { actorName: senderName || '', note: '調査実行完了' });
+  if (sourceId) {
+    const reportTextMessages = buildLongTextMessages(resultText);
+    const reportFlex = buildResearchReportFlex(rerunCaseId, resultText, resultSources);
+    try {
+      await client.pushMessage(sourceId, [...reportTextMessages, reportFlex].slice(0, 5));
+      console.log('[noblesse:rerun] research report pushed:', rerunCaseId);
+    } catch (err) {
+      console.error('[noblesse:rerun] push failed', err?.message || err);
+      await client.pushMessage(sourceId, { type: 'text', text: resultText.slice(0, 3500) })
+        .catch(pushErr => console.error('[noblesse:rerun] text fallback push failed', pushErr?.message || pushErr));
+    }
+  }
+}
 
   if (intent?.type === 'curatedPlan' && intent?.action === 'start') {
     const beastMode = await getBeastModeState(sourceId);

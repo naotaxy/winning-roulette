@@ -770,6 +770,27 @@ function isUsableResearchReport(text) {
   return requiredSections.every(pattern => pattern.test(value));
 }
 
+function buildStrictResearchRepairInput({ caseId, topic, sourceContext, previousText = '', reason = '', nowJST = '' } = {}) {
+  return [
+    `調査実行日時: ${nowJST}`,
+    caseId ? `案件ID: ${caseId}` : '',
+    '',
+    '【再生成指示】',
+    '前回の調査レポートは短すぎる、または必要セクションが不足していた。',
+    '以下の外部取得済み材料を使い、必ず完成版の調査完了レポートを書き直すこと。',
+    '出力は800〜1200文字。2行だけ、途中終了、要約だけは禁止。',
+    '必須セクション: １行目の【案件ID 調査完了レポート】、▶ 調査サマリー、①〜⑤、▶ 秘書所感、▶ 参考ソース。',
+    '参考ソースには、取得済みのYouTube/X/Webがある場合は必ず列挙する。',
+    reason ? `前回失敗理由: ${reason}` : '',
+    previousText ? `前回出力抜粋:\n${String(previousText).slice(0, 500)}` : '',
+    '',
+    sourceContext,
+    '',
+    '実行するタスク（承認済み）:',
+    buildUntrustedTextBlock('research_task', topic, 600, { redactPersonal: false }),
+  ].filter(Boolean).join('\n');
+}
+
 async function callGeminiResearchSummary({ caseId, request, chosenTask, gameContext }) {
   // 調査専用モデル: GEMINI_RESEARCH_MODEL → GEMINI_MODEL → デフォルト flash
   // flash はグラウンディング対応保証済み。チャット用の flash-lite とは別管理。
@@ -829,6 +850,7 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
     contextLines.push('\n=== Xユーザーの最新投稿（Yahoo Realtime Search） ===');
     xPosts.slice(0, 6).forEach((p, i) => contextLines.push(`[X${i + 1}] ${p.text}`));
   }
+  const sourceContext = contextLines.join('\n').trim() || '外部取得済み材料なし。既存のウイコレ仕様・メタ知識を使うこと。';
 
   const inputLines = [
     `調査実行日時: ${nowJST}`,
@@ -850,80 +872,118 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   }
   const input = inputLines.filter(Boolean).join('\n');
 
-  const baseBody = {
-    systemInstruction: { parts: [{ text: RESEARCH_SYSTEM_PROMPT }] },
-    contents: [{ role: 'user', parts: [{ text: input }] }],
-    generationConfig: { maxOutputTokens: 1600, temperature: 0.4, topP: 0.85 },
-  };
-
-  const controller = new AbortController();
-  // グラウンディング付きは検索に時間がかかるため 35 秒に延長
-  const timer = setTimeout(() => controller.abort(), 35000);
-  try {
-    // まずグラウンディング有りで試みる
-    let useGrounding = true;
-    let res = await fetch(url, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
-      body: JSON.stringify({ ...baseBody, tools: [{ googleSearch: {} }] }),
-    });
-
-    // 400/422 = モデルがグラウンディング非対応 → ツールなしで自動リトライ
-    if (!res.ok && (res.status === 400 || res.status === 422)) {
-      const errText = await res.text().catch(() => '');
-      console.warn('[research] grounding rejected (', res.status, '), retrying without tool:', errText.slice(0, 150));
-      useGrounding = false;
-      res = await fetch(url, {
+  const callGeminiOnce = async ({ label, inputText, useGrounding = true, maxOutputTokens = 2400, temperature = 0.35, topP = 0.85, timeoutMs = 45000 }) => {
+    const body = {
+      systemInstruction: { parts: [{ text: RESEARCH_SYSTEM_PROMPT }] },
+      contents: [{ role: 'user', parts: [{ text: inputText }] }],
+      generationConfig: { maxOutputTokens, temperature, topP },
+    };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let attemptedGrounding = useGrounding;
+    try {
+      console.log('[research] attempt:', label, 'grounding:', useGrounding, 'maxTokens:', maxOutputTokens);
+      let res = await fetch(url, {
         method: 'POST',
         signal: controller.signal,
         headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
-        body: JSON.stringify(baseBody),
+        body: JSON.stringify(useGrounding ? { ...body, tools: [{ googleSearch: {} }] } : body),
       });
-    }
 
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      console.error('[research] gemini http error', res.status, errBody.slice(0, 300));
-      return fallback(`Gemini HTTP ${res.status}`);
-    }
-    const data = await res.json();
-    const candidate = data?.candidates?.[0];
+      // 400/422 = モデルがグラウンディング非対応 → 同一attemptをツールなしで自動リトライ
+      if (!res.ok && useGrounding && (res.status === 400 || res.status === 422)) {
+        const errText = await res.text().catch(() => '');
+        console.warn('[research] grounding rejected (', res.status, '), retrying without tool:', errText.slice(0, 150));
+        attemptedGrounding = false;
+        res = await fetch(url, {
+          method: 'POST',
+          signal: controller.signal,
+          headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      }
 
-    // テキスト抽出（グラウンディング時の引用マーカー [1][2] を除去）
-    const chunks = [];
-    for (const part of candidate?.content?.parts || []) {
-      if (part?.text) chunks.push(part.text);
-    }
-    const text = chunks.join('\n').replace(/\[\d+\]/g, '').trim();
-    if (!text) return fallback('Gemini empty text');
-    if (!isUsableResearchReport(text)) {
-      console.warn('[research] unusable gemini report length:', text.length, 'head:', text.slice(0, 160));
-      return fallback(`Gemini short report length ${text.length}`);
-    }
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        console.error('[research] gemini http error', label, res.status, errBody.slice(0, 300));
+        return { ok: false, reason: `Gemini HTTP ${res.status}`, text: '', sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos }) };
+      }
 
-    // グラウンディングで実際に参照されたWebソースを抽出
-    const groundingMeta = candidate?.groundingMetadata;
-    const webSearchQueries = groundingMeta?.webSearchQueries || [];
-    const groundingChunks = useGrounding ? (groundingMeta?.groundingChunks || []) : [];
-    const webSources = groundingChunks
-      .map(c => c?.web)
-      .filter(w => w?.uri && w?.title)
-      .map(w => ({ title: String(w.title).slice(0, 80), uri: w.uri }))
-      .slice(0, 5);
-    console.log('[research] grounding:', useGrounding,
-      'queries:', webSearchQueries, 'chunks:', groundingChunks.length, 'webSources:', webSources.length);
+      const data = await res.json();
+      const candidate = data?.candidates?.[0];
+      const chunks = [];
+      for (const part of candidate?.content?.parts || []) {
+        if (part?.text) chunks.push(part.text);
+      }
+      const text = chunks.join('\n').replace(/\[\d+\]/g, '').trim();
+      const groundingMeta = candidate?.groundingMetadata;
+      const webSearchQueries = groundingMeta?.webSearchQueries || [];
+      const groundingChunks = attemptedGrounding ? (groundingMeta?.groundingChunks || []) : [];
+      const webSources = groundingChunks
+        .map(c => c?.web)
+        .filter(w => w?.uri && w?.title)
+        .map(w => ({ title: String(w.title).slice(0, 80), uri: w.uri }))
+        .slice(0, 5);
+      console.log('[research] attempt result:', label,
+        'length:', text.length,
+        'finishReason:', candidate?.finishReason || '',
+        'grounding:', attemptedGrounding,
+        'queries:', webSearchQueries,
+        'chunks:', groundingChunks.length,
+        'webSources:', webSources.length);
 
-    return {
-      text,
-      sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos, webSources }),
-    };
-  } catch (err) {
-    console.error('[research] gemini error', err?.message || err);
-    return fallback(err?.name === 'AbortError' ? 'Gemini timeout' : (err?.message || 'Gemini error'));
-  } finally {
-    clearTimeout(timer);
+      return {
+        ok: isUsableResearchReport(text),
+        text,
+        reason: text ? `unusable report length ${text.length}` : 'Gemini empty text',
+        sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos, webSources }),
+      };
+    } catch (err) {
+      console.error('[research] gemini attempt error', label, err?.message || err);
+      return {
+        ok: false,
+        text: '',
+        reason: err?.name === 'AbortError' ? `${label} timeout` : (err?.message || `${label} error`),
+        sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos }),
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const attempts = [
+    { label: 'primary-grounded', inputText: input, useGrounding: true, maxOutputTokens: 2600, temperature: 0.35 },
+    { label: 'repair-no-grounding', useGrounding: false, maxOutputTokens: 2600, temperature: 0.2 },
+    { label: 'repair-grounded', useGrounding: true, maxOutputTokens: 3000, temperature: 0.25 },
+  ];
+
+  let previousText = '';
+  let lastReason = '';
+  let bestResult = null;
+  for (const attempt of attempts) {
+    const inputText = attempt.inputText || buildStrictResearchRepairInput({
+      caseId,
+      topic,
+      sourceContext,
+      previousText,
+      reason: lastReason,
+      nowJST,
+    });
+    const result = await callGeminiOnce({ ...attempt, inputText });
+    if (result.text && (!bestResult || result.text.length > bestResult.text.length)) bestResult = result;
+    if (result.ok) {
+      console.log('[research] usable report:', attempt.label, 'length:', result.text.length);
+      return { text: result.text, sources: result.sources };
+    }
+    previousText = result.text || previousText;
+    lastReason = result.reason || 'unusable report';
+    console.warn('[research] unusable gemini report:', attempt.label, lastReason, 'head:', previousText.slice(0, 160));
   }
+
+  if (bestResult?.text) {
+    console.warn('[research] best imperfect report rejected length:', bestResult.text.length);
+  }
+  return fallback(lastReason || 'Gemini unusable after retries');
 }
 
 module.exports = { detectNoblesseIntent, formatNoblesseReply, isDraftRequest, generateNoblesseDraft, isResearchSummaryRequest, callGeminiResearchSummary };
