@@ -346,6 +346,7 @@ webhook.js
 | `flyer-stock-service.js` `buildRecipeFromFlyerSnapshot` | gemini-2.5-flash-lite | チラシからレシピ生成 | temp:0.5 / maxTokens:600 / thinkingBudget:0 |
 | `flyer-stock-service.js` `extractTokubaiLeafletItemsWithGemini` | gemini-2.5-flash-lite | チラシ画像OCR | temp:0.2 / maxTokens:800 / thinkingBudget:0 |
 | `secretary-chat.js` | gemini-2.5-flash-lite | AI 自然会話 | ai-chat.js のガード下で使用量管理 |
+| `noblesse-agent.js` `callGeminiResearchSummary` | gemini-2.5-flash (fallback: 2.5-flash-lite) | ノブレス調査レポート | temp:0.2-0.35 / maxTokens:2600-3000 / thinkingBudget:0 / Google Search grounding |
 | `generate-diary.js` | gemini-2.5-flash (fallback: 2.5-flash-lite) | 日記生成 | temp:0.9 / maxTokens:1400 / thinkingBudget:0 |
 
 > **重要**: Gemini 2.5 系はデフォルトで thinking mode が有効になりトークンを大量消費する。

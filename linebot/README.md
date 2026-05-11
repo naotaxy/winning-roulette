@@ -213,6 +213,8 @@ OK押下:
 | `AI_PROVIDER` | 任意。`gemini` 推奨。`openai` も指定可 |
 | `GEMINI_API_KEY` | 任意。Gemini無料枠で使うGoogle AI Studio APIキー |
 | `GEMINI_MODEL` | 任意。既定値は `gemini-2.5-flash-lite` |
+| `GEMINI_RESEARCH_MODEL` | 任意。ノブレス調査レポート用の主モデル。既定値は `gemini-2.5-flash` |
+| `GEMINI_RESEARCH_FALLBACK_MODELS` | 任意。調査主モデルが混雑/失敗した時のフォールバックCSV。既定値は `gemini-2.5-flash-lite` |
 | `GEMMA4_COUNCIL_ENABLED` | 任意。`true` でGemma4本気作戦会議を明示ON、`false` でOFF。未指定時は `AI_CHAT_ENABLED=true` かつ Gemini 利用時にON |
 | `GEMMA4_COUNCIL_MODEL` | 任意。Gemma4作戦会議のモデル。既定値は `gemma-4-26b-a4b-it` |
 | `GEMMA4_COUNCIL_THINKING` | 任意。`false` 以外ならGemma4のthinking level highを要求 |

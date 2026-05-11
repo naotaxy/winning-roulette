@@ -15,6 +15,9 @@ const {
 const { fetchWicolleOfficialNews } = require('./wicolle-official-news');
 const { getXTrends, getRecentResearchReports } = require('./firebase-admin');
 
+const DEFAULT_RESEARCH_GEMINI_MODEL = 'gemini-2.5-flash';
+const DEFAULT_RESEARCH_GEMINI_FALLBACK_MODELS = ['gemini-2.5-flash-lite'];
+
 const NOBLESSE_TRIGGER = /(したい|してほしい|決めたい|計画(して|したい)|手配(して|してほしい|しといて)|方法(は|を教えて)|どうすれば|どうしたら|アドバイス(ください|して|くれ|ほしい)|提案して|どうやって|相談したい|考えてほしい|考えて|段取り(して|頼む|お願い)|どこがいい|どこがおすすめ|どうしよう|下書き(作って|書いて|ほしい)|文面(作って|書いて|ほしい|お願い)|メール(作って|書いて|ほしい)|草稿(作って|書いて))/;
 
 function detectNoblesseIntent(withoutMention) {
@@ -791,13 +794,42 @@ function buildStrictResearchRepairInput({ caseId, topic, sourceContext, previous
   ].filter(Boolean).join('\n');
 }
 
+function parseCommaList(value) {
+  return String(value || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function getResearchGeminiModels() {
+  const primary = process.env.GEMINI_RESEARCH_MODEL || DEFAULT_RESEARCH_GEMINI_MODEL;
+  const models = [
+    primary,
+    ...parseCommaList(process.env.GEMINI_RESEARCH_FALLBACK_MODELS),
+    ...DEFAULT_RESEARCH_GEMINI_FALLBACK_MODELS,
+    process.env.GEMINI_MODEL,
+  ];
+  const seen = new Set();
+  return models
+    .map(model => String(model || '').replace(/^models\//, '').trim())
+    .filter(model => {
+      if (!model || seen.has(model)) return false;
+      seen.add(model);
+      return true;
+    });
+}
+
+function isRetryableResearchGeminiStatus(status, payload = {}) {
+  const text = JSON.stringify(payload || '').toLowerCase();
+  return [404, 429, 500, 502, 503, 504].includes(Number(status)) ||
+    /unavailable|high demand|overloaded|timeout|temporar|rate limit|quota|not found/.test(text);
+}
+
 async function callGeminiResearchSummary({ caseId, request, chosenTask, gameContext }) {
-  // 調査専用モデル: GEMINI_RESEARCH_MODEL → GEMINI_MODEL → デフォルト flash
-  // flash はグラウンディング対応保証済み。チャット用の flash-lite とは別管理。
-  const rawModel = process.env.GEMINI_RESEARCH_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-  const model = rawModel.replace(/^models\//, '');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-  console.log('[research] model:', model);
+  // 調査専用モデル: GEMINI_RESEARCH_MODEL → GEMINI_RESEARCH_FALLBACK_MODELS → 既定fallback。
+  // 503 high demand が起きたら同じattempt内で別モデルへ逃がす。
+  const modelCandidates = getResearchGeminiModels();
+  console.log('[research] models:', modelCandidates.join(', '));
 
   const topic = chosenTask || request;
   const nowJST = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false });
@@ -872,89 +904,109 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   }
   const input = inputLines.filter(Boolean).join('\n');
 
-  const callGeminiOnce = async ({ label, inputText, useGrounding = true, maxOutputTokens = 2400, temperature = 0.35, topP = 0.85, timeoutMs = 45000 }) => {
+  const callGeminiOnce = async ({ label, inputText, useGrounding = true, maxOutputTokens = 2400, temperature = 0.35, topP = 0.85, timeoutMs = 45000, models = modelCandidates }) => {
     const body = {
       systemInstruction: { parts: [{ text: RESEARCH_SYSTEM_PROMPT }] },
       contents: [{ role: 'user', parts: [{ text: inputText }] }],
-      generationConfig: { maxOutputTokens, temperature, topP },
+      generationConfig: { maxOutputTokens, temperature, topP, thinkingConfig: { thinkingBudget: 0 } },
     };
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let attemptedGrounding = useGrounding;
-    try {
-      console.log('[research] attempt:', label, 'grounding:', useGrounding, 'maxTokens:', maxOutputTokens);
-      let res = await fetch(url, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
-        body: JSON.stringify(useGrounding ? { ...body, tools: [{ googleSearch: {} }] } : body),
-      });
-
-      // 400/422 = モデルがグラウンディング非対応 → 同一attemptをツールなしで自動リトライ
-      if (!res.ok && useGrounding && (res.status === 400 || res.status === 422)) {
-        const errText = await res.text().catch(() => '');
-        console.warn('[research] grounding rejected (', res.status, '), retrying without tool:', errText.slice(0, 150));
-        attemptedGrounding = false;
-        res = await fetch(url, {
+    let bestResult = null;
+    let lastResult = null;
+    for (const model of models) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let attemptedGrounding = useGrounding;
+      try {
+        console.log('[research] attempt:', label, 'model:', model, 'grounding:', useGrounding, 'maxTokens:', maxOutputTokens);
+        let res = await fetch(url, {
           method: 'POST',
           signal: controller.signal,
           headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify(useGrounding ? { ...body, tools: [{ googleSearch: {} }] } : body),
         });
-      }
 
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        console.error('[research] gemini http error', label, res.status, errBody.slice(0, 300));
-        return { ok: false, reason: `Gemini HTTP ${res.status}`, text: '', sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos }) };
-      }
+        // 400/422 = モデルがグラウンディング非対応 → 同一attemptをツールなしで自動リトライ
+        if (!res.ok && useGrounding && (res.status === 400 || res.status === 422)) {
+          const errText = await res.text().catch(() => '');
+          console.warn('[research] grounding rejected (', res.status, '), retrying without tool:', errText.slice(0, 150));
+          attemptedGrounding = false;
+          res = await fetch(url, {
+            method: 'POST',
+            signal: controller.signal,
+            headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+        }
 
-      const data = await res.json();
-      const candidate = data?.candidates?.[0];
-      const chunks = [];
-      for (const part of candidate?.content?.parts || []) {
-        if (part?.text) chunks.push(part.text);
-      }
-      const text = chunks.join('\n').replace(/\[\d+\]/g, '').trim();
-      const groundingMeta = candidate?.groundingMetadata;
-      const webSearchQueries = groundingMeta?.webSearchQueries || [];
-      const groundingChunks = attemptedGrounding ? (groundingMeta?.groundingChunks || []) : [];
-      const webSources = groundingChunks
-        .map(c => c?.web)
-        .filter(w => w?.uri && w?.title)
-        .map(w => ({ title: String(w.title).slice(0, 80), uri: w.uri }))
-        .slice(0, 5);
-      console.log('[research] attempt result:', label,
-        'length:', text.length,
-        'finishReason:', candidate?.finishReason || '',
-        'grounding:', attemptedGrounding,
-        'queries:', webSearchQueries,
-        'chunks:', groundingChunks.length,
-        'webSources:', webSources.length);
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          let errPayload = {};
+          try { errPayload = JSON.parse(errText); } catch (_) {}
+          console.error('[research] gemini http error', label, 'model:', model, res.status, errText.slice(0, 300));
+          lastResult = { ok: false, reason: `Gemini HTTP ${res.status} model ${model}`, text: '', sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos }) };
+          if (isRetryableResearchGeminiStatus(res.status, errPayload || errText)) continue;
+          return lastResult;
+        }
 
-      return {
-        ok: isUsableResearchReport(text),
-        text,
-        reason: text ? `unusable report length ${text.length}` : 'Gemini empty text',
-        sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos, webSources }),
-      };
-    } catch (err) {
-      console.error('[research] gemini attempt error', label, err?.message || err);
-      return {
-        ok: false,
-        text: '',
-        reason: err?.name === 'AbortError' ? `${label} timeout` : (err?.message || `${label} error`),
-        sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos }),
-      };
-    } finally {
-      clearTimeout(timer);
+        const data = await res.json();
+        const candidate = data?.candidates?.[0];
+        const chunks = [];
+        for (const part of candidate?.content?.parts || []) {
+          if (part?.text) chunks.push(part.text);
+        }
+        const text = chunks.join('\n').replace(/\[\d+\]/g, '').trim();
+        const groundingMeta = candidate?.groundingMetadata;
+        const webSearchQueries = groundingMeta?.webSearchQueries || [];
+        const groundingChunks = attemptedGrounding ? (groundingMeta?.groundingChunks || []) : [];
+        const webSources = groundingChunks
+          .map(c => c?.web)
+          .filter(w => w?.uri && w?.title)
+          .map(w => ({ title: String(w.title).slice(0, 80), uri: w.uri }))
+          .slice(0, 5);
+        console.log('[research] attempt result:', label,
+          'model:', model,
+          'length:', text.length,
+          'finishReason:', candidate?.finishReason || '',
+          'grounding:', attemptedGrounding,
+          'queries:', webSearchQueries,
+          'chunks:', groundingChunks.length,
+          'webSources:', webSources.length);
+
+        const result = {
+          ok: isUsableResearchReport(text),
+          text,
+          reason: text ? `unusable report length ${text.length} model ${model}` : `Gemini empty text model ${model}`,
+          sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos, webSources }),
+        };
+        if (result.ok) return result;
+        if (result.text && (!bestResult || result.text.length > bestResult.text.length)) bestResult = result;
+        lastResult = result;
+        continue;
+      } catch (err) {
+        console.error('[research] gemini attempt error', label, 'model:', model, err?.message || err);
+        lastResult = {
+          ok: false,
+          text: '',
+          reason: err?.name === 'AbortError' ? `${label} timeout model ${model}` : (err?.message || `${label} error model ${model}`),
+          sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos }),
+        };
+      } finally {
+        clearTimeout(timer);
+      }
     }
+    return bestResult || lastResult || {
+      ok: false,
+      text: '',
+      reason: `${label} no gemini result`,
+      sources: buildResearchSources({ knowledgeResult, xPosts, youtubeVideos }),
+    };
   };
 
   const attempts = [
     { label: 'primary-grounded', inputText: input, useGrounding: true, maxOutputTokens: 2600, temperature: 0.35 },
-    { label: 'repair-no-grounding', useGrounding: false, maxOutputTokens: 2600, temperature: 0.2 },
-    { label: 'repair-grounded', useGrounding: true, maxOutputTokens: 3000, temperature: 0.25 },
+    { label: 'repair-no-grounding', useGrounding: false, maxOutputTokens: 2600, temperature: 0.2, models: [...modelCandidates].reverse() },
+    { label: 'repair-grounded', useGrounding: true, maxOutputTokens: 3000, temperature: 0.25, models: [...modelCandidates].reverse() },
   ];
 
   let previousText = '';
