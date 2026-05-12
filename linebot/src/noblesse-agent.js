@@ -456,9 +456,16 @@ function isResearchSummaryRequest(text) {
     && /(まとめ|整理|レポート|ポイント|紹介|共有)/.test(t);
 }
 
+function isWorldCupRequest(text) {
+  const t = String(text || '');
+  if (!/(ワールドカップ|W杯|FIFA|サッカー.*ワールド)/.test(t)) return false;
+  return /(優勝|予想|オッズ|期待(国)?|有力|どこが|どの国|強い(国)?|可能性|勝つ|勝てる)/.test(t);
+}
+
 function detectResearchCategory(text) {
   const t = String(text || '').normalize('NFKC').toLowerCase();
   if (/(ウイコレ|efootball|champion squads|タイタン|division\s*1|div\s*1|ディビジョン|センス|アドセンス|スカウト|ガチャ|フォーメーション|ペレ|メニャン|カットビジョン|ballet ploof)/i.test(t)) return 'uicolle';
+  if (/(ワールドカップ|w杯|fifa|サッカー.*ワールド)/i.test(t)) return 'worldcup';
   if (/(副収入|収益|収益化|マネタイズ|booth|fanbox|sponsors|支援|有料|販売|売る|月額|サブスク|vrm|vroid)/i.test(t)) return 'monetization';
   if (/(ai|mcp|codex|claude|github|render|firebase|api|llm|gemini|openai|qwen|プログラム|コード|開発|自動化|iot|raspberry|ラズパイ|電子工作)/i.test(t)) return 'tech';
   if (/(dtp|印刷|製版|photoshop|illustrator|indesign|色補正|スキャン|学参|教科書|図録|作品集|加藤文明社|業務|仕事)/i.test(t)) return 'work';
@@ -471,6 +478,7 @@ function detectResearchCategory(text) {
 function getResearchCategoryLabel(category) {
   return {
     uicolle: 'ウイコレ攻略',
+    worldcup: 'ワールドカップ・スポーツ',
     shopping: '買い物・商品比較',
     outing: 'おでかけ・旅行・歴史散策',
     tech: 'AI・開発・技術',
@@ -574,6 +582,50 @@ const GENERAL_RESEARCH_SYSTEM_PROMPT = [
   '（参照したソースを箇条書きで列挙。Web検索結果があれば「・Web: タイトル（URL）」、YouTubeがあれば「・YouTube: タイトル / チャンネル」、Xがあれば「・Xの声」。内部知識だけの場合は「・過去調査レポート」など具体名で書く）',
   '',
   '全体900〜1400文字。絵文字なし。調査カテゴリに関係ないウイコレ用語は絶対に混ぜない。',
+].join('\n');
+
+const WORLDCUP_RESEARCH_SYSTEM_PROMPT = [
+  'あなたは「秘書トラペル子」。スポーツ分析と国際情報に強い25歳の女性秘書。',
+  '2026 FIFA ワールドカップ（開催地: アメリカ・カナダ・メキシコ）に関する調査を担当する。',
+  '',
+  '【2026 FIFA ワールドカップ 基礎情報】',
+  '・開催期間: 2026年6月11日〜7月19日',
+  '・開催地: アメリカ・カナダ・メキシコ（3カ国共催）',
+  '・参加国数: 48カ国（史上最多）',
+  '・決勝会場: MetLife Stadium（ニュージャージー州）',
+  '・前回（2022 カタール）優勝: アルゼンチン',
+  '',
+  '【調査の精度ルール】',
+  '・優勝予想・オッズは、直近のブックメーカー（Bet365・William Hill・Betfair・888sport等）の情報をWeb検索で必ず調べてから出す。',
+  '・オッズは倍率または優勝確率（%）で示し、ソースを明示する。',
+  '・大会開催中の場合は現在のトーナメントの状況（ベスト16/8/4）も確認する。',
+  '・一般論だけにせず、具体的な国名・選手名・数値を必ず出す。',
+  '・不確実な情報は「推定」と明示し、断定しない。',
+  '',
+  SECURITY_INSTRUCTIONS,
+  '依頼された調査・まとめタスクを実行し、以下のフォーマットで結果を返すこと。',
+  '',
+  '１行目: 「【（案件ID）調査完了レポート】」',
+  '２行目: 調査内容を一言で',
+  '空行',
+  '▶ 調査サマリー',
+  '（全体の要約を2〜3文。有力国と大会の現状を書く）',
+  '空行',
+  '①〜⑤の番号付き見出しで以下を整理する。',
+  '① 現在のオッズ上位国（直近ブックメーカー最新値）',
+  '② 有力候補の特徴と根拠（チーム状況・主力選手・直近の成績）',
+  '③ ダークホース（中位オッズで番狂わせ期待の国）',
+  '④ 大会の現状（開幕前なら出場国・グループ分け概況、開催中なら現在の通過チーム）',
+  '⑤ 秘書の優勝予想（根拠を一文添えて断言する）',
+  '各見出しの下に「・」箇条書き2〜3項目。一般論だけにしない。',
+  '空行',
+  '▶ 秘書所感',
+  '（面白い見どころ・注目試合・次に押さえるべきポイントを1〜2文）',
+  '空行',
+  '▶ 参考ソース',
+  '（参照したソースを箇条書き。Web検索結果があれば「・Web: タイトル（URL）」を優先して列挙。ウイコレ関連用語は絶対に混ぜない）',
+  '',
+  '全体900〜1400文字。絵文字なし。ウイコレ用語・ゲーム要素は絶対に混ぜない。',
 ].join('\n');
 
 async function buildWicolleKnowledgeContext() {
@@ -680,6 +732,11 @@ function extractResearchKeywords(text, category = 'uicolle') {
     if (/無課金/.test(t)) return '無課金 攻略';
     if (/センス|アドセンス/.test(t)) return 'センス アドセンス 攻略';
   }
+  if (category === 'worldcup') {
+    if (/オッズ/.test(t)) return '2026 FIFA ワールドカップ 優勝 オッズ ブックメーカー';
+    if (/予想|有力|期待/.test(t)) return '2026 FIFA ワールドカップ 優勝 予想';
+    return '2026 FIFA ワールドカップ 最新情報';
+  }
   const stripped = t
     .replace(/(@?秘書トラペル子|調査して|調査し|調べて|調べてほしい|リサーチ|まとめ|整理|レポート|ポイント|紹介|共有|してほしい|してください)/g, ' ')
     .replace(/\s+/g, ' ')
@@ -692,6 +749,8 @@ async function fetchResearchXPosts(researchQuery, category = 'uicolle') {
   const keyword = extractResearchKeywords(researchQuery, category);
   const queries = category === 'uicolle'
     ? [`ウイコレ ${keyword}`, 'ウイコレ タイタン 無課金']
+    : category === 'worldcup'
+    ? ['ワールドカップ 2026 優勝予想', 'W杯 2026 オッズ ブックメーカー']
     : [keyword, `${keyword} 最新`, `${keyword} 評判`];
   try {
     const results = await Promise.all(queries.map(q =>
@@ -833,6 +892,36 @@ function buildFallbackResearchReport({ caseId, topic, category = 'uicolle', know
   }
 
   const reasonLine = reason ? `生成補足: ${String(reason).replace(/\s+/g, ' ').slice(0, 80)}` : '';
+  if (category === 'worldcup') {
+    return [
+      `【${safeCaseId} 調査完了レポート】`,
+      `ワールドカップ 2026: ${safeTopic} の暫定調査`,
+      '',
+      '▶ 調査サマリー',
+      'AI本文生成が混み合ったため、既存の事前情報から暫定版として整理するね。オッズや最新の大会状況はリアルタイムデータが必要なため、以下は暫定情報として扱うこと。',
+      '',
+      '① オッズ上位国（暫定・2026年大会開幕前の事前予想ベース）',
+      '・フランス: 前回準優勝。エムバペ擁する世界最強クラスのスカッドで優勝筆頭候補。',
+      '・ブラジル: 南米予選突破。5度の優勝実績。ヴィニシウスらを軸に得点力は世界トップ。',
+      '・イングランド: ベリンガム・ケイン等の若きタレントが充実。悲願の初優勝を狙う。',
+      '',
+      '② ダークホース',
+      '・スペイン: ユーロ2024優勝の勢いを維持。ヤマル等20代以下の才能が突出。',
+      '・アルゼンチン: 連覇狙うメッシ率いる現王者。48チーム制でのロードはタフ。',
+      '',
+      '③ 大会概要（2026年）',
+      '・開催期間: 2026年6月11日〜7月19日（アメリカ・カナダ・メキシコ）',
+      '・参加国数: 48カ国（史上最多）。グループ16組 × 3チームの新方式。',
+      '・最新のオッズ・大会進行状況はWeb検索で直近情報を確認してね。',
+      '',
+      '▶ 秘書所感',
+      'リアルタイムのオッズはBet365等のブックメーカーサイトで確認できる。もう一度「実行」と送ってくれれば最新状況でレポートを出し直せるよ。',
+      reasonLine,
+      '',
+      '▶ 参考ソース',
+      ...sourceLines,
+    ].filter(Boolean).join('\n');
+  }
   if (category !== 'uicolle') {
     return [
       `【${safeCaseId} 調査完了レポート】`,
@@ -1048,7 +1137,9 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   }
   const input = inputLines.filter(Boolean).join('\n');
 
-  const systemPrompt = category === 'uicolle' ? RESEARCH_SYSTEM_PROMPT : GENERAL_RESEARCH_SYSTEM_PROMPT;
+  const systemPrompt = category === 'uicolle' ? RESEARCH_SYSTEM_PROMPT
+    : category === 'worldcup' ? WORLDCUP_RESEARCH_SYSTEM_PROMPT
+    : GENERAL_RESEARCH_SYSTEM_PROMPT;
 
   const callGeminiOnce = async ({ label, inputText, useGrounding = true, maxOutputTokens = 2400, temperature = 0.35, topP = 0.85, timeoutMs = 45000, models = modelCandidates }) => {
     const body = {
@@ -1185,4 +1276,4 @@ async function callGeminiResearchSummary({ caseId, request, chosenTask, gameCont
   return fallback(lastReason || 'Gemini unusable after retries');
 }
 
-module.exports = { detectNoblesseIntent, formatNoblesseReply, isDraftRequest, generateNoblesseDraft, isResearchSummaryRequest, callGeminiResearchSummary };
+module.exports = { detectNoblesseIntent, formatNoblesseReply, isDraftRequest, generateNoblesseDraft, isResearchSummaryRequest, isWorldCupRequest, callGeminiResearchSummary };

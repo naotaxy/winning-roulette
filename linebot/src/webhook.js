@@ -123,7 +123,7 @@ const {
   shouldRefreshUicolleNews,
 } = require('./wicolle-official-news');
 const { shouldUseAiChat, formatAiChatReply } = require('./ai-chat');
-const { detectNoblesseIntent, formatNoblesseReply, isResearchSummaryRequest, callGeminiResearchSummary } = require('./noblesse-agent');
+const { detectNoblesseIntent, formatNoblesseReply, isResearchSummaryRequest, isWorldCupRequest, callGeminiResearchSummary } = require('./noblesse-agent');
 const {
   generateCaseId,
   createCase,
@@ -1794,6 +1794,31 @@ async function handleText(event, client) {
     return client.replyMessage(event.replyToken, { type: 'text', text: rerunReport });
   }
 
+  if (intent === 'research:worldcup') {
+    const beastMode = await getBeastModeState(sourceId);
+    if (!beastMode.enabled) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: formatBeastModeLockedReply(),
+      });
+    }
+    const { date: dateStr } = getTokyoDateParts();
+    const caseId = await generateCaseId(dateStr);
+    const request = mentionInfo.withoutMention;
+    const topic = /オッズ/.test(request)
+      ? '2026 FIFA ワールドカップ 優勝 オッズ 海外ブックメーカー最新情報'
+      : '2026 FIFA ワールドカップ 優勝国予想 有力国';
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'ワールドカップの最新情報、今すぐ調べてくる。少し待ってて。',
+    });
+    setImmediate(() => {
+      runWorldCupResearchTask({ client, sourceId, caseId, request, topic })
+        .catch(err => console.error('[worldcup:research] background failed', err?.message || err));
+    });
+    return;
+  }
+
   if (intent === 'noblesse') {
     const beastMode = await getBeastModeState(sourceId);
     if (!beastMode.enabled) {
@@ -1885,6 +1910,42 @@ async function runResearchRerunTask({ client, sourceId, rerunCaseId, rerunCaseDa
       console.error('[noblesse:rerun] push failed', err?.message || err);
       await client.pushMessage(sourceId, { type: 'text', text: resultText.slice(0, 3500) })
         .catch(pushErr => console.error('[noblesse:rerun] text fallback push failed', pushErr?.message || pushErr));
+    }
+  }
+}
+
+async function runWorldCupResearchTask({ client, sourceId, caseId, request, topic }) {
+  const researchResult = await callGeminiResearchSummary({
+    caseId,
+    request,
+    chosenTask: topic,
+  });
+  const resultText = researchResult?.text || '';
+  const resultSources = researchResult?.sources || {};
+  if (resultText) {
+    try {
+      await saveResearchReport(caseId, {
+        topic,
+        text: resultText,
+        category: researchResult.category || 'worldcup',
+        webSourceCount: resultSources.webSources?.length || 0,
+        sources: resultSources,
+      });
+      console.log('[worldcup:research] report saved:', caseId);
+    } catch (err) {
+      console.error('[worldcup:research] save failed', err?.message || err);
+    }
+  }
+  if (sourceId) {
+    const reportTextMessages = buildLongTextMessages(resultText);
+    const reportFlex = buildResearchReportFlex(caseId, resultText, resultSources);
+    try {
+      await client.pushMessage(sourceId, [...reportTextMessages, reportFlex].slice(0, 5));
+      console.log('[worldcup:research] report pushed:', caseId);
+    } catch (err) {
+      console.error('[worldcup:research] push failed', err?.message || err);
+      await client.pushMessage(sourceId, { type: 'text', text: resultText.slice(0, 3500) })
+        .catch(pushErr => console.error('[worldcup:research] text fallback failed', pushErr?.message || pushErr));
     }
   }
 }
@@ -2612,6 +2673,8 @@ function detectTextIntent(text, options = {}) {
   if (/(状況|戦況|成績|調子|まとめ|誰が強い|だれが強い|勝ってる)/.test(targetText)) return 'status';
 
   if (isWeatherRequest(targetText)) return 'weather';
+
+  if (isWorldCupRequest(targetText)) return 'research:worldcup';
 
   const bookingCommand = detectBookingCommand(targetText);
   if (bookingCommand) return bookingCommand;
