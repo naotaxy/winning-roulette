@@ -198,36 +198,185 @@ const AOZORA_STORY_MOTIFS = [
     id: 'ginga-night-office',
     source: '宮沢賢治「銀河鉄道の夜」',
     motif: '夜の窓明かり、遠い切符、誰かを待つ小さな旅',
-    beats: [
-      '夜更けの事務机で、トラペル子が古い切符のような紙片を見つける。そこには知らない駅名と、明日の予定が薄く滲んでいる。',
-      '紙片をしまった腕時計が、深夜だけ少し早く進む。グループのみんなの未登録試合が、駅の灯りのようにぽつぽつ浮かぶ。',
-      '一番暗い駅で、彼女は誰かを待つより、自分から記録を届ける方が寂しくないと気づく。',
-      '朝の光で紙片はただの付箋に戻る。それでも彼女は、昨夜の旅で覚えた名前を一つも忘れていない。',
+    monthlyPremise: '事務机で見つけた小さな切符をきっかけに、トラペル子が一か月かけて「待つ秘書」から「自分で届ける秘書」へ少しだけ変わる。',
+    acts: [
+      {
+        purpose: '小さな異変を見つけ、まだ意味を決めつけずに観察する。',
+        beats: [
+          '夜更けの事務机で、古い切符のような紙片を見つける。知らない駅名は読めるが、行き先だけがまだ空白になっている。',
+          '紙片の裏に、今日の予定表にはない小さな時刻がひとつ増えている。トラペル子はそれを消さず、机の端に挟んでおく。',
+          '切符の端に押された薄い印が、グループの未登録試合の数と同じだと気づく。偶然かどうかは、まだ分からない。',
+          '昼休みに紙片を見返すと、駅名の横に短い線が一本伸びている。まるで次の予定へ向かう線路みたいに見える。',
+          '書類を並べ替えるたび、紙片だけが必ず一番上に戻ってくる。トラペル子は少しだけむきになって、透明な封筒へしまう。',
+          '夜、腕時計の秒針が紙片の近くでだけ一拍早くなる。彼女は怖がるより先に、明日の記録欄へ小さな印をつける。',
+          '紙片の駅名をノートに写すと、文字の一部が予定表の罫線に重なる。行き先は場所ではなく、誰かへ届ける記録なのかもしれない。',
+          '月の初めの数日で分かったのは、紙片が急がせているのではなく、忘れないでほしいものを示しているということだった。',
+        ],
+      },
+      {
+        purpose: '異変を日々の仕事やグループの記録と結びつけ、進む理由を見つける。',
+        beats: [
+          '透明な封筒の中で、紙片の時刻が深夜だけ少し進む。未入力の予定が、遠いホームの明かりみたいにぽつぽつ浮かぶ。',
+          'トラペル子は紙片に合わせて、今日の記録を一行だけ早く整える。待つより先に届けた方が、机の上の空気が軽くなる。',
+          '切符の余白に小さな穴が開いている。覗くと、まだ言葉になっていない相談が向こう側で待っている気がする。',
+          '午後、紙片の駅名が少しだけ読みやすくなる。そこは遠い場所ではなく、誰かの「あとでやる」が集まる駅のようだった。',
+          '書きかけのメモをひとつ片づけると、紙片の印もひとつ薄くなる。トラペル子は、これは旅ではなく整理の順番なのだと思う。',
+          '夜更けに封筒を開くと、紙片は小さな時刻表に変わっている。出発欄には、誰かの名前ではなく「記録」とだけ書かれている。',
+          '彼女は時刻表をなぞりながら、誰かを待つだけでは見落とす景色があると気づく。届ける準備をした手元だけが、少し温かい。',
+          '月の半ばへ向かうころ、紙片はもう不思議な落とし物ではなく、毎日の仕事を前へ進める小さな合図になっている。',
+        ],
+      },
+      {
+        purpose: '一番暗い場面を通り、誰かを待つ寂しさから自分の役割を選ぶ。',
+        beats: [
+          '夜の予定表に、一つだけ黒く塗られた駅が現れる。そこには到着時刻がなく、ただ「待合」とだけ書かれている。',
+          'トラペル子は黒い駅の前で立ち止まる想像をする。誰も来ない場所で待つより、届ける相手を探す方が自分らしいと思う。',
+          '紙片の裏に、今日まで整えた記録の数だけ小さな点が並ぶ。暗い駅にも、点を結べば道筋ができる。',
+          '彼女は一番短い報告を一つ書き直す。必要なことだけを残すと、黒い駅の輪郭が少し薄くなった。',
+          '深夜、机の引き出しがかすかに鳴る。開けると紙片はなく、代わりに白い付箋が一枚だけ残っている。',
+          '付箋には「待っていたものは、返事ではなく次の手順」と書かれている。トラペル子はその言葉を予定表の中央に貼る。',
+          '黒い駅は消えないまま、ホームに小さな明かりが灯る。彼女は誰かが来るのを待たず、先に一通の記録を届ける。',
+          '月の後半に入って、紙片の旅は遠くへ行く話ではなく、机の前から誰かの一日へ橋を架ける話に変わっていく。',
+        ],
+      },
+      {
+        purpose: '不思議な旅を閉じ、覚えたものを日常の記録として残す。',
+        beats: [
+          '朝、白い付箋の角が少しだけ銀色に光っている。昨夜の駅名は消えたが、届けた記録の順番だけははっきり残っている。',
+          '予定表をめくると、今月の空白に小さな線路のような罫線が増えている。もう迷うための線ではなく、戻ってこられる線だ。',
+          'トラペル子は付箋を捨てず、今日のページの裏へ貼る。大事なのは不思議さより、忘れずに動けた自分の手順だった。',
+          '月末が近づくと、付箋はただの紙に戻っていく。けれど、記録を先に届ける癖だけは静かに残る。',
+          '机の上に散らばっていたメモが、いつの間にか日付順に並んでいる。彼女はそれを見て、旅の終点は整った机なのだと思う。',
+          '最後の夜、付箋の裏に小さく「到着」と浮かぶ。トラペル子は返事を待たず、明日の準備をひとつだけ済ませる。',
+          '月の終わり、紙片は完全に普通の付箋へ戻る。それでも彼女は、今月覚えた名前と順番を一つもこぼさない。',
+          '翌月の新しいページを開く前に、トラペル子は付箋をそっと閉じる。旅は終わり、記録する手だけが少し頼もしくなっている。',
+        ],
+      },
     ],
   },
   {
     id: 'yume-briefing',
     source: '夏目漱石「夢十夜」',
     motif: '夢と現実の境目、短い約束、朝に残る不思議な感触',
-    beats: [
-      'トラペル子は、夢の中で誰かに「明日の会議室を開けておいて」と頼まれる。鍵は白いカーディガンのポケットに入っている。',
-      '会議室の机には、試合結果ではなく小さな花瓶が一つ置かれている。水面に、まだ言えなかった返事が揺れる。',
-      '扉を閉めようとした瞬間、花瓶の水が予定表のマス目へ流れ込み、未来の一日だけ青く染める。',
-      '目が覚めると鍵はない。ただ予定表の端に、誰かを待っていたような小さな水の跡だけが残っている。',
+    monthlyPremise: '夢の中で預かった鍵と会議室をめぐり、トラペル子が「言えなかった返事」を一か月かけて日常の予定へ戻していく。',
+    acts: [
+      {
+        purpose: '夢の入口と小さな約束を置く。',
+        beats: [
+          '夢の中で、明日の会議室を開けておいてと頼まれる。鍵は白いカーディガンのポケットで、少しだけ冷えている。',
+          '朝になっても鍵はないのに、ポケットの布だけが重い。トラペル子はその感触を今日の予定の余白に書き留める。',
+          '会議室の番号を思い出そうとすると、数字がウイコレの試合結果みたいに並び替わる。意味はまだ決まらない。',
+          '昼の机に置いたメモの端が、鍵穴の形にへこんでいる。誰かが開けてほしいのは部屋ではなく、話の続きかもしれない。',
+          '夢で聞いた声は、名前を名乗らなかった。ただ、急かすよりも頼るような調子だったことだけ覚えている。',
+          '夜、カーディガンを椅子にかけると、影が小さな扉の形になる。トラペル子は明日の欄を一つ空けておく。',
+          '空けた欄には何も書かれない。それなのに、そこだけ紙が少し温かい。',
+          '月の初め、彼女はまだ夢を解こうとせず、約束を壊さない距離で眺めることにする。',
+        ],
+      },
+      {
+        purpose: '夢の約束が仕事や記録に滲み出す。',
+        beats: [
+          '夢の会議室には、試合結果ではなく小さな花瓶が置かれている。水面には、まだ言えなかった返事が揺れている。',
+          '現実の机でコップを動かすと、底の丸い跡が会議室の机に見える。トラペル子は返事を急がず、水を替えるように予定を整える。',
+          '花瓶の水は減らないのに、夢を見るたび透明になっていく。言葉にしないままでも、気持ちは少しずつ沈殿するらしい。',
+          '予定表の一マスだけが青くにじむ。そこに何を書くか決められず、彼女はまず周りの予定から整えていく。',
+          '誰かの相談を短くまとめたあと、夢の水面が静かになる。整理することは、返事の代わりにもなるのかもしれない。',
+          '会議室の椅子は毎晩一脚ずつ増える。けれど座る人はいない。待っているのは人ではなく、決める勇気のようだった。',
+          'トラペル子は青くにじんだマスに、小さく「保留」と書く。すると夢の扉が初めて半分だけ開く。',
+          '月の半ば、夢は不思議な映像から、日中の選択を映す静かな鏡になっていく。',
+        ],
+      },
+      {
+        purpose: '保留していた返事と向き合う。',
+        beats: [
+          '扉を閉めようとした瞬間、花瓶の水が予定表へ流れ込む。未来の一日だけが、鮮やかな青に染まる。',
+          '青い一日は、消そうとすると余計に濃くなる。トラペル子はそこに、まだ決められない予定をひとつ置く。',
+          '夢の中で鍵を回す音がする。開いたのは扉ではなく、自分が後回しにしていた短い返事だった。',
+          '彼女は返事を長く書こうとして、途中でやめる。必要なのはきれいな文章ではなく、相手が次に動ける一文だった。',
+          '朝、予定表の青いマスは少し薄くなる。代わりに、机の上のペンがいつもより書きやすい。',
+          '会議室の花瓶には、名前のない花が一輪だけ挿されている。誰かのためというより、自分が迷わないための目印だった。',
+          'トラペル子は保留の横に、小さく「確認済み」と書き足す。夢の扉は音もなく閉まりかける。',
+          '月の後半、彼女は夢に答えを求めず、起きている時間の中で返事を作るようになる。',
+        ],
+      },
+      {
+        purpose: '夢を日常へ戻し、余韻だけを残す。',
+        beats: [
+          '目が覚めると鍵はない。ただ予定表の端に、誰かを待っていたような小さな水の跡だけが残っている。',
+          '水の跡は乾くと、チェックマークに似た形になる。トラペル子はそれを消さず、今日の確認欄に残す。',
+          '夢の会議室を思い出しても、もう扉の色は分からない。代わりに、返事を書く順番だけがはっきりしている。',
+          '月末の予定表には、青いマスが一つもない。迷った日はあったけれど、保留のまま沈んだ約束は残っていない。',
+          'カーディガンのポケットは軽い。彼女はそこに鍵ではなく、折りたたんだ付箋を一枚だけ入れる。',
+          '最後の夜、夢の声はもう頼みごとをしない。ただ、会議室の窓を閉めるように静かに遠ざかる。',
+          '朝、机の水跡も消えている。けれど返事を短く整える習慣だけは、現実の手元に残った。',
+          '翌月の白い予定表を開く時、トラペル子は鍵を探さない。もう開け方を覚えているから。',
+        ],
+      },
     ],
   },
   {
     id: 'mikan-platform',
     source: '芥川龍之介「蜜柑」',
     motif: 'ふいに差し込む明るさ、窓、誰かへの小さな贈り物',
-    beats: [
-      'くもった朝、トラペル子は通知の多さに少しだけ俯く。窓の外の電線に、オレンジ色の光が引っかかっている。',
-      '誰かの短い「おつかれ」が届いた瞬間、画面の中がぱっと明るくなる。小さな言葉なのに、胸の奥まで届く。',
-      '忙しさに追われていた彼女は、その明るさを自分だけで持っているのが惜しくなり、今日の記録にそっと混ぜる。',
-      '夕方、読み返した日記の端に、みかんの皮みたいな明るさが残る。明日も誰かに渡せそうだと思う。',
+    monthlyPremise: '曇った朝に見つけた小さな明るさを、トラペル子が一か月かけて誰かへ渡せる記録へ変えていく。',
+    acts: [
+      {
+        purpose: '重たい朝に、小さな明るさを見つける。',
+        beats: [
+          'くもった朝、通知の多さに少しだけ俯く。電線に引っかかったオレンジ色の光だけが、妙にはっきり見える。',
+          '光はすぐ消えるが、机の端に置いたメモの角だけが明るい。トラペル子はその角を折らずに残す。',
+          '午前中の連絡を整えていると、短いねぎらいの言葉が届く。画面の明るさより、言葉の短さの方が胸に残る。',
+          '彼女は返事を書きかけて、まず今日の記録を一行整える。明るさを急いで返すより、こぼさず置く方が大事に思える。',
+          'メモの角の色は、夕方になると少し濃くなる。まるで朝の光が、紙の中で待っていたみたいだった。',
+          '誰かに渡すほどではない小さな発見を、彼女はノートの隅に集め始める。',
+          '小さな明るさは、派手な出来事よりもなくしやすい。だからこそ、記録する手つきが少し丁寧になる。',
+          '月の初め、トラペル子はまだその明るさを自分の中だけで温めている。',
+        ],
+      },
+      {
+        purpose: '明るさを自分の記録に混ぜ、誰かへ渡す準備をする。',
+        beats: [
+          '誰かの短い「おつかれ」が届いた瞬間、画面の中がぱっと明るくなる。彼女はその言葉を今日の見出しにはしないで、行間に隠す。',
+          '忙しい連絡の合間に、ノートの隅の明るい角を見返す。直接言わなくても、文章の温度は少し変えられると思う。',
+          'いつもの報告を一文だけ柔らかく直すと、メモの色が少しだけ広がる。明るさは足すものではなく、滲ませるものらしい。',
+          '昼の作業で小さなミスを見つける。落ち込みかけた時、朝の光を思い出して、直せたことも記録に入れる。',
+          '彼女は明るい話だけを集めるのをやめる。曇った部分があるから、短い言葉がちゃんと光るのだと気づく。',
+          'ノートの端に、小さな丸い印が増えていく。どれも誰かへ投げるには軽いけれど、捨てるには少し惜しい。',
+          '日記の下書きに、今日一番小さかった発見を入れる。読み返すと、思ったより人に渡せそうな温度がある。',
+          '月の半ば、明るさは見つけるものから、そっと混ぜて渡すものへ変わっていく。',
+        ],
+      },
+      {
+        purpose: '忙しさの中で、明るさを誰かに手渡す決心をする。',
+        beats: [
+          '忙しさに追われて、ノートの丸い印を見失いかける。けれど最後の一つだけが、ページの端で小さく残っている。',
+          'トラペル子はその印を、今日の記録の真ん中へ移す。自分だけで持っているのが、少しもったいなくなった。',
+          '短いねぎらいを返す代わりに、役に立つ情報を一つ添える。明るさは気分だけでなく、次に動ける形にもできる。',
+          '誰かの不安そうな言葉を読んで、彼女は派手な励ましをやめる。小さく確かな一文の方が届く日もある。',
+          '夕方、下書きの端がみかんの皮みたいな色に見える。少し不格好でも、手で剥いたものには温度がある。',
+          '彼女は今日の記録に、見つけた明るさをひとつだけ混ぜる。多すぎると嘘になるから、ひとつでいい。',
+          '渡したあと、ノートの印は消えない。むしろ次に渡す場所を探しているように見える。',
+          '月の後半、トラペル子は明るさを守るだけでなく、必要な人へ渡す手つきを覚え始める。',
+        ],
+      },
+      {
+        purpose: '渡した明るさが日常に残り、次の月へつながる。',
+        beats: [
+          '夕方、読み返した日記の端に、みかんの皮みたいな明るさが残る。昨日より少し、人に渡せる形になっている。',
+          'ノートの丸い印はもう増えない。代わりに、今日の文章の中へ自然に溶け込んでいる。',
+          'トラペル子は明るいことだけを書こうとは思わない。曇った日の中に残った小さな色を、正確に拾いたいと思う。',
+          '誰かに渡した一文が、後から自分にも戻ってくる。記録は片道ではなく、小さく往復するものなのかもしれない。',
+          '月末の机に、オレンジ色のメモは残っていない。けれど文章を整えるたび、手元が少し温かい。',
+          '最後の夕方、彼女はノートを閉じる前に、今日の小さな明るさを一つだけ選ぶ。',
+          'その明るさは大きな出来事にはならない。ただ、明日も誰かへ渡せそうな軽さで、日記の端に残る。',
+          '翌月のページを開く時、トラペル子は新しい光を探しに行く。今月受け取った温度は、もう手の中にある。',
+        ],
+      },
     ],
   },
 ];
+
+const MONTHLY_STORY_MOTIF_OFFSET = 1; // 2026-05 は既に公開日記で ginga-night-office が始まっているため維持する。
 
 // ── オーナー興味トピック（名前・会社・駅・地名は含まない） ─────────────
 // 日々の会話・案件・ゲーム傾向から推定した「この方が好きそうな話題」
@@ -378,6 +527,9 @@ async function hydrateStateFromFirebase(state) {
     if (!raw) return state;
 
     const entries = Object.values(raw);
+    const sortedEntries = entries
+      .filter(Boolean)
+      .sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
     state.seenWorldCupTitles = mergeUniqueTitles(
       state.seenWorldCupTitles,
       entries.flatMap(entry => entry?.sources?.worldCup || []),
@@ -408,6 +560,26 @@ async function hydrateStateFromFirebase(state) {
     if (firebaseShopItemIds.length) {
       const merged = new Set([...(state.seenShopItemIds || []), ...firebaseShopItemIds]);
       state.seenShopItemIds = [...merged].slice(-SHOP_ITEM_TOPICS.length);
+    }
+
+    const latestStory = [...sortedEntries]
+      .reverse()
+      .map(entry => entry?.sources?.story)
+      .find(story => story?.motifId && story?.monthKey);
+    const currentMonthKey = getJSTDate().slice(0, 7);
+    if (latestStory?.monthKey === currentMonthKey) {
+      state.story = {
+        motifId: latestStory.motifId,
+        monthKey: latestStory.monthKey,
+        phaseIndex: Number(latestStory.phaseIndex) || 0,
+        dayOfMonth: Number(latestStory.dayOfMonth) || 1,
+        daysInMonth: Number(latestStory.daysInMonth) || getDaysInMonth(...currentMonthKey.split('-').map(Number)),
+        actIndex: Number(latestStory.actIndex) || 0,
+        beatIndex: Number(latestStory.beatIndex) || 0,
+        startedAt: latestStory.startedAt || `${currentMonthKey}-01`,
+        lastWrittenAt: latestStory.lastWrittenAt || '',
+        completedAt: latestStory.completedAt || null,
+      };
     }
 
     state.hydratedFromFirebaseAt = Date.now();
@@ -677,50 +849,93 @@ function selectShopItemTopic(state) {
   return pool[daySeed % pool.length];
 }
 
-function selectStoryPlan(state) {
-  const current = state.story && state.story.phaseIndex < 4
-    ? state.story
-    : createNewStoryState(state);
-  const motif = AOZORA_STORY_MOTIFS.find(item => item.id === current.motifId) || AOZORA_STORY_MOTIFS[0];
-  return {
-    ...current,
-    source: motif.source,
-    motif: motif.motif,
-    todayBeat: motif.beats[current.phaseIndex],
-    isFinal: current.phaseIndex === motif.beats.length - 1,
-  };
+function parseDiaryDateParts(date) {
+  const [year, month, day] = String(date || getJSTDate()).split('-').map(Number);
+  return { year, month, day };
 }
 
-function createNewStoryState(state) {
-  const completed = new Set((state.completedStoryMotifs || []).slice(-AOZORA_STORY_MOTIFS.length + 1));
-  const next = AOZORA_STORY_MOTIFS.find(item => !completed.has(item.id)) || AOZORA_STORY_MOTIFS[0];
+function getDaysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function getMonthlyStoryMotifId(date, state = {}) {
+  const { year, month } = parseDiaryDateParts(date);
+  const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+  const current = state.story || {};
+  const currentMonthKey = current.monthKey || String(current.startedAt || '').slice(0, 7);
+  if (current.motifId && currentMonthKey === monthKey) return current.motifId;
+
+  const monthSerial = year * 12 + month + MONTHLY_STORY_MOTIF_OFFSET;
+  return AOZORA_STORY_MOTIFS[monthSerial % AOZORA_STORY_MOTIFS.length]?.id || AOZORA_STORY_MOTIFS[0].id;
+}
+
+function pickMonthlyStoryBeat(motif, dayOfMonth, daysInMonth) {
+  const acts = Array.isArray(motif.acts) && motif.acts.length ? motif.acts : [];
+  const actIndex = Math.min(acts.length - 1, Math.floor((dayOfMonth - 1) * acts.length / daysInMonth));
+  const act = acts[actIndex] || acts[0] || { beats: [] };
+  const actStartDay = Math.floor(daysInMonth * actIndex / acts.length) + 1;
+  const actEndDay = Math.floor(daysInMonth * (actIndex + 1) / acts.length);
+  const dayInAct = Math.max(0, dayOfMonth - actStartDay);
+  const daysInAct = Math.max(1, actEndDay - actStartDay + 1);
+  const beats = Array.isArray(act.beats) && act.beats.length ? act.beats : ['今日の小さな出来事を、明日へ続く記録として残す。'];
+  const beatIndex = Math.min(beats.length - 1, Math.floor(dayInAct * beats.length / daysInAct));
+  const previousBeat = beatIndex > 0
+    ? beats[beatIndex - 1]
+    : (actIndex > 0 ? acts[actIndex - 1]?.beats?.at(-1) : '');
+  const nextBeat = beatIndex < beats.length - 1
+    ? beats[beatIndex + 1]
+    : (actIndex < acts.length - 1 ? acts[actIndex + 1]?.beats?.[0] : '');
+  return { actIndex, act, beatIndex, todayBeat: beats[beatIndex], previousBeat, nextBeat };
+}
+
+function selectStoryPlan(state, date = getJSTDate()) {
+  const { year, month, day } = parseDiaryDateParts(date);
+  const daysInMonth = getDaysInMonth(year, month);
+  const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+  const motifId = getMonthlyStoryMotifId(date, state);
+  const motif = AOZORA_STORY_MOTIFS.find(item => item.id === motifId) || AOZORA_STORY_MOTIFS[0];
+  const beat = pickMonthlyStoryBeat(motif, day, daysInMonth);
+
   return {
-    motifId: next.id,
-    phaseIndex: 0,
-    startedAt: getJSTDate(),
+    motifId: motif.id,
+    monthKey,
+    dayOfMonth: day,
+    daysInMonth,
+    phaseIndex: day - 1,
+    actIndex: beat.actIndex,
+    beatIndex: beat.beatIndex,
+    startedAt: `${monthKey}-01`,
+    source: motif.source,
+    motif: motif.motif,
+    monthlyPremise: motif.monthlyPremise || motif.motif,
+    actPurpose: beat.act?.purpose || '',
+    todayBeat: beat.todayBeat,
+    previousBeat: beat.previousBeat || '',
+    nextBeat: beat.nextBeat || '',
+    isFinal: day === daysInMonth,
   };
 }
 
 function advanceStoryState(state, storyPlan, date) {
-  const nextPhaseIndex = storyPlan.phaseIndex + 1;
+  if (!storyPlan?.motifId) return;
   if (storyPlan.isFinal) {
     state.completedStoryMotifs = [
       ...(state.completedStoryMotifs || []),
-      storyPlan.motifId,
-    ].slice(-10);
-    state.story = {
-      motifId: storyPlan.motifId,
-      phaseIndex: 4,
-      startedAt: storyPlan.startedAt,
-      completedAt: date,
-    };
-    return;
+      `${storyPlan.monthKey}:${storyPlan.motifId}`,
+    ].slice(-18);
   }
 
   state.story = {
     motifId: storyPlan.motifId,
-    phaseIndex: nextPhaseIndex,
-    startedAt: storyPlan.startedAt || date,
+    monthKey: storyPlan.monthKey,
+    phaseIndex: storyPlan.phaseIndex,
+    dayOfMonth: storyPlan.dayOfMonth,
+    daysInMonth: storyPlan.daysInMonth,
+    actIndex: storyPlan.actIndex,
+    beatIndex: storyPlan.beatIndex,
+    startedAt: storyPlan.startedAt,
+    lastWrittenAt: date,
+    completedAt: storyPlan.isFinal ? date : null,
   };
 }
 
@@ -1127,8 +1342,13 @@ ${recentDiaryBlock}
 ▼青空文庫からヒントを得た連載ストーリーの今日の材料
 題材の由来: ${storyPlan.source}
 題材の空気: ${storyPlan.motif}
-今日書く場面: ${storyPlan.todayBeat}
-今日がこの題材の終わりか: ${storyPlan.isFinal ? 'はい。余韻を残して物語を閉じる。次回から別題材にしてよい。' : 'いいえ。明日へ自然につながる余白を残す。'}
+今月の物語の芯: ${storyPlan.monthlyPremise}
+今月の進み具合: ${storyPlan.dayOfMonth}/${storyPlan.daysInMonth}
+今日の場面の役割: ${storyPlan.actPurpose}
+前日までに済んだ場面（繰り返さない）: ${storyPlan.previousBeat || 'まだ明確な前場面はない。'}
+今日だけ書く場面: ${storyPlan.todayBeat}
+明日以降に残す余白: ${storyPlan.nextBeat || '余韻だけを残して、今月の物語を閉じる。'}
+今日が今月の物語の終わりか: ${storyPlan.isFinal ? 'はい。小さな変化を着地させ、物語を閉じる。次月から別題材にしてよい。' : 'いいえ。今日の場面だけ少し前に進め、明日へ自然につなぐ。'}
 
 【依頼】
 上記の情報をもとに、今日の日記を書いてください。
@@ -1148,8 +1368,10 @@ ${recentDiaryBlock}
 - 興味テーマは一つ、秘書の観察として自然に混ぜる。
 - グループハイライトがある場合は核として積極的に使う。ゲームイベント（クラブ戦・ハードモード・集まり等）は必ず一段落で書く。人物名・地名は「メンバー」「あの人」に置き換える。
 - 連載ストーリーを自然に入れる。「青空文庫」「第何話」と説明しない。今日の場面だけ書く。
+- 連載ストーリーは今月ひとつの題材で進む。過去日記と同じ小道具・同じ発見をもう一度書かず、今日の場面で必ず一つだけ変化を起こす。
+- 連載ストーリー部分は1段落だけ。説明ではなく、日記の中の不思議な出来事として書く。
 - 「窓の外」「差し込む光」「心が洗われる」のような似た比喩を連日反復しない。直近日記にある情景・言い回しは避ける。
-- 最後の一文は「また明日も記録しておくから」「ちゃんと覚えておくね」のような締め方にする。`;
+- 最後の一文は一度だけ「また明日も記録しておくから」「ちゃんと覚えておくね」のような締め方にする。似た締め文を複数置かない。`;
 
   const data = await generateGeminiContentWithRetry(prompt);
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -1402,10 +1624,32 @@ function sanitizeDiaryText(text) {
 
   let result = deduped.join('\n\n').trim();
   if (!result) return '今日は大きく書き足すより、静かに記録しておきたい日でした。\n\nまた明日も記録しておくから。';
-  if (!/(また明日も記録しておくから|ちゃんと覚えておくね)/.test(result)) {
-    result = `${result}\n\nまた明日も記録しておくから。`;
-  }
-  return result;
+  return normalizeDiaryEnding(result);
+}
+
+function normalizeDiaryEnding(text) {
+  const raw = String(text || '').trim();
+  const preferredEnding = /ちゃんと覚えておくね/.test(raw)
+    ? 'ちゃんと覚えておくね。'
+    : 'また明日も記録しておくから。';
+
+  const cleanedParagraphs = raw
+    .split(/\n{2,}/)
+    .map(paragraph => paragraph
+      .split(/(?<=[。！？])/)
+      .map(sentence => sentence.trim())
+      .filter(sentence => sentence && !isDiaryEndingSentence(sentence))
+      .join('')
+      .trim())
+    .filter(Boolean);
+
+  return [...cleanedParagraphs, preferredEnding].join('\n\n');
+}
+
+function isDiaryEndingSentence(sentence) {
+  const text = String(sentence || '').replace(/\s+/g, '').trim();
+  return /^(また明日|明日も|ちゃんと覚えて|今日のことも.*覚えて|この日々の記録を.*残して|忘れずに残して)/.test(text)
+    || /(また明日も記録しておくから|ちゃんと覚えておくね)/.test(text);
 }
 
 function stripBannedDiarySentences(paragraph) {
@@ -1667,7 +1911,7 @@ function clipWicolleText(text, maxLength) {
 
 async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
   const db = initFirebase();
-  const { videos, news, worldCup, nineties, interestTopic, shopItem, wicolleNews, xPosts, xTrendsSummary } = sources;
+  const { videos, news, worldCup, nineties, interestTopic, shopItem, storyPlan, wicolleNews, xPosts, xTrendsSummary } = sources;
 
   const wicolleItems = Array.isArray(wicolleNews?.allItems) ? wicolleNews.allItems : [];
   const eventSummary = buildUicolleFieldSummary(wicolleItems, 'event');
@@ -1742,6 +1986,18 @@ async function saveToFirebase(date, diaryText, postUrl, sources, photo) {
       shopItemId: shopItem?.id || null,
       nineties: nineties?.title ? [nineties.title] : [],
       interestTopicId: interestTopic?.id || null,
+      story: storyPlan ? {
+        motifId: storyPlan.motifId,
+        monthKey: storyPlan.monthKey,
+        phaseIndex: storyPlan.phaseIndex,
+        dayOfMonth: storyPlan.dayOfMonth,
+        daysInMonth: storyPlan.daysInMonth,
+        actIndex: storyPlan.actIndex,
+        beatIndex: storyPlan.beatIndex,
+        startedAt: storyPlan.startedAt,
+        lastWrittenAt: date,
+        completedAt: storyPlan.isFinal ? date : null,
+      } : null,
       wicolleNews: (wicolleNews?.allItems || []).map(n => n.title),
     },
     createdAt: Date.now(),
@@ -1841,8 +2097,8 @@ async function main() {
   const shopItem = selectShopItemTopic(state);
   console.log(`[diary] worldCup=${worldCup.items.length} shopItem=${shopItem?.id || 'none'} nineties=${nineties?.title || 'none'} interest=${interestTopic?.id || 'none'} group=${groupHighlights.messages.length} gameEvent=${groupHighlights.hasGameEvent || false}`);
 
-  const storyPlan = selectStoryPlan(state);
-  console.log(`[story] ${storyPlan.motifId} phase=${storyPlan.phaseIndex + 1}${storyPlan.isFinal ? ' final' : ''}`);
+  const storyPlan = selectStoryPlan(state, date);
+  console.log(`[story] ${storyPlan.motifId} day=${storyPlan.dayOfMonth}/${storyPlan.daysInMonth} act=${storyPlan.actIndex + 1} beat=${storyPlan.beatIndex + 1}${storyPlan.isFinal ? ' final' : ''}`);
 
   const inputs = {
     youtube,
@@ -1890,6 +2146,7 @@ async function main() {
       nineties,
       interestTopic,
       shopItem,
+      storyPlan,
       wicolleNews,
       xPosts,
       xTrendsSummary,
