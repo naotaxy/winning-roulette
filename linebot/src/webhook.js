@@ -523,6 +523,8 @@ async function handleImage(event, client) {
   const ocrState = await getOcrAutomationState(sourceId);
   if (!ocrState.autoEnabled) {
     const senderName = await getSenderName(event, client, '不明');
+    const existingCandidates = await getScreenshotCandidates(sourceId, eventDate.date, 200).catch(() => []);
+    const queuedCount = existingCandidates.filter(c => c.status === 'queued').length;
     await saveScreenshotCandidate(sourceId, eventDate.date, msgId, {
       sourceId,
       userId: event.source?.userId || null,
@@ -535,7 +537,11 @@ async function handleImage(event, client) {
       status: 'queued',
     });
     console.log(`[webhook] auto OCR disabled; queued screenshot msgId=${msgId} sourceId=${sourceId} date=${eventDate.date}`);
-    return;
+    const totalQueued = queuedCount + 1;
+    return sendImageResponse(event, client, {
+      type: 'text',
+      text: `スクショを控えておいたよ（今日${totalQueued}枚）。\n登録したい時は「@秘書トラペル子 集計して」って呼んでね。まとめてOCRにかけるよ。`,
+    });
   }
 
   /* 送信者の表示名を取得（addedBy用） */
@@ -2732,11 +2738,11 @@ async function handlePostback(event, client) {
     if (!pending) {
       return client.replyMessage(event.replyToken, { type: 'text', text: 'データが見つからなかったの... ちょっと時間が経ちすぎちゃったかも。\nもう一回送ってくれたら、今度は私がちゃんと受け止めるね。' });
     }
-    if (!pending.away || !pending.home || !Number.isInteger(pending.awayScore) || !Number.isInteger(pending.homeScore)) {
+    if (!Number.isInteger(pending.awayScore) || !Number.isInteger(pending.homeScore)) {
       await deletePending(msgId);
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: 'ごめんね、この確認データは足りないところがあったから登録しないでおくね。\nもう一回画像を送って。あなたの結果、ちゃんと残したいの。',
+        text: 'ごめんね、スコアが読み取れなかったから登録できないの。\nもう一回画像を送ってくれたら、今度はちゃんと見つけるね。',
       });
     }
     await saveResult(pending);
