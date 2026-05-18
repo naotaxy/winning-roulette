@@ -582,16 +582,19 @@ async function processImageBufferForOcr(buffer, msgId, senderName) {
     console.log(`[webhook] ignored non-uicolle image msgId=${msgId} scores=${ocrClass.hasScores} matchedTeams=${ocrClass.matchedTeams}`);
     return { status: 'ignored', ocrClass };
   }
-  if (!ocrClass.isCompleteMatch) {
-    console.log(`[webhook] uicolle-like image incomplete msgId=${msgId} scores=${ocrClass.hasScores} matchedTeams=${ocrClass.matchedTeams}`);
+  if (!ocrClass.isCompleteMatch && !ocrClass.hasScores) {
+    console.log(`[webhook] uicolle-like image incomplete (no scores) msgId=${msgId} matchedTeams=${ocrClass.matchedTeams}`);
     return {
       status: 'incomplete',
       ocrClass,
       message: {
         type: 'text',
-        text: '試合結果っぽいところまでは見えたんだけど、チーム名かスコアを片方見失っちゃった。\nもう一回送って。次はちゃんと見つけたいの。',
+        text: 'スコアを読み取れなかったの。\nもう一回送って。次はちゃんと見つけたいな。',
       },
     };
+  }
+  if (!ocrClass.isCompleteMatch) {
+    console.log(`[webhook] uicolle image partial (scores ok, missing player names) msgId=${msgId} matchedTeams=${ocrClass.matchedTeams}`);
   }
 
   /* 保留データを Firebase に保存 */
