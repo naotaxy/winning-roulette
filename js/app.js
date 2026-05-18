@@ -1372,22 +1372,11 @@ async function boot() {
   /* ③ Firebase 初期化と設定同期 */
   try {
     await SYNC.init();
-    SYNC.watchConfig(cfg => {
-      if (cfg.items12?.length === 12)  STATE.items12        = cfg.items12;
-      if (cfg.items6?.length  === 6)   STATE.items6         = cfg.items6;
-      if (cfg.players?.length)         STATE.players        = cfg.players;
-      if (Array.isArray(cfg.restrictMonths)) STATE.restrictMonths = normalizeRestrictMonths(cfg.restrictMonths);
-      if (cfg.matchSchedule)           STATE.matchSchedule  = normalizeMatchSchedule(cfg.matchSchedule);
-      refreshConfigDependentPanel();
-    });
-
-    /* アバターURL監視・自分のアバターを保存 */
-    SYNC.watchPlayerAvatars(avatars => {
-      /* Firebase キー（LINE表示名）→ 設定プレイヤー名 へ正規化して格納
-         例: "矢部智也" → "矢部"（プレイヤー名が含まれていれば一致とみなす） */
-      const raw = avatars || {};
+    /* アバター名前マッピング共通処理（LINE表示名 → 設定プレイヤー名） */
+    let _rawAvatars = {};
+    const _applyAvatarMapping = () => {
       const mapped = {};
-      for (const [key, url] of Object.entries(raw)) {
+      for (const [key, url] of Object.entries(_rawAvatars)) {
         const hit = STATE.players.find(p =>
           p.name === key ||
           key.includes(p.name) ||
@@ -1398,16 +1387,24 @@ async function boot() {
       STATE.playerAvatars = mapped;
       if (STATE._lastMonthResults != null) _renderStandings(STATE._lastMonthResults);
       if (STATE._lastAnnualMonths  != null) _renderAnnualStandings(STATE._lastAnnualMonths);
+    };
+
+    SYNC.watchConfig(cfg => {
+      if (cfg.items12?.length === 12)  STATE.items12        = cfg.items12;
+      if (cfg.items6?.length  === 6)   STATE.items6         = cfg.items6;
+      if (cfg.players?.length)       { STATE.players        = cfg.players; _applyAvatarMapping(); }
+      if (Array.isArray(cfg.restrictMonths)) STATE.restrictMonths = normalizeRestrictMonths(cfg.restrictMonths);
+      if (cfg.matchSchedule)           STATE.matchSchedule  = normalizeMatchSchedule(cfg.matchSchedule);
+      refreshConfigDependentPanel();
+    });
+
+    /* アバターURL監視・自分のアバターを保存 */
+    SYNC.watchPlayerAvatars(avatars => {
+      _rawAvatars = avatars || {};
+      _applyAvatarMapping();
     });
     if (STATE.userName && STATE.avatarUrl) {
-      /* lineId・完全一致・部分一致の順でプレイヤーを照合してから保存 */
-      const matched = STATE.players.find(p =>
-        p.lineId === STATE.userName ||
-        p.name === STATE.userName ||
-        STATE.userName.includes(p.name) ||
-        p.name.includes(STATE.userName)
-      );
-      SYNC.savePlayerAvatar(matched ? matched.name : STATE.userName, STATE.avatarUrl);
+      SYNC.savePlayerAvatar(STATE.userName, STATE.avatarUrl);
     }
 
     /* セッション作成（全員が同じ current パスを参照） */
