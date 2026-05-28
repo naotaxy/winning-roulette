@@ -41,6 +41,7 @@ const {
   DIARY_GROUP_SOURCE_ID, // LINEグループのsourceId（会話ハイライト取得用・任意）
   DIARY_DATE,
   DIARY_OWNER_NAME,
+  DIARY_REDACT_NAMES, // 日記から伏せる個人名・あだ名（カンマ区切り。ソースに残さずsecretで渡す）
 } = process.env;
 
 const BLOG_DIR = path.join(__dirname, '..', 'blog');
@@ -700,6 +701,66 @@ function selectInterestTopic(state) {
 
 const GAME_EVENT_PATTERN = /クラブ戦|ハードモード|集まって|試合|やろう|やるよ|やらない|今晩|今夜|何時|開催|ウイコレ|eFootball|対戦|リーグ戦|縛り|ハード/;
 
+// 日記から個人名・あだ名を伏せるための共通処理。
+// グループ会話の発言者名・プレイヤー設定・メンバープロフィール・env シードを集め、
+// 「個人名っぽいもの」は決め打ちで〔仲間〕に置換する（LLM の指示遵守頼みにしない）。
+const NAME_REDACTION_PLACEHOLDER = '仲間';
+
+function addNameToRedactionSet(set, value) {
+  const name = String(value || '').normalize('NFKC').trim();
+  // 1文字は一般語への誤爆が多すぎるため除外。長すぎる文字列も名前ではないとみなす。
+  if (name.length < 2 || name.length > 20) return;
+  set.add(name);
+}
+
+async function collectKnownPersonalNames(db) {
+  const names = new Set();
+  String(DIARY_REDACT_NAMES || '')
+    .split(',')
+    .forEach(n => addNameToRedactionSet(names, n));
+
+  if (db) {
+    try {
+      const [playersSnap, profilesSnap] = await Promise.all([
+        db.ref('config/players').once('value'),
+        db.ref('config/memberProfiles').once('value'),
+      ]);
+      const players = playersSnap.val();
+      (Array.isArray(players) ? players : Object.values(players || {})).forEach(p => {
+        if (!p) return;
+        [p.name, p.lineId, p.lineName, p.displayName, ...(Array.isArray(p.aliases) ? p.aliases : [])]
+          .forEach(n => addNameToRedactionSet(names, n));
+      });
+      const profiles = profilesSnap.val() || {};
+      Object.values(profiles).forEach(pf => {
+        if (!pf) return;
+        [pf.realName, pf.lineName, ...(Array.isArray(pf.aliases) ? pf.aliases : [])]
+          .forEach(n => addNameToRedactionSet(names, n));
+      });
+    } catch (err) {
+      console.warn('[group] collectKnownPersonalNames failed:', err.message);
+    }
+  }
+
+  // オーナー名はペルソナの意図的な参照なので伏せない。
+  const ownerName = String(DIARY_OWNER_NAME || '').normalize('NFKC').trim();
+  if (ownerName) names.delete(ownerName);
+
+  return names;
+}
+
+function redactPersonalNames(text, names) {
+  let result = String(text || '');
+  if (!result || !names || !names.size) return result;
+  // 長い名前から処理して部分一致の取りこぼしを防ぐ。
+  const sorted = [...names].sort((a, b) => b.length - a.length);
+  for (const name of sorted) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(new RegExp(escaped, 'g'), NAME_REDACTION_PLACEHOLDER);
+  }
+  return result;
+}
+
 async function fetchGroupChatHighlights() {
   if (!DIARY_GROUP_SOURCE_ID || !FIREBASE_SERVICE_ACCOUNT || !FIREBASE_DATABASE_URL) {
     return { messages: [], note: 'グループIDが未設定のため会話ハイライトはスキップ。' };
@@ -718,6 +779,14 @@ async function fetchGroupChatHighlights() {
     const all = Object.values(raw)
       .filter(m => m && m.text && m.timestamp >= cutoff)
       .sort((a, b) => a.timestamp - b.timestamp);
+
+    // 伏せる名前を収集（既知メンバー＋発言者名）
+    const redactNames = await collectKnownPersonalNames(db);
+    const ownerName = String(DIARY_OWNER_NAME || '').normalize('NFKC').trim();
+    all.forEach(m => {
+      const sender = String(m.senderName || '').normalize('NFKC').trim();
+      if (sender && sender !== ownerName) addNameToRedactionSet(redactNames, sender);
+    });
 
     const filtered = all.filter(m => {
       const t = String(m.text || '');
@@ -743,15 +812,16 @@ async function fetchGroupChatHighlights() {
       .sort((a, b) => a.timestamp - b.timestamp)
       .slice(-25);
 
-    const lines = prioritized.map(m => `- ${String(m.text).slice(0, 120)}`);
+    const lines = prioritized.map(m => `- ${redactPersonalNames(String(m.text).slice(0, 120), redactNames)}`);
     const hasGameEvent = gameMessages.length > 0;
     return {
       messages: lines,
       hasGameEvent,
+      redactNames: [...redactNames],
       note: [
         `直近${prioritized.length}件の会話を取得。`,
         hasGameEvent ? 'ゲームイベントに関する会話あり（クラブ戦・集まり等）。日記では必ず核として取り上げること。' : '',
-        '人物名は日記では必ず伏せること。',
+        '人物名は日記では必ず伏せること（〔仲間〕などに置き換え済み・名前を復元しない）。',
       ].filter(Boolean).join(' '),
     };
   } catch (err) {
@@ -2125,6 +2195,8 @@ async function main() {
     console.error('[diary] Gemini failed; using fallback diary:', err.message);
     diaryBody = buildFallbackDiary(dateLabel, inputs);
   }
+  // 生成結果にも既知の個人名が混じっていれば最終的に伏せる（保険）。
+  diaryBody = redactPersonalNames(diaryBody, new Set(groupHighlights.redactNames || []));
   const diaryText = attachDiaryPhoto(diaryBody, photo);
   console.log(`[diary] generated ${diaryText.length}chars`);
 
