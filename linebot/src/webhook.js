@@ -290,6 +290,14 @@ const { detectSecurityHoneypot, formatSecurityRefusal } = require('./security-ut
 
 const DEFAULT_BATCH_OCR_MAX_IMAGES = 20;
 const BATCH_PROCESSING_STALE_MS = 10 * 60 * 1000;
+const WC_GROUP_NAME = process.env.LINE_WC_GROUP_NAME || 'WC☆2026';
+const WC_GROUP_ID = process.env.LINE_WC_GROUP_ID || process.env.TRAPELKO_WC_GROUP_ID || '';
+const WORLD_CUP_APP_URL =
+  process.env.WORLD_CUP_APP_URL ||
+  process.env.WORLDCUP_APP_URL ||
+  process.env.PUBLIC_APP_URL ||
+  'http://localhost:8787';
+const knownWorldCupGroupIds = new Set(WC_GROUP_ID ? [WC_GROUP_ID] : []);
 
 async function reverseGeocode(lat, lon) {
   const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=ja&zoom=14`;
@@ -317,6 +325,10 @@ async function reverseGeocode(lat, lon) {
 
 async function handle(event, client) {
   const safeClient = createFallbackReplyClient(client, event);
+  if (await isWorldCupOnlyGroup(event, safeClient)) {
+    return handleWorldCupOnlyEvent(event, safeClient);
+  }
+
   /* ── 画像メッセージ → OCR → 確認FlexMessage ── */
   if (event.type === 'message' && event.message.type === 'image') {
     return handleImage(event, safeClient);
@@ -334,6 +346,43 @@ async function handle(event, client) {
   if (event.type === 'postback') {
     return handlePostback(event, safeClient);
   }
+}
+
+async function isWorldCupOnlyGroup(event = {}, client) {
+  const groupId = event.source?.groupId;
+  if (!groupId) return false;
+  if (knownWorldCupGroupIds.has(groupId)) return true;
+  if (WC_GROUP_ID) return groupId === WC_GROUP_ID;
+  if (typeof client.getGroupSummary !== 'function') return false;
+
+  const summary = await withTimeout(client.getGroupSummary(groupId), 1500, null).catch(() => null);
+  if (summary?.groupName === WC_GROUP_NAME) {
+    knownWorldCupGroupIds.add(groupId);
+    return true;
+  }
+  return false;
+}
+
+function handleWorldCupOnlyEvent(event, client) {
+  if (event.type !== 'message' || event.message?.type !== 'text') return null;
+  const text = String(event.message.text || '');
+  if (!isWorldCupText(text)) return null;
+
+  const hash = /予想|平均|中央値/i.test(text) ? '#projection-panel' : '';
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: [
+      '秘書トラペル子です。WC☆2026ではW杯の集計専用で動きます。',
+      /予想|平均|中央値/i.test(text)
+        ? '最終予想グラフは、標準予想と過去デモ予想を切り替えて見られます。'
+        : 'ドラフト、試合結果、参加者ランキング、ニュース導線はこちらです。',
+      `${WORLD_CUP_APP_URL}${hash}`,
+    ].join('\n'),
+  });
+}
+
+function isWorldCupText(text) {
+  return /(WC|W杯|ワールドカップ|world\s*cup|順位|結果|試合|集計|ドラフト|予選|突破|グループ|ハイライト|ニュース|予想|平均|中央値)/i.test(text);
 }
 
 async function handleLocation(event, client) {
